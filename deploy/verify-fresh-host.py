@@ -59,21 +59,11 @@ def verify(archive):
                 }
             ],
             "ssh_pwauth": False,
-            "ssh_deletekeys": False,
-            "ssh_genkeytypes": [],
+            "ssh_keys": {
+                "ed25519_private": (work / "host").read_text(),
+                "ed25519_public": (work / "host.pub").read_text(),
+            },
             "packages": ["curl", "gnupg", "btrfs-progs"],
-            "write_files": [
-                {
-                    "path": "/etc/ssh/ssh_host_ed25519_key",
-                    "permissions": "0600",
-                    "content": (work / "host").read_text(),
-                },
-                {
-                    "path": "/etc/ssh/ssh_host_ed25519_key.pub",
-                    "permissions": "0644",
-                    "content": (work / "host.pub").read_text(),
-                },
-            ],
         }
         (work / "user-data").write_text("#cloud-config\n" + json.dumps(cloud))
         (work / "meta-data").write_text("instance-id: raft-fresh\nlocal-hostname: raft-fresh\n")
@@ -158,7 +148,7 @@ def verify(archive):
                     time.sleep(2)
                 else:
                     raise RuntimeError("Fresh VM SSH did not become ready")
-                run("ssh", "raft-fresh", "sudo cloud-init status --wait", env=env)
+                run("ssh", "raft-fresh", "sudo cloud-init status --wait --long", env=env)
                 run(sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab", env=env)
                 # A second deploy must preserve owned infrastructure and succeed.
                 run(sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab", env=env)
