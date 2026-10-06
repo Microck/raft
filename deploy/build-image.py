@@ -3,26 +3,47 @@
 import argparse
 import json
 from pathlib import Path
+import re
+import shlex
 import sys
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from deploy import HOSTS, ROOT, copy, remote  # noqa: E402
+from deploy import HOSTS, ROOT, copy, host_architecture, remote  # noqa: E402
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--location", choices=HOSTS, required=True)
+    parser.add_argument(
+        "--alias", default="raft-dev", help="New image alias; existing aliases are refused"
+    )
     args = parser.parse_args()
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", args.alias):
+        parser.error("alias must use letters, digits, underscores or hyphens")
     host = HOSTS[args.location]
+    architecture = host_architecture(host)
+    started = time.monotonic()
     prefix = "sudo -n incus --project raft"
     aliases = json.loads(remote(host, prefix + " image list --format json"))
-    if any(a["name"] == "raft-dev" for image in aliases for a in image["aliases"]):
+    if any(a["name"] == args.alias for image in aliases for a in image["aliases"]):
         raise RuntimeError(
-            "raft-dev exists; review and remove that alias explicitly before rebuilding"
+            args.alias + " exists; choose a fresh alias or review its removal explicitly"
         )
-    remote(host, prefix + " image copy images:debian/13 local: --alias raft-base")
-    images = json.loads(remote(host, prefix + " image list raft-base --format json"))
-    fingerprint = images[0]["fingerprint"]
+    images = json.loads(
+        remote(host, prefix + f" image list images:debian/13/{architecture} --format json")
+    )
+    bases = [
+        image
+        for image in images
+        if image["type"] == "container"
+        and image["properties"].get("variant") == "default"
+        and image["properties"].get("architecture") == architecture
+    ]
+    if len(bases) != 1:
+        raise RuntimeError("Expected exactly one native Debian 13 default container image")
+    fingerprint = bases[0]["fingerprint"]
+    remote(host, prefix + " image copy images:" + fingerprint + " local:")
     print("Published base fingerprint: " + fingerprint, flush=True)
     remote(
         host,
@@ -42,12 +63,18 @@ def main():
         remote(
             host,
             prefix
-            + " publish raft-builder --alias raft-dev --compression gzip description='Raft Debian 13 ARM64 development workspace'",
+            + " publish raft-builder --alias "
+            + shlex.quote(args.alias)
+            + " --compression gzip description="
+            + shlex.quote(f"Raft Debian 13 {architecture} development workspace"),
         )
     )
     # Build failures intentionally retain their named builder for diagnostics.
     # A successful immutable publication no longer needs its writable builder.
     remote(host, prefix + " delete raft-builder")
+    print(
+        f"Native {architecture} image built in {time.monotonic() - started:.1f} seconds", flush=True
+    )
 
 
 if __name__ == "__main__":

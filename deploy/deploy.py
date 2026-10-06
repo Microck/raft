@@ -31,10 +31,16 @@ def copy(host, source, destination):
     subprocess.run(["scp", "-q", str(source), f"{host}:{destination}"], check=True)
 
 
+def host_architecture(host):
+    architecture = remote(host, "dpkg --print-architecture").strip()
+    if architecture not in {"arm64", "amd64"}:
+        raise RuntimeError("Raft hosts must use native ARM64 or AMD64 Debian/Ubuntu packages")
+    return architecture
+
+
 def deploy(name):
     host = HOSTS[name]
-    if remote(host, "uname -m").strip() != "aarch64":
-        raise RuntimeError("This tested deployment targets ARM64 hosts")
+    host_architecture(host)
     copy(host, ROOT / "deploy/install-incus.sh", "/tmp/raft-install-incus.sh")
     print(remote(host, "bash /tmp/raft-install-incus.sh </dev/null"), flush=True)
     # Inspect rather than overwriting an unrelated existing project or pool.

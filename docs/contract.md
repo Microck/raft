@@ -1,7 +1,8 @@
 # Raft contract
 
-Raft manages persistent unprivileged ARM64 Incus system containers on the
-configured Linux hosts. Containers share the host kernel.
+Raft manages persistent unprivileged native-architecture Incus system containers on the
+configured ARM64 or AMD64 Linux hosts. Images must match the host architecture;
+foreign-architecture emulation is not supported. Containers share the host kernel.
 Incus virtual machines require usable KVM and are not silently substituted.
 
 - Deployment refuses conflicting storage/network names and incomplete owned

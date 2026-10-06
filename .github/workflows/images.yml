@@ -1,0 +1,93 @@
+name: native images
+on:
+  push:
+    paths:
+      - images/incus/**
+      - deploy/build-image.py
+      - deploy/install-incus.sh
+      - .github/workflows/images.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Prepare disposable native Incus fixture
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test "$(dpkg --print-architecture)" = '${{ matrix.architecture }}'
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends btrfs-progs curl gnupg iptables openssh-server python3
+          bash deploy/install-incus.sh
+          sudo systemctl start ssh
+          mkdir -p ~/.ssh ~/.config/raft
+          chmod 700 ~/.ssh ~/.config/raft
+          ssh-keygen -q -t ed25519 -N '' -f "$RUNNER_TEMP/raft-ci-key"
+          cat "$RUNNER_TEMP/raft-ci-key.pub" >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          printf 'localhost %s\n' "$(sudo cat /etc/ssh/ssh_host_ed25519_key.pub)" >> ~/.ssh/known_hosts
+          printf 'Host raft-ci\n  HostName localhost\n  IdentityFile %s\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' "$RUNNER_TEMP/raft-ci-key" >> ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          printf '{"lab":{"ssh":"raft-ci","image":""}}\n' > ~/.config/raft/incus.json
+          chmod 600 ~/.config/raft/incus.json
+          # This sparse Btrfs fixture is confined to an ephemeral CI VM. It tests
+          # images and workflows, not the production deployer's 80 GiB preflight.
+          sudo incus project create raft -c features.images=true -c features.profiles=true
+          sudo incus project set raft --property description='Raft managed workspaces'
+          sudo incus storage create raft-data btrfs size=60GiB
+          sudo incus network create rfbr0 ipv4.address=10.232.0.1/24 ipv4.nat=true ipv6.address=none
+          sudo incus --project raft profile device add default root disk path=/ pool=raft-data
+          sudo incus --project raft profile device add default eth0 nic network=rfbr0 name=eth0
+          sudo incus --project raft profile set default limits.cpu=1 limits.memory=2GiB security.nesting=true security.syscalls.intercept.mknod=true security.syscalls.intercept.setxattr=true
+          sudo install -d /usr/local/lib/raft
+          sudo install -m 755 deploy/raft-network.sh /usr/local/lib/raft/network
+          sudo install -m 755 deploy/raft-expire.py /usr/local/lib/raft/expire-worker
+          printf '#!/bin/sh\nexec flock /run/lock/raft-incus.lock /usr/local/lib/raft/expire-worker\n' > "$RUNNER_TEMP/raft-expire"
+          sudo install -m 755 "$RUNNER_TEMP/raft-expire" /usr/local/lib/raft/expire
+          sudo install -m 644 deploy/raft-network.service deploy/raft-expire.service deploy/raft-expire.timer /etc/systemd/system/
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now raft-network.service raft-expire.timer
+      - name: Build native development image
+        run: |
+          python3 deploy/build-image.py --location lab
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import subprocess
+          images=json.loads(subprocess.check_output(['sudo','incus','--project','raft','image','list','raft-dev','--format','json']))
+          fingerprint=next(image['fingerprint'] for image in images if any(alias['name']=='raft-dev' for alias in image['aliases']))
+          path=Path.home()/'.config/raft/incus.json'
+          config=json.loads(path.read_text()); config['lab']['image']=fingerprint
+          path.write_text(json.dumps(config))
+          PY
+      - name: Verify lifecycle, desktop and all development tools
+        run: python3 deploy/verify-live.py --location lab --extended
+      - name: Measure cached-image startup
+        run: |
+          mkdir -p image-artifacts
+          python3 deploy/benchmark-boot.py --location lab --samples 5 --desktop > image-artifacts/boot-${{ matrix.architecture }}.json
+      - name: Export clean template
+        run: |
+          fingerprint=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".config/raft/incus.json").read_text())["lab"]["image"])')
+          sudo incus --project raft image export "$fingerprint" "image-artifacts/raft-dev-${{ matrix.architecture }}"
+          sudo chown -R "$(id -u):$(id -g)" image-artifacts
+          cd image-artifacts
+          sha256sum raft-dev-* > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: raft-dev-${{ matrix.architecture }}
+          path: image-artifacts/
+          retention-days: 7
+          compression-level: 0
