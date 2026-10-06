@@ -62,6 +62,9 @@ def verify_admission(location, directory):
                 fixtures.append(rejected.stdout.strip())
             assert rejected.returncode != 0 and "already holds four boxes" in rejected.stderr
         assert len(inventory(location)) == 4
+        report = json.loads(live.raft("limits", "--location", location, "--json").stdout)
+        assert report["savedBoxes"] == 4 and report["savedSlots"] == 0
+        assert all(size["newBoxes"] == 0 for size in report["recommendations"])
         print(
             f"{location}: stopped boxes count toward admission; new/fork/recover reject a fifth box",
             flush=True,

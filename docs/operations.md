@@ -98,6 +98,47 @@ Use the AMD64 archive filename on an AMD64 host. Set the resulting immutable
 fingerprint in controller configuration. Import refuses an existing alias;
 choose a fresh candidate alias if another image already uses `raft-dev`.
 
+## Host capacity
+
+Run `raft limits` before allocating. Use `--location lab` to select one host or
+`--json` for one JSON object per location. It reads host resources and Incus
+metadata without starting guests or changing limits.
+
+```sh
+raft limits
+raft limits --location lab --json
+```
+
+The table covers all six supported CPU/RAM sizes. `Total running` assumes an
+otherwise empty host. `More running` accounts for current active box limits and
+available RAM. `New boxes` also respects free saved-box slots. Stopped boxes use
+saved slots and disk; frozen boxes retain their resource allocation.
+
+The [capacity policy](contract.md) reserves one CPU and the larger of 2 GiB or
+10% of host RAM. Counts assume each box may use its full configured limits and
+avoid CPU oversubscription. This is deliberately conservative for simultaneous
+builds. Mostly idle workloads can share more CPUs; recommendations do not block
+create or resume. The four-saved-box cap remains enforced.
+
+Illustrative totals for 1 CPU / 2 GiB boxes, using exact usable RAM values:
+
+| Host CPUs | Host RAM | Recommended running | Enforced saved maximum |
+| ---: | ---: | ---: | ---: |
+| 2 | 8 GiB | 1 | 4 |
+| 4 | 8 GiB | 3 | 4 |
+| 4 | 16 GiB | 3 | 4 |
+| 8 | 32 GiB | 4 | 4 |
+
+The OS reports less usable RAM than the machine's advertised size. Near a
+boundary, `raft limits` may therefore recommend fewer boxes than this table.
+Current available RAM and unrelated services can reduce `More running` further.
+This is a point-in-time estimate, not a capacity reservation or benchmark.
+
+Disk growth is not included in those counts. The report shows free host and
+shared-pool space and warns below 5 GiB. Image unpacking, Docker layers, snapshots
+and backups can use much more; inspect disk before creating or recovering boxes.
+The pool remains shared and does not enforce strict per-box disk quotas.
+
 ## Ownership and persistence
 
 Raft manages labelled `rf-` instances in its own project. Four saved boxes are

@@ -6,6 +6,10 @@ behavior, not complete conformance with the hosted Boat service.
 
 ## Run the suites
 
+Run allocation-policy checks without a host with `python3 deploy/verify-limits.py`.
+Add `--location lab` to verify real create/stop/resume/destroy reporting with one
+disposable box. Native image CI runs this test on both architectures.
+
 Configure your own hosts and immutable image fingerprints first. Use dedicated
 test infrastructure with free workspace slots and sufficient archive storage.
 Each suite destroys only the fixtures it creates. Tests consume resources and
@@ -34,6 +38,7 @@ It does not make coding-agent model calls or authenticate accounts.
 | Create/list/info/delete | Qualified handle, native state, ownership and cleanup |
 | Root terminal/exec | Real PTY, workspace directory, literal arguments and exit code |
 | Resource sizing | Effective CPU affinity and cgroup memory limit |
+| Host capacity | Mixed-size budgets, stopped/frozen boxes, low RAM/disk and four saved slots; live create/stop/resume/destroy changes in CPU/memory allocations |
 | Background jobs | Journal output, nonzero exit status and cancellation of child processes |
 | TTL/extend/resume | Host-enforced stop, retained files and uninterrupted lifetime extension |
 | Usage | Real cgroup counters and explicitly shared-pool disk scope |
@@ -142,3 +147,14 @@ Local packaging, Python 3.11/3.14 compilation, Ruff, shell syntax and skill
 validation passed. A clean wheel install and CLI execution were checked outside
 the worktree. The public package workflow passed on Python 3.11 and 3.14. Native image
 validation and startup measurements are recorded in [boot performance](boot-performance.md).
+
+## Capacity command validation
+
+On 2026-10-06, `raft limits` passed read-only text/JSON inspection and real
+create/stop/resume/destroy tests on two configured ARM64 Ubuntu hosts. Each test
+removed its own box and confirmed the original inventory and allocations.
+Allocation-policy fixtures also checked mixed sizes, frozen boxes, low available
+RAM and disk, host reserves, oversubscribed CPUs and saved-slot exhaustion.
+The real four-stopped-box admission test also passed: capacity reporting showed
+zero free saved slots, and create, fork and recovery rejected a fifth box.
+These are conservative allocation checks, not workload saturation benchmarks.

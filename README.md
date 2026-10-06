@@ -44,7 +44,9 @@ raft stop "$box"
 
 `stop` and expiration retain your files. `resume` starts the box again;
 `destroy` deletes it and its snapshots. each host admits four saved boxes,
-including stopped boxes. location names come from your configuration.
+including stopped boxes. `raft limits` reports recommended running counts for
+each size, current allocations and disk headroom. location names come from your
+configuration. see [host capacity](docs/operations.md#host-capacity).
 
 ## image and workspace control
 
@@ -95,7 +97,8 @@ records limits and test coverage.
 | Create/list/inspect/delete | ✅ | Single operator |
 | Persistent stop/resume | ✅ | Shared host kernel |
 | TTL and lifetime extension | ✅ | Expiration retains disk |
-| CPU/memory sizing and usage | ✅ | Shared-pool disk reporting |
+| CPU/memory sizing and usage | ✅ | 1/2 CPUs, 1/2/4 GiB; shared-pool disk reporting |
+| Host capacity and limits | ✅ | `raft limits`; recommendations plus four saved boxes enforced |
 | Root terminal and command execution | ✅ | Host SSH transport |
 | Background jobs, logs and cancellation | ✅ | No process checkpoints |
 | File upload/download | ✅ | Individual files |

@@ -15,7 +15,7 @@ not certify underlying physical storage capacity or ARM64 host reboot behavior.
   infrastructure rather than silently overwriting or repairing it.
 - `new`, `list`, `info`, `exec`, `ssh`, `upload`, `download`, `stop`, `resume`,
   `destroy`, `snapshot`, `snapshots`, `restore`, `fork`, `forward`, `desktop`,
-  `status`, `logs`, `cancel`, `usage`, `extend`, `backup`, `recover`, `doctor`
+  `status`, `logs`, `cancel`, `usage`, `extend`, `backup`, `recover`, `limits`, `doctor`
   and `gc` cover the single-operator workflow.
 - `info` and `list` read native instance metadata, without querying guest process
   counters during shutdown. Tunnels read the running guest's managed NIC directly.
@@ -28,6 +28,19 @@ not certify underlying physical storage capacity or ARM64 host reboot behavior.
   launch/start completes, using the host clock; cold image preparation does not
   consume it. Native Incus admin calls
   bypass CLI policy. Creation and expiry are serialized by host flock.
+- `limits [--location NAME] [--json]` inspects hosts without changing them.
+  It reports effective host CPUs, total/available RAM, saved and active box counts,
+  configured active CPU/memory limits and host/shared-pool disk space. It recommends
+  total and additional running boxes for each supported size, reserving one CPU
+  and the larger of 2 GiB or 10% of host RAM. Total recommendations assume an
+  otherwise empty dedicated host and are capped at four. Additional recommendations
+  subtract active configured limits and use current available RAM minus the host
+  reserve. Every state except Stopped counts as active, including Frozen.
+  New-box recommendations also respect the remaining saved-box slots. These
+  CPU/memory estimates are advisory snapshots, not admission guarantees or a disk
+  capacity estimate. Shared-pool and host free space below 5 GiB produce warnings;
+  image unpack, snapshots, Docker data and backup growth still need a disk check.
+  The four-saved-box cap remains enforced for create, fork and recover.
 - Stop terminates guest processes and retains disk. Resume requires explicit
   TTL. `extend --ttl` resets a running box's deadline from the current host time
   without restarting it; stopped boxes must use resume. Expiry stops rather than

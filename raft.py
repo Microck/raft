@@ -13,6 +13,7 @@ import uuid
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 PROJECT = "raft"
+SAVED_BOX_LIMIT = 4
 
 USAGE = """import json, shutil
 from pathlib import Path
@@ -103,9 +104,146 @@ def inventory(location):
     ]
 
 
-ADMISSION = """count=$(incus --project raft list --fast --format json | python3 -c 'import json,sys; print(sum(x["config"].get("user.raft")=="true" for x in json.load(sys.stdin)))')
-test "$count" -lt 4 || { echo 'Location already holds four boxes' >&2; exit 1; }
+ADMISSION = f"""count=$(incus --project raft list --fast --format json | python3 -c 'import json,sys; print(sum(x["config"].get("user.raft")=="true" for x in json.load(sys.stdin)))')
+test "$count" -lt {SAVED_BOX_LIMIT} || {{ echo 'Location already holds four boxes' >&2; exit 1; }}
 """
+
+
+HOST_RESOURCES = """import json, os, shutil, subprocess
+from pathlib import Path
+memory = dict(line.split()[:2] for line in Path('/proc/meminfo').read_text().splitlines())
+disk = shutil.disk_usage('/var/lib/incus')
+pool = json.loads(subprocess.check_output(['incus', 'query', '/1.0/storage-pools/raft-data/resources']))
+print(json.dumps({
+    'cpus': len(os.sched_getaffinity(0)),
+    'memoryTotalBytes': int(memory['MemTotal:']) * 1024,
+    'memoryAvailableBytes': int(memory['MemAvailable:']) * 1024,
+    'hostDiskFreeBytes': disk.free,
+    'poolTotalBytes': pool['space']['total'],
+    'poolFreeBytes': pool['space']['total'] - pool['space']['used'],
+}))
+"""
+
+
+def capacity(host, boxes):
+    """Conservative allocation advice, not an exclusive CPU or memory reservation."""
+    gib = 1024**3
+    active = [box for box in boxes if box["status"] != "Stopped"]
+    cpu_allocated = 0
+    memory_allocated = 0
+    for box in active:
+        limits = box["expanded_config"]
+        if limits["limits.cpu"] not in {"1", "2"} or limits["limits.memory"] not in {
+            "1GiB",
+            "2GiB",
+            "4GiB",
+        }:
+            raise ValueError("Active box has unsupported sizing; inspect its Incus configuration")
+        cpu_allocated += int(limits["limits.cpu"])
+        memory_allocated += int(limits["limits.memory"][0]) * gib
+    memory_reserve = max(2 * gib, host["memoryTotalBytes"] // 10)
+    cpu_budget = max(0, host["cpus"] - 1)
+    memory_budget = max(0, host["memoryTotalBytes"] - memory_reserve)
+    cpu_remaining = max(0, cpu_budget - cpu_allocated)
+    memory_remaining = max(
+        0,
+        min(
+            memory_budget - memory_allocated,
+            host["memoryAvailableBytes"] - memory_reserve,
+        ),
+    )
+    slots = max(0, SAVED_BOX_LIMIT - len(boxes))
+    recommendations = []
+    for cpu in [1, 2]:
+        for memory in [1, 2, 4]:
+            total = min(SAVED_BOX_LIMIT, cpu_budget // cpu, memory_budget // (memory * gib))
+            additional = min(
+                max(0, SAVED_BOX_LIMIT - len(active)),
+                cpu_remaining // cpu,
+                memory_remaining // (memory * gib),
+            )
+            recommendations.append(
+                {
+                    "cpu": cpu,
+                    "memoryGiB": memory,
+                    "totalRunning": total,
+                    "additionalRunning": additional,
+                    "newBoxes": min(slots, additional),
+                }
+            )
+    warnings = []
+    if cpu_allocated > cpu_budget or memory_allocated > memory_budget:
+        warnings.append("Active configured limits exceed the recommended host budget")
+    if host["memoryAvailableBytes"] < memory_reserve:
+        warnings.append(
+            "Available host RAM is below the reserve; stop boxes or reduce other workloads"
+        )
+    if host["hostDiskFreeBytes"] < 5 * gib or host["poolFreeBytes"] < 5 * gib:
+        warnings.append(
+            "Host or shared-pool free disk is below 5 GiB; check image and workspace growth"
+        )
+    return {
+        "host": host,
+        "savedBoxLimit": SAVED_BOX_LIMIT,
+        "savedBoxes": len(boxes),
+        "activeBoxes": len(active),
+        "savedSlots": slots,
+        "allocated": {"cpus": cpu_allocated, "memoryBytes": memory_allocated},
+        "reserve": {"cpus": 1, "memoryBytes": memory_reserve},
+        "recommendations": recommendations,
+        "warnings": warnings,
+    }
+
+
+def host_limits(location):
+    response = subprocess.run(
+        [
+            "ssh",
+            "-T",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            settings(location)["ssh"],
+            shlex.join(["sudo", "-n", "python3", "-c", HOST_RESOURCES]),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return {"location": location, **capacity(json.loads(response.stdout), inventory(location))}
+
+
+def print_limits(report):
+    gib = 1024**3
+    host = report["host"]
+    print(
+        f"{report['location']}: {host['cpus']} CPUs, "
+        f"{host['memoryTotalBytes'] / gib:.1f} GiB RAM "
+        f"({host['memoryAvailableBytes'] / gib:.1f} GiB available)"
+    )
+    print(
+        f"Saved boxes: {report['savedBoxes']}/{report['savedBoxLimit']} enforced; "
+        f"active: {report['activeBoxes']}; free saved slots: {report['savedSlots']}"
+    )
+    print(
+        f"Active limits: {report['allocated']['cpus']} CPUs, "
+        f"{report['allocated']['memoryBytes'] / gib:.1f} GiB; "
+        f"host reserve: 1 CPU, {report['reserve']['memoryBytes'] / gib:.1f} GiB"
+    )
+    print(
+        f"Disk free: {host['poolFreeBytes'] / gib:.1f} GiB shared pool, "
+        f"{host['hostDiskFreeBytes'] / gib:.1f} GiB host"
+    )
+    print("CPU  RAM GiB  Total running  More running  New boxes")
+    for size in report["recommendations"]:
+        print(
+            f"{size['cpu']:>3}  {size['memoryGiB']:>7}  {size['totalRunning']:>13}  "
+            f"{size['additionalRunning']:>12}  {size['newBoxes']:>9}"
+        )
+    print("Advisory CPU/RAM counts; total assumes an empty host. Disk growth is not included.")
+    for warning in report["warnings"]:
+        print("Warning: " + warning)
 
 
 def transaction(location, script, *arguments, stdout=None):
@@ -322,6 +460,9 @@ def parser():
     create.add_argument("--memory", choices=["1GiB", "2GiB", "4GiB"], default="2GiB")
     listing = commands.add_parser("list")
     listing.add_argument("--location")
+    limits = commands.add_parser("limits", help="Inspect host capacity and recommended box counts")
+    limits.add_argument("--location")
+    limits.add_argument("--json", action="store_true")
     commands.add_parser("doctor")
     commands.add_parser("gc", help="Run host expiry workers; expired boxes stop, not delete")
     recovery = commands.add_parser("recover", help="Import a portable backup as a new stopped box")
@@ -380,12 +521,18 @@ def dispatch(args):
     if args.action == "new":
         new(args)
         return 0
-    if args.action in ["list", "doctor", "gc"]:
+    if args.action in ["list", "limits", "doctor", "gc"]:
         locations = configuration()
         if getattr(args, "location", None):
             locations = [args.location]
         for location in locations:
-            if args.action == "gc":
+            if args.action == "limits":
+                report = host_limits(location)
+                if args.json:
+                    print(json.dumps(report))
+                else:
+                    print_limits(report)
+            elif args.action == "gc":
                 subprocess.run(
                     [
                         "ssh",

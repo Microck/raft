@@ -2,6 +2,7 @@ name: native images
 on:
   push:
     paths:
+      - raft.py
       - images/incus/**
       - deploy/build-image.py
       - deploy/install-incus.sh
@@ -10,6 +11,7 @@ on:
       - deploy/verify-live.py
       - deploy/verify-tools.py
       - deploy/verify-controls.py
+      - deploy/verify-limits.py
       - deploy/verify-image.py
       - deploy/verify-fresh-host.py
       - deploy/benchmark-boot.py
@@ -96,6 +98,8 @@ jobs:
           df -h /
       - name: Verify lifecycle, desktop and all development tools
         run: python3 deploy/verify-live.py --location lab --extended --restart-incus
+      - name: Verify host capacity and real box transitions
+        run: python3 deploy/verify-limits.py --location lab
       - name: Verify full development-image backup and recovery
         run: python3 deploy/verify-controls.py --source lab --target lab --development-image --directory "$RUNNER_TEMP"
       - name: Measure cached-image startup

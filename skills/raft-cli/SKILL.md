@@ -8,7 +8,7 @@ description: Create and use private persistent Linux workspaces on configured Li
 Raft runs unprivileged native ARM64 or AMD64 Incus system containers. They share the host kernel.
 The current deployment does not implement Incus VMs. Do not describe these boxes as VMs or promise cross-architecture emulation.
 
-Run `raft doctor` and `raft list` before allocating. Keep the exact
+Run `raft doctor`, `raft limits` and `raft list` before allocating. Keep the exact
 location-qualified handle returned by `new`. There is no implicit current box.
 
 ```sh
@@ -34,7 +34,10 @@ Defaults are the first configured location, one CPU, 2 GiB RAM and 600 seconds. 
 to 30 days. The controller admits at most four saved boxes per host; stopped
 boxes count because their disk still occupies space. Use `--memory 4GiB`
 and `--cpu 2` when needed. Btrfs bounds workspace storage to a 60 GiB pool per host.
-It does not guarantee strict per-box disk quotas with nested subvolumes. Check host disk before large builds or forks.
+It does not guarantee strict per-box disk quotas with nested subvolumes. Check host disk before large builds or forks. `raft limits --location lab --json`
+reports CPU/RAM recommendations for all supported sizes, active allocations and
+free saved slots. Recommendations reserve host resources and remain advisory;
+only the four-saved-box cap is enforced. Disk growth is not included in the counts.
 
 ## Persistence and cleanup
 
