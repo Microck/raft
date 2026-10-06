@@ -20,8 +20,8 @@ private desktop. Raft is not affiliated with Boat.
 
 ## quickstart
 
-start with the [setup guide](docs/operations.mdx). it covers installing the CLI,
-configuring SSH, provisioning Incus and building your image.
+follow the [setup guide](docs/operations.mdx) to install the CLI, configure SSH,
+set up Incus and download or build an image.
 
 | requirement | minimum |
 | --- | --- |
@@ -29,7 +29,8 @@ configuring SSH, provisioning Incus and building your image.
 | host access | SSH and passwordless sudo |
 | controller | Linux, Python 3.11+, uv, SSH and SCP |
 
-once your host and image are configured:
+once your host and image are configured, run the commands below. replace `lab`
+with a location from your configuration:
 
 ```sh
 box=$(raft new --location lab --ttl 600)
@@ -38,35 +39,39 @@ raft ssh "$box"
 raft stop "$box"
 ```
 
-`stop` and expiration retain your files. `resume` starts the box again;
-`destroy` deletes it and its snapshots. each host admits four saved boxes,
-including stopped boxes. `raft limits` reports recommended running counts for
-each size, current allocations and disk headroom. location names come from your
-configuration. see [host capacity](docs/reference/capacity-limits.mdx).
+`raft stop` and expiration stop processes but keep files. `raft resume` starts
+the box with a new lifetime. `raft destroy` deletes the box and its snapshots.
+
+each host allows four saved boxes, including stopped ones. `raft limits` reports
+current allocations, free disk space and recommended running counts for each
+size. see [host capacity](docs/reference/capacity-limits.mdx).
 
 ## image and workspace control
 
-the image builder starts from public Debian 13 and adds language runtimes,
+the image builder starts with Debian 13 and installs language runtimes,
 build tools, Docker, Chromium, FFmpeg and a noVNC desktop. build your own image
-and pin its fingerprint, or download a native image from
-[versioned releases](https://github.com/Microck/raft/releases). see
+or download an image for your host architecture from
+[versioned releases](https://github.com/Microck/raft/releases). pin its fingerprint
+in your configuration. see
 [image builds and boot measurements](docs/boot-performance.mdx) for checks and timings.
 
 see the task guides for [background jobs](docs/guides/background-jobs.mdx),
 [file transfer](docs/guides/files.mdx),
 [snapshots and forks](docs/guides/snapshots-forks.mdx),
-[private services and desktop access](docs/guides/desktop-services.mdx),
+[private services and desktops](docs/guides/desktop-services.mdx),
 [backup and recovery](docs/guides/backup-recovery.mdx)
 and [Docker](docs/guides/docker.mdx).
 
-snapshots and forks require a stopped source. stop terminates jobs without
-saving process memory. backups include guest secrets; keep them private and
-import only trusted exports. long backups can delay host expiry checks.
+stop the source box before taking a snapshot, restoring one or making a fork.
+stopping a box ends its jobs without saving process memory.
+
+backups include the box's files and credentials. keep them private and import
+only trusted exports. a long backup can delay expiration checks on its host.
 
 ## startup performance
 
-measured medians from five runs per architecture on native Ubuntu 24 CI hosts,
-with one CPU and 2 GiB RAM per box and a cached image:
+median startup times from five runs per architecture on native Ubuntu 24 CI
+hosts. each box had one CPU, 2 GiB RAM and a cached image:
 
 | measurement | ARM64 | AMD64 |
 | --- | ---: | ---: |
@@ -75,12 +80,14 @@ with one CPU and 2 GiB RAM per box and a cached image:
 | desktop, after its separate start request | 1.12 s | 1.59 s |
 | compressed development image | 1.79 GiB | 1.86 GiB |
 
-timings depend on hardware, host and guest software, installed services,
-storage, image cache and SSH latency. these include CLI and SSH overhead;
-they exclude downloads and host reboots. a first image unpack can take much
-longer. different runner hardware means this is not proof that ARM64 is faster.
+times depend on hardware, installed software and services, storage, image cache
+and SSH latency. the measurements include CLI and SSH overhead. they exclude
+image downloads and host reboots.
 
-both native images passed E2E and all 31 development-tool checks. see
+the first image unpack can take longer. the runners used different hardware,
+so these results do not show that ARM64 is faster.
+
+both native images passed the lifecycle tests and all 31 development-tool checks. see
 [measurements and methodology](docs/boot-performance.mdx) for raw samples,
 resume timings and the measured image-size and desktop-startup improvements.
 
@@ -97,15 +104,15 @@ records differences, sources and test coverage.
 | Create/list/inspect/delete | ✅ | ✅ | Single operator |
 | Persistent stop/resume | ✅ | ✅ | Shared host kernel |
 | TTL and lifetime extension | ✅ | ✅ | Expiration retains disk |
-| CPU/memory sizing and usage | ✅ | ✅ | 1/2 CPUs, 1/2/4 GiB; shared-pool disk reporting |
-| Host capacity recommendations | ❌ | ✅ | Raft budgets and four saved boxes; Boat reports hosted plan limits |
+| CPU/memory sizing and usage | ✅ | ✅ | 1 or 2 CPUs, 1, 2 or 4 GiB RAM. Disk usage covers the shared pool |
+| Host capacity recommendations | ❌ | ✅ | Raft recommends running capacity and enforces four saved boxes. Boat reports plan limits |
 | Root terminal and command execution | ✅ | ✅ | Host SSH transport |
 | Background jobs, logs and cancellation | ✅ | ✅ | No process checkpoints |
 | File upload/download | ✅ | ✅ | Individual files |
 | Snapshots and same-host forks | ✅ | ✅ | Stopped source, checked under the lifecycle lock |
 | Deploy/delete named snapshots | ✅ | ❌ | No snapshot deployment or deletion command |
 | Portable backup/recovery | ❓ | ✅ | Raft native archives; Boat whole-instance archive import is not established |
-| Docker and development tools | ✅ | ✅ | Native ARM64/AMD64; [image tests](docs/boot-performance.mdx) |
+| Docker and development tools | ✅ | ✅ | Native ARM64 and AMD64 images. See [image tests](docs/boot-performance.mdx) |
 | Private port forwarding | ✅ | ✅ | Local SSH tunnel |
 | Desktop access | ✅ | ✅ | noVNC; see verification limits |
 | Recursive SCP and reverse forwarding | ✅ | ❌ | Not implemented |
@@ -119,15 +126,19 @@ records differences, sources and test coverage.
 | Organizations and webhooks | ✅ | ❌ | Raft is single-operator; no event API |
 | Dashboard, remote API and SDK | ✅ | ❌ | CLI only |
 | Managed agent conversations | ✅ | ❌ | Not implemented |
-| Automatic deletion and CLI self-update | ✅ | ❌ | Explicit commands |
+| Automatic deletion and CLI self-update | ✅ | ❌ | Run `raft destroy` to delete a box. No CLI self-update command |
 
 ## verification and development
 
-use `uv sync --locked`, `uv run raft --help` and the real-host E2E suites in
-[verification](docs/verification.mdx). tests allocate disposable boxes and remove
-only their own fixtures. the optional `--restart-incus` check restarts the host
-Incus daemon. run it on dedicated test infrastructure. there is no exhaustive Boat differential
-suite or security audit.
+run `uv sync --locked` to install dependencies and `uv run raft --help` to check
+the CLI. [verification](docs/verification.mdx) lists the real-host test suites.
+they create disposable boxes and remove only their own fixtures.
+
+the optional `--restart-incus` check restarts the host's Incus daemon. run it on
+dedicated test infrastructure.
+
+the tests cover Raft's behavior. they do not compare it against the live Boat
+service. Raft has not had a security audit.
 
 read [the contract](docs/contract.md), [architecture and references](docs/boat-parity-design.md)
 and the optional [agent skill](skills/raft-cli/SKILL.md).
