@@ -86,6 +86,18 @@ Disk reporting covers the shared pool, not strict per-workspace quotas.
 Large backup/import operations hold a host-wide lifecycle lock and can delay
 expiry checks; timely TTL enforcement during these operations is not promised.
 
+## Native image validation
+
+On 2026-10-06, the [native CI run](https://github.com/Microck/raft/actions/runs/37447415532)
+built ARM64 and AMD64 images on Ubuntu 24 and passed the extended lifecycle suite
+on both. Each ran all six resource combinations and 31 developer-user tool
+checks, including sandboxed headless Chromium. Headed Chromium and the real
+noVNC client, IPv4/IPv6 peer isolation, host/metadata restrictions, Docker,
+files, jobs, snapshots, forks, restore and scheduled TTL stop/resume all passed.
+Five boot samples per architecture and clean image exports followed.
+[Boot performance](boot-performance.md) records timings and limits. This does
+not repeat the portable backup suite on AMD64 or certify production provisioning.
+
 ## Package and privacy checks
 
 Build with `uv build`. Inspect both the wheel and source archive before release.

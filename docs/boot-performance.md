@@ -18,7 +18,8 @@ The [native images workflow](../.github/workflows/images.yml) runs on GitHub's
 native `ubuntu-24.04` and `ubuntu-24.04-arm` VMs. It builds each image, runs the
 extended lifecycle suite and all 31 development-tool checks, measures startup
 and exports the clean template with SHA256 checksums. Successful runs attach
-seven-day artifacts named `raft-dev-amd64` and `raft-dev-arm64`. GitHub artifact
+seven-day artifacts named `raft-dev-amd64` and `raft-dev-arm64`. Small
+`boot-results-amd64` and `boot-results-arm64` artifacts contain just the reports. GitHub artifact
 downloads require a GitHub login. These are CI artifacts, not a stable release
 channel. Each archive must be imported into a host of the same architecture.
 
@@ -104,5 +105,33 @@ time. Controller-visible desktop measurements include transport overhead and
 show a smaller change.
 
 The candidate passed the full lifecycle and headed-browser E2E suite on an
-Ubuntu 22 ARM64 host. Native Ubuntu 24 ARM64 and AMD64 CI is still under
-validation. Do not infer both architectures' E2E coverage from a build alone.
+Ubuntu 22 ARM64 host. Native Ubuntu 24 ARM64 and AMD64 also passed the extended
+suite with all 31 tool checks and six resource combinations. Fresh-host testing
+found and fixed Chromium's user-namespace policy and peer frames bypassing IP
+filtering. New images load a guest-local Chromium AppArmor rule; the host
+firewall filters Raft peer frames directly at the bridge hook.
+
+## Native CI comparison
+
+[Verified native run](https://github.com/Microck/raft/actions/runs/37447415532),
+2026-10-06. Five samples per architecture, four host CPUs, one guest CPU and
+2 GiB guest RAM. Both optimized image volumes existed before sampling.
+
+| Controller-visible median | ARM64 runner | AMD64 runner |
+| --- | ---: | ---: |
+| Create returns handle | 0.425 s | 0.659 s |
+| Create accepts a command | 0.866 s | 1.375 s |
+| Create has Docker ready | 2.280 s | 3.035 s |
+| Resume accepts a command | 0.951 s | 1.489 s |
+| Resume has Docker ready | 2.626 s | 3.049 s |
+| Desktop starts after create | 1.115 s | 1.592 s |
+| Compressed image | 1.79 GiB | 1.86 GiB |
+
+These are different runner hardware and transport measurements. They do not
+establish that ARM64 is inherently faster. Raw samples and p95 are in the
+[ARM64 report](benchmarks/arm64-native-ci.json) and
+[AMD64 report](benchmarks/amd64-native-ci.json). Committed reports omit verbose
+systemd unit traces; downloadable CI reports retain them.
+
+Native CI validates builds, real workspaces and clean exports. Portable recovery
+between different architectures is not tested or supported.

@@ -1,0 +1,137 @@
+{
+  "hostArchitecture": "x86_64",
+  "hostCpus": 4,
+  "guestCpus": 1,
+  "guestMemory": "2GiB",
+  "sshRoundTripSeconds": 0.252,
+  "scope": "Cached local image; includes controller CLI and SSH; no host reboot or download",
+  "samples": [
+    {
+      "create": {
+        "cliReturnSeconds": 0.692,
+        "commandReadySeconds": 1.375,
+        "dockerReadySeconds": 3.035,
+        "desktopStartSeconds": 1.604
+      },
+      "resume": {
+        "cliReturnSeconds": 0.81,
+        "commandReadySeconds": 1.477,
+        "dockerReadySeconds": 3.049,
+        "desktopStartSeconds": 1.587
+      }
+    },
+    {
+      "create": {
+        "cliReturnSeconds": 0.648,
+        "commandReadySeconds": 1.324,
+        "dockerReadySeconds": 3.131,
+        "desktopStartSeconds": 1.627
+      },
+      "resume": {
+        "cliReturnSeconds": 0.858,
+        "commandReadySeconds": 1.556,
+        "dockerReadySeconds": 2.995,
+        "desktopStartSeconds": 1.595
+      }
+    },
+    {
+      "create": {
+        "cliReturnSeconds": 0.659,
+        "commandReadySeconds": 1.334,
+        "dockerReadySeconds": 3.044,
+        "desktopStartSeconds": 1.592
+      },
+      "resume": {
+        "cliReturnSeconds": 0.803,
+        "commandReadySeconds": 1.489,
+        "dockerReadySeconds": 3.196,
+        "desktopStartSeconds": 1.567
+      }
+    },
+    {
+      "create": {
+        "cliReturnSeconds": 0.707,
+        "commandReadySeconds": 1.396,
+        "dockerReadySeconds": 2.815,
+        "desktopStartSeconds": 1.567
+      },
+      "resume": {
+        "cliReturnSeconds": 0.836,
+        "commandReadySeconds": 1.542,
+        "dockerReadySeconds": 3.204,
+        "desktopStartSeconds": 1.574
+      }
+    },
+    {
+      "create": {
+        "cliReturnSeconds": 0.653,
+        "commandReadySeconds": 1.434,
+        "dockerReadySeconds": 2.916,
+        "desktopStartSeconds": 1.578
+      },
+      "resume": {
+        "cliReturnSeconds": 0.822,
+        "commandReadySeconds": 1.475,
+        "dockerReadySeconds": 2.685,
+        "desktopStartSeconds": 1.57
+      }
+    }
+  ],
+  "imageVolumeCachedAtStart": true,
+  "guestArchitecture": "amd64",
+  "imageSizeBytes": 1992633951,
+  "summary": {
+    "create": {
+      "cliReturnSeconds": {
+        "median": 0.659,
+        "min": 0.648,
+        "max": 0.707,
+        "p95": 0.707
+      },
+      "commandReadySeconds": {
+        "median": 1.375,
+        "min": 1.324,
+        "max": 1.434,
+        "p95": 1.434
+      },
+      "dockerReadySeconds": {
+        "median": 3.035,
+        "min": 2.815,
+        "max": 3.131,
+        "p95": 3.131
+      },
+      "desktopStartSeconds": {
+        "median": 1.592,
+        "min": 1.567,
+        "max": 1.627,
+        "p95": 1.627
+      }
+    },
+    "resume": {
+      "cliReturnSeconds": {
+        "median": 0.822,
+        "min": 0.803,
+        "max": 0.858,
+        "p95": 0.858
+      },
+      "commandReadySeconds": {
+        "median": 1.489,
+        "min": 1.475,
+        "max": 1.556,
+        "p95": 1.556
+      },
+      "dockerReadySeconds": {
+        "median": 3.049,
+        "min": 2.685,
+        "max": 3.204,
+        "p95": 3.204
+      },
+      "desktopStartSeconds": {
+        "median": 1.574,
+        "min": 1.567,
+        "max": 1.595,
+        "p95": 1.595
+      }
+    }
+  }
+}
