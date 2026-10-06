@@ -5,9 +5,10 @@ title: Boat feature parity
 # Boat capability coverage
 
 Raft is an independent open-source alternative to [boat.dev](https://boat.dev).
-✅ means an implemented Raft workflow. It does not mean identical Boat behavior.
-❌ means missing or intentionally outside the current scope. Tests verify Raft,
-not the hosted Boat service. See [verification](./verification.md) for evidence.
+- ✅ indicates an implemented Raft workflow (does not imply identical Boat behavior).
+- ❌ indicates an unsupported or out-of-scope feature.
+
+Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](./verification.md) for evidence.
 
 | Capability | Raft | Behavior and verification limits |
 | --- | --- | --- |
@@ -52,19 +53,8 @@ not the hosted Boat service. See [verification](./verification.md) for evidence.
 
 ## Reference check
 
-Checked on 2026-10-06 against Boat's [CLI reference](https://docs.boat.dev/cli-reference),
-[machine capabilities](https://docs.boat.dev/machines),
-[SSH/file access](https://docs.boat.dev/ssh-access) and
-[limits](https://docs.boat.dev/pricing), plus Raft's command parser and verification
-suites at runtime commit `27b08c1`. Both native architectures and disposable
-AMD64 host failure/reboot/storage tests passed in the
-[fix verification run](https://github.com/Microck/raft/actions/runs/37496577945).
-This checks documented capabilities; it is not a live differential test
-against a Boat account. Coding-agent packages and managed agent workflows remain
-outside the requested scope.
+Checked on 2026-10-06 against Boat's [CLI reference](https://docs.boat.dev/cli-reference), [machine capabilities](https://docs.boat.dev/machines), [SSH/file access](https://docs.boat.dev/ssh-access), and [limits](https://docs.boat.dev/pricing).
 
-The main remaining workflow gaps are recursive file transfers and resizing on
-resume/fork. Public hosting, separate-kernel VMs, sharing and a remote API would
-require additional infrastructure or a different security contract. NoVNC access
-does not establish Boat's desktop frame rate, browser confinement or its exact
-preinstalled application set.
+Raft command parser and test suites were verified at commit `27b08c1`. Both native architectures and disposable AMD64 host tests passed in [run 37496577945](https://github.com/Microck/raft/actions/runs/37496577945). This audit compares documented features, not a live differential test against Boat. Managed agent workflows remain out of scope.
+
+Key workflow gaps are recursive file transfers and resizing on resume/fork. Public hosting, VM isolation, organization sharing, and remote APIs require additional infrastructure. noVNC tests do not establish parity for Boat frame rate, browser confinement or application set.

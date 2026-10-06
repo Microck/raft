@@ -5,11 +5,11 @@ description: Forward network ports and connect to an on-demand graphical desktop
 
 # Desktop and private services
 
-Raft allows you to forward network ports to services running in your workspaces and connect to an on-demand graphical desktop. Tunnels travel over authenticated host SSH directly to the controller loopback interface.
+Forward network ports and connect to an on-demand graphical desktop over authenticated host SSH tunnels bound to controller loopback.
 
 ## Target workspace handle
 
-Commands in this guide target an existing running workspace. Review [First working box](../first-box.mdx) to launch a new workspace, or select an existing one with `raft list`:
+Commands in this guide target a running workspace. Select one from `raft list` (see [First working box](../first-box.mdx)):
 
 ```sh title="CONTROLLER: Select running workspace"
 raft list
@@ -18,7 +18,7 @@ box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
 
 ## Forwarding network ports
 
-Use `raft forward` to create a secure tunnel between your local controller and a service running inside the workspace:
+Create a secure tunnel between your local controller and a workspace service:
 
 ```text
 raft forward "$box" --remote <REMOTE_PORT> --local <LOCAL_PORT>
@@ -26,24 +26,24 @@ raft forward "$box" --remote <REMOTE_PORT> --local <LOCAL_PORT>
 
 ### End-to-end example: Running a web service
 
-Start a detached Python HTTP server bound to `0.0.0.0` inside the workspace:
+Start a detached HTTP server inside the workspace:
 
 ```sh title="CONTROLLER: Start detached HTTP server inside workspace"
 job=$(raft exec "$box" --detach -- python3 -m http.server 8080 --bind 0.0.0.0)
 echo "Started web service job: $job"
 ```
 
-Open the tunnel in your terminal:
+Open the forwarding tunnel:
 
 ```sh title="CONTROLLER: Open port forwarding tunnel"
 raft forward "$box" --remote 8080 --local 8080
 ```
 
-`raft forward` runs in the foreground. While the command is active, open `http://127.0.0.1:8080` in your local web browser or run `curl http://127.0.0.1:8080` in a second controller terminal.
+`raft forward` runs in the foreground. Open `http://127.0.0.1:8080` in your browser or run `curl http://127.0.0.1:8080` in another terminal.
 
-When you are finished testing:
-1. Press `Ctrl+C` in the forwarding terminal to close the tunnel.
-2. In your main terminal, cancel the background server job:
+When finished:
+1. Press `Ctrl+C` to close the tunnel.
+2. Cancel the background job:
    ```sh title="CONTROLLER: Stop the background server job"
    raft cancel "$box" "$job"
    ```
@@ -51,37 +51,37 @@ When you are finished testing:
 ### Binding requirement
 
 <Callout type="warn" title="Bind to all interfaces or guest IP">
-Services inside the container must bind to all interfaces (`0.0.0.0`) or to the container's private `eth0` IP address. A service listening strictly on container loopback (`127.0.0.1`) cannot receive traffic routed across the container network bridge.
+Services inside the container must bind to all interfaces (`0.0.0.0`) or to the container's private `eth0` IP address. A service listening strictly on container loopback (`127.0.0.1`) cannot receive traffic routed across the container bridge.
 </Callout>
 
-The controller-side tunnel listener binds strictly to `127.0.0.1` on your local workstation. It does not expose ports on your local area network or publish services to the public internet.
+The controller listener binds strictly to `127.0.0.1` on your local workstation, without exposing ports to your local network.
 
 ## On-demand desktop environment
 
-Every Raft development image includes a pre-configured graphical desktop environment powered by Xvfb (running on display `:99`), Openbox window manager, x11vnc, and noVNC.
+The development image includes a graphical desktop stack using Xvfb (display `:99`), Openbox, x11vnc, and noVNC.
 
-To start the desktop stack and open a private tunnel:
+Start the desktop and establish a private tunnel:
 
 ```sh title="CONTROLLER: Launch desktop and establish private tunnel"
 raft desktop "$box" --local 6080
 ```
 
-`raft desktop` starts the `raft-desktop.service` inside the container if it is not already running, waits for the X display and VNC socket to be ready, and establishes a secure tunnel to local port `6080`.
+`raft desktop` starts `raft-desktop.service` inside the container if needed, waits for Xvfb and VNC readiness, and opens a tunnel to local port `6080`.
 
-Open the graphical client in your browser:
+Open the client in your browser:
 
 ```text
 http://127.0.0.1:6080/vnc.html
 ```
 
 <Callout type="info" title="Browser URL requirement">
-Include `/vnc.html` in the browser URL path. The root path `/` displays an index directory; `/vnc.html` loads the complete graphical desktop canvas with mouse, keyboard, and clipboard support.
+Include `/vnc.html` in the URL. The root path `/` displays an index directory; `/vnc.html` loads the desktop canvas with mouse, keyboard, and clipboard support.
 </Callout>
 
 ### Desktop characteristics
 
-- **Display environment**: Runs on virtual X display `:99` at 1280x720 resolution with 24-bit color depth.
-- **User session**: The Openbox window manager runs under the `developer` user account.
-- **Clipboard support**: The noVNC sidebar provides a clipboard drawer for text exchange between your local workstation and the desktop session.
-- **Tunnel lifecycle**: Pressing `Ctrl+C` closes the local SSH tunnel. The desktop service continues running inside the container until the workspace is stopped with `raft stop` or its TTL expires.
-- **Reconnecting**: Running `raft desktop "$box" --local 6080` again reconnects to the active desktop session without interrupting open windows.
+- **Display environment**: Virtual X display `:99` at 1280x720 resolution with 24-bit color.
+- **User session**: Openbox runs under the `developer` user account.
+- **Clipboard support**: The noVNC sidebar provides a clipboard drawer for text exchange.
+- **Tunnel lifecycle**: Pressing `Ctrl+C` closes the local tunnel. The desktop service keeps running until the workspace stops or expires.
+- **Reconnecting**: Running `raft desktop "$box" --local 6080` reconnects without interrupting open windows.

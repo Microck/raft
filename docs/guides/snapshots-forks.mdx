@@ -5,11 +5,11 @@ description: Capture point-in-time filesystem snapshots and fork independent wor
 
 # Snapshots and forks
 
-Raft provides native commands for capturing filesystem snapshots, rolling back changes, and cloning workspaces on the same host.
+Raft captures filesystem snapshots, rolls back changes, and clones workspaces on the same host.
 
 ## Target workspace handle
 
-Commands in this guide require a stopped workspace handle `$box`. Select an existing workspace from `raft list` and stop it:
+Commands in this guide require a stopped workspace:
 
 ```sh title="CONTROLLER: Select and stop target workspace"
 raft list
@@ -20,7 +20,7 @@ raft stop "$box"
 ## Stopped-source requirement
 
 <Callout type="warn" title="Workspace must be stopped">
-Creating a snapshot, restoring from a snapshot, or forking a workspace requires the source container to be stopped. Snapshots, restores and forks require a stopped source for consistent disk contents. Raft checks container state under a host-wide lifecycle lock (`/run/lock/raft-incus.lock`) to prevent concurrent modifications during disk operations.
+Creating a snapshot, restoring from a snapshot, or forking requires a stopped container. Operations run under host lock `/run/lock/raft-incus.lock` to prevent concurrent disk modification.
 </Callout>
 
 ## Creating snapshots
@@ -35,27 +35,27 @@ Snapshot names must use letters, digits, underscores, or hyphens up to 64 charac
 
 ## Listing snapshots
 
-To view all snapshots recorded for a workspace:
+View existing snapshots for a workspace:
 
 ```sh title="CONTROLLER: List existing snapshots"
 raft snapshots "$box"
 ```
 
-The command prints instance metadata from Incus, including snapshot names and creation timestamps.
+The command prints snapshot names and creation timestamps from Incus metadata.
 
 ## Restoring from a snapshot
 
-To roll back a stopped workspace to a previously recorded snapshot:
+Roll back a stopped workspace to a previously recorded snapshot:
 
 ```sh title="CONTROLLER: Restore snapshot"
 raft restore "$box" pre-upgrade
 ```
 
 <Callout type="info" title="Configuration preservation during restore">
-`raft restore` executes Incus snapshot restore with `--diskonly`. It rolls back filesystem blocks to the snapshot state while preserving the container instance configuration, including CPU limits, memory limits, and the `eth0` network MAC address.
+`raft restore` executes Incus snapshot restore with `--diskonly`. It rolls back filesystem blocks while preserving container configuration, CPU and memory limits, and the `eth0` network MAC address.
 </Callout>
 
-After restoring, resume the workspace with a renewed lifetime:
+Resume the workspace with a renewed lifetime:
 
 ```sh title="CONTROLLER: Resume restored workspace"
 raft resume "$box" --ttl 600
@@ -63,7 +63,7 @@ raft resume "$box" --ttl 600
 
 ## Forking a workspace
 
-Forking creates a new workspace clone on the same host:
+Forking creates an independent clone on the same host:
 
 ```sh title="CONTROLLER: Fork workspace into a new clone"
 copy=$(raft fork "$box" --ttl 600)
@@ -72,12 +72,12 @@ echo "Created fork: $copy"
 
 ### Characteristics of forked workspaces
 
-- **Instance-only copy**: Raft copies the container with `--instance-only`. Filesystem data, installed packages, caches, and files in `/workspace` are copied to the new container. Named snapshots from the source container are not inherited by the fork.
-- **Immediate start**: `raft fork` launches the newly created copy immediately with the specified TTL, while the original source container remains stopped.
-- **Fresh network identity**: The fork receives a new Incus container name, a fresh MAC address on `rfbr0`, and an independent IP address.
+- **Instance-only copy**: Uses Incus `--instance-only`. Filesystem data, installed packages, and `/workspace` files are copied; source snapshots are not inherited.
+- **Immediate start**: `raft fork` launches the new container immediately with the specified TTL while the source remains stopped.
+- **Fresh network identity**: The fork receives a new container name, a fresh MAC address on `rfbr0`, and an independent IP address.
 - **Capacity accounting**: The fork counts toward the location's four-saved-box limit and uses storage from the shared 60 GiB Btrfs pool.
 
-When finished with the forked workspace, destroy it to release host capacity:
+Destroy the clone when finished to release capacity:
 
 ```sh title="CONTROLLER: Destroy forked workspace"
 raft destroy "$copy"

@@ -5,11 +5,11 @@ description: Transfer files between your controller machine and running Raft wor
 
 # File transfer
 
-Raft provides native commands to upload and download individual files between your local controller and running workspaces. Transfers travel over verified host SSH and Incus instance APIs without exposing guest network ports or SSH daemons.
+Upload and download individual files between your local controller and running workspaces over verified host SSH and Incus instance APIs.
 
 ## Target workspace handle
 
-Commands in this guide target an existing running workspace. Review [First working box](../first-box.mdx) to launch a new workspace, or select an existing one with `raft list`:
+Commands in this guide target a running workspace. Select one from `raft list` (see [First working box](../first-box.mdx)):
 
 ```sh title="CONTROLLER: Select running workspace"
 raft list
@@ -18,7 +18,7 @@ box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
 
 ## Uploading files
 
-Create a local sample fixture on your controller, then use `raft upload` to transfer it to an absolute path inside the workspace:
+Transfer a file from your controller to an absolute path inside the workspace:
 
 ```sh title="CONTROLLER: Create fixture and upload to workspace"
 # Create local sample file on controller
@@ -28,7 +28,7 @@ echo "Hello from controller" > ./local-file.txt
 raft upload "$box" ./local-file.txt /workspace/target-file.txt
 ```
 
-If the destination file already exists, it is overwritten. If destination parent directories do not exist, create them inside the workspace before uploading:
+Existing destination files are overwritten. Create parent directories before uploading if needed:
 
 ```sh title="CONTROLLER: Create parent directory and upload"
 echo '{"mode": "debug"}' > ./settings.json
@@ -42,7 +42,7 @@ Guest file paths must be absolute paths beginning with `/`. Relative paths insid
 
 ## Downloading files
 
-Use `raft download` to retrieve a file from a workspace back to your controller machine:
+Download a file from a workspace to your controller:
 
 ```sh title="CONTROLLER: Download a file from workspace"
 raft download "$box" /workspace/target-file.txt ./downloaded-file.txt
@@ -52,7 +52,7 @@ The destination path on the controller must specify the target filename.
 
 ## Paths with spaces
 
-Source and destination paths support spaces. Create the destination directory inside the workspace first, then wrap paths in quotes:
+Wrap paths in quotes when transferring files with spaces:
 
 ```sh title="CONTROLLER: Transfer files with spaces in paths"
 mkdir -p "./my documents"
@@ -65,7 +65,7 @@ raft download "$box" "/workspace/my documents/data file.csv" "./downloaded-data.
 
 ## Transferring directories
 
-`raft upload` and `raft download` operate on individual files. To transfer an entire directory or project tree, archive the directory with `tar`:
+`raft upload` and `raft download` operate on individual files. Archive directories with `tar` for batch transfers:
 
 ### Uploading a project directory
 
@@ -103,7 +103,7 @@ tar -xzf ./results.tar.gz -C ./results
 
 ## File ownership
 
-Files pushed to the container are owned by root inside the guest. To run tools under the non-root `developer` user, update ownership after upload:
+Uploaded files are owned by `root` in the guest. Update ownership to `developer` when needed:
 
 ```sh title="CONTROLLER: Change file ownership inside container"
 raft exec "$box" -- chown -R developer:developer /workspace/my-project

@@ -4,104 +4,74 @@ title: Runtime contract
 
 # Raft contract
 
-Raft manages persistent unprivileged native-architecture Incus system containers on the
-configured ARM64 or AMD64 Linux hosts. Images must match the host architecture;
-foreign-architecture emulation is not supported. Containers share the host kernel.
-Incus virtual machines require usable KVM and are not silently substituted.
+Raft manages persistent unprivileged native-architecture Incus system containers on configured ARM64 or AMD64 Linux hosts. Containers share the host kernel. Images must match host CPU architecture; foreign-architecture emulation and VM workflows are not implemented.
 
-Versioned image releases contain clean native ARM64 and AMD64 templates,
-SHA256 checksums, package inventories and build provenance. Publication requires
-native lifecycle/recovery checks and a clean AMD64 Ubuntu VM provisioning and
-reboot check. The test VM uses KVM and a sparse 100 GiB virtual disk; it does
-not certify underlying physical storage capacity or ARM64 host reboot behavior.
+## Image releases
 
-- Deployment refuses conflicting storage/network names and incomplete owned
-  infrastructure rather than silently overwriting or repairing it. Existing owned
-  Btrfs pools must retain the configured 60 GiB size; drift is rejected without resizing.
-  Redeployment reapplies firewall rules. Incus startup requires successful firewall
-  installation before the daemon can start, including socket activation.
-- `new`, `list`, `info`, `exec`, `ssh`, `upload`, `download`, `stop`, `resume`,
-  `destroy`, `snapshot`, `snapshots`, `restore`, `fork`, `forward`, `desktop`,
-  `status`, `logs`, `cancel`, `usage`, `extend`, `backup`, `recover`, `limits`, `doctor`
-  and `gc` cover the single-operator workflow.
-- `info` and `list` read native instance metadata, without querying guest process
-  counters during shutdown. Tunnels read the running guest's managed NIC directly.
-- Configuration requires named SSH targets; names use letters, digits, underscores
-  or hyphens. Every handle explicitly includes location and instance name. Creation uses
-  the immutable local development image fingerprint, not an updating alias.
-- Default first configured location, 1 CPU, 2 GiB RAM and 600-second running lifetime. CPU choices
-  1/2; memory 1/2/4 GiB; lifetime 60 seconds to 30 days. Four saved boxes per
-  host is the admission limit, including stopped boxes. Running TTL starts after
-  launch/start completes, using the host clock; cold image preparation does not
-  consume it. Native Incus admin calls
-  bypass CLI policy. Creation and expiry are serialized by host flock.
-- `limits [--location NAME] [--json]` inspects hosts without changing them.
-  It reports effective host CPUs, total/available RAM, saved and active box counts,
-  configured active CPU/memory limits and host/shared-pool disk space. It recommends
-  total and additional running boxes for each supported size, reserving one CPU
-  and the larger of 2 GiB or 10% of host RAM. Total recommendations assume an
-  otherwise empty dedicated host and are capped at four. Additional recommendations
-  subtract active configured limits and use current available RAM minus the host
-  reserve. Every state except Stopped counts as active, including Frozen.
-  New-box recommendations also respect the remaining saved-box slots. These
-  CPU/memory estimates are advisory snapshots, not admission guarantees or a disk
-  capacity estimate. Shared-pool and host free space below 5 GiB produce warnings;
-  image unpack, snapshots, Docker data and backup growth still need a disk check.
-  The four-saved-box cap remains enforced for create, fork and recover.
-- Stop terminates guest processes and retains disk. Resume requires explicit
-  TTL. `extend --ttl` resets a running box's deadline from the current host time
-  without restarting it; stopped boxes must use resume. Expiry stops rather than
-  deletes, on the host timer's 15-second interval plus graceful shutdown time.
-  Long lifecycle and backup transactions hold the expiry lock and delay checks.
-  A host outage delays enforcement until
-  startup. Stopped boxes occupy disk and do not reserve guest RAM.
-- Destroy removes the instance and snapshots and confirms absence. It is
-  mandatory completion for disposable runs. Never infer absence from SSH failure.
-- Native Incus exec and file APIs travel over verified private host SSH. No
-  public Incus listener, guest password or controller secret is injected.
-  Interactive SSH is a terminal over host SSH and Incus execution.
-- Guest root is mapped to an unprivileged host UID. Nesting and syscall
-  interception support guest Docker; the host Docker socket is never mounted.
-- The dedicated bridge allows DNS/DHCP and public outbound internet. Interface-
-  scoped firewall rules reject guest access to host services, cloud metadata,
-  private address ranges. A native nftables bridge rule blocks all peer frames
-  on `rfbr0` without depending on bridge-netfilter sysctls. IPv6, including link-local peer traffic,
-  is blocked on this bridge. Forwarding listeners bind controller
-  loopback. Guest services must listen on the managed NIC, not guest loopback.
-  The desktop is accessible through this private tunnel.
-- Btrfs storage is bounded to a 60 GiB pool per host and supports efficient
-  clones and snapshots. Do not claim strict per-box quota enforcement: nested
-  subvolumes can evade qgroup accounting. Native compressed image cache lives
-  outside this pool, so `doctor` still reports host disk.
-- Snapshots, restores and forks require a stopped source for consistent disk
-  contents. Their source-state checks and disk operations share the host lifecycle
-  lock, so a concurrent resume cannot invalidate the check. Restore rolls back disk contents only, retaining the destination's
-  instance configuration, resource limits and eth0 MAC address. Fork copies files
-  including guest secrets
-  but receives a fresh Incus runtime identity and network identity.
-- Detached commands are guest systemd units with journal output and an exit
-  status. Stop terminates them; process checkpointing is not provided.
-- Desktop is an on-demand Xvfb/Openbox/noVNC stack. Its dedicated X display
-  has no login manager; clipboard exchange is available without a login-manager delay. Closing its tunnel does not
-  stop the desktop service. It is full desktop access, not browser confinement.
-- The development image omits coding-agent packages and account credentials.
-  Release inspection rejects SSH content under root and non-root home directories,
-  guest SSH host keys and links to credential paths, including nonregular archive entries.
-  Operators can install their preferred agent. Managed agent orchestration is
-  not implemented. Guest SSH advertises a fresh Ed25519 host key.
-- `cancel` stops an ordinary detached command's systemd control group.
-- `usage` reports running-guest cgroup memory, cumulative CPU microseconds,
-  effective CPU affinity and shared-pool filesystem space. Disk values are not
-  per-box accounting and this command does not report billing.
-- `backup` exports a stopped box, including snapshots, to a controller archive
-  using native portable Incus export. The destination is created atomically and
-  must not already exist. Owner-only mode `0600` is enforced before export
-  starts; storage without private permission and hard-link support is rejected.
-  `recover` imports an archive under a fresh qualified
-  handle into the selected host, obeys admission, clears the old expiry and
-  gives eth0 a new MAC address. It leaves the box stopped. Recovery never
-  overwrites an existing box. Archives can
-  contain secrets and must be stored privately; no scheduled upload is implied.
-  Import only trusted Raft exports; native archive configuration is not sanitised.
+- Versioned releases provide clean ARM64 and AMD64 templates with SHA-256 checksums, package inventories, and build provenance.
+- Publication requires native lifecycle checks, recovery verification, and fresh AMD64 Ubuntu VM provisioning and reboot checks.
+- Disposable AMD64 KVM verification uses a sparse 100 GiB disk and does not certify physical storage capacity or ARM64 host reboot behavior.
 
-Raft only manages its own labelled workspaces. VM deployment is not implemented.
+## Infrastructure and deployment
+
+- **Strict infrastructure validation**: Deployment refuses conflicting storage or network names and incomplete infrastructure rather than overwriting or repairing state.
+- **Storage pool sizing**: Existing owned Btrfs pools must retain the configured 60 GiB size; drift is rejected without automatic resizing.
+- **Firewall precedence**: Redeployment reapplies firewall rules. Incus startup requires successful firewall application before the daemon starts, including socket activation.
+- **CLI coverage**: The single-operator workflow spans lifecycle, execution, files, snapshots, jobs, tunnels, backup, and capacity inspection; see the [command reference](./reference/cli.md).
+
+## Configuration and lifecycle defaults
+
+- **Host identification**: Configuration requires named SSH targets using letters, digits, underscores, or hyphens.
+- **Qualified handles**: Every handle includes location and instance name (`<location>:<name>`).
+- **Image pinning**: Workspace creation requires the immutable 64-hex image fingerprint, not an updating alias.
+- **Lifecycle defaults**: Defaults to first configured location, 1 CPU, 2 GiB RAM, and 600-second lifetime. Supported choices are 1 or 2 CPUs, 1/2/4 GiB RAM, and 60 to 2,592,000 seconds (30 days) TTL.
+- **Admission limit**: Hard ceiling of four saved boxes per host, including stopped boxes.
+- **TTL calculation**: Running TTL begins after launch completes, using the host clock. Cold image preparation does not consume TTL.
+- **Host locking**: Creation, lifecycle transitions, and expiry are serialized by host file lock (`/run/lock/raft-incus.lock`). Native Incus admin calls bypass CLI policy.
+
+## Capacity and admission inspection
+
+`raft limits [--location NAME] [--json]` inspects hosts without modifying state. It reports effective CPUs, total and available RAM, saved and active box counts, active resource limits, and disk space.
+
+- **Reserve calculations**: Recommends running boxes after reserving 1 CPU and the larger of 2 GiB or 10% host RAM.
+- **Total capacity**: Assumes an empty dedicated host, capped at four boxes.
+- **Additional running**: Subtracts active configured limits and evaluates available RAM minus host reserves. Every non-`Stopped` state (including `Frozen`) counts as active.
+- **New box capacity**: Bounded by remaining saved-box slots: `min(more running, max(0, 4 - saved boxes))`.
+- **Advisory estimates**: CPU and memory calculations are advisory planning estimates, not admission guarantees. Disk space below 5 GiB triggers diagnostic warnings. The four-saved-box admission cap is strictly enforced.
+
+## Container lifecycle and execution
+
+- **Stop and resume**: Stop terminates guest processes and preserves disk contents; stopped boxes retain disk but do not reserve guest RAM. Resume starts the container anew with an explicit TTL without restoring process memory.
+- **Lifetime extension**: `raft extend --ttl` resets a running box's deadline from current host time without restarting; stopped boxes require `raft resume`.
+- **Expiration cleanup**: The host timer checks expirations every 15 seconds, stopping expired containers without deleting files. Expiry may be delayed by graceful shutdown, long locked transactions, and host outage until startup.
+- **Destroy**: Removes the container instance and its snapshots, releasing storage. Destroy confirms absence; SSH failure is not proof of deletion. Disposable runs must execute destroy.
+- **Execution transport**: Incus exec and file APIs travel over authenticated host SSH without a public Incus listener or injected credentials. Interactive SSH runs a PTY over host SSH and Incus exec.
+- **State inspection and tunnels**: `raft list` and `raft info` read native metadata without guest process counters during shutdown; tunnels use the managed NIC.
+- **Resource reporting**: `raft usage` reports running cgroup memory, CPU microseconds, CPU affinity, and shared pool space. It does not provide per-box disk accounting or billing.
+
+## Security and network isolation
+
+- **User namespaces**: Guest root maps to an unprivileged host UID. Container nesting and intercepted syscalls support Docker without mounting the host Docker socket.
+- **Network filtering**: Dedicated bridge `rfbr0` allows DNS, DHCP, and outbound internet. Interface-scoped firewall rules block guest access to host services, cloud metadata, and private address ranges.
+- **Bridge peer isolation**: A native nftables bridge rule blocks all inter-workspace frames on `rfbr0`. IPv6 and link-local peer traffic are blocked.
+- **Private tunnels**: Forwarding listeners bind strictly to controller loopback (`127.0.0.1`). Guest services must listen on `0.0.0.0` or their managed IP, not guest loopback.
+- **Image hygiene**: Development images omit coding agents, personal keys, and host credentials. SSH host keys are generated fresh on first boot. Release inspection rejects root and non-root SSH content, guest host keys, and credential-path links or nonregular entries.
+
+## Storage, snapshots, and cloning
+
+- **Storage pool**: A dedicated 60 GiB Btrfs pool per host supports snapshots and clones. Nested container subvolumes prevent strict per-box quota enforcement. The native compressed image cache resides outside the shared pool, so host disk space still matters.
+- **Stopped-state requirement**: Snapshots, restores and forks require a stopped source for consistent disk contents. Operations run under the host lifecycle lock.
+- **Snapshot restore**: `raft restore` rolls back disk blocks via `--diskonly`, retaining container configuration, limits, and MAC address.
+- **Workspace forks**: `raft fork` copies filesystem data and secrets to a new container with an independent Incus name, fresh MAC address, and renewed TTL. Source snapshots are not inherited.
+
+## Background jobs and desktop
+
+- **Detached jobs**: Commands run as guest systemd units with journal logging and exit status. `raft cancel` stops the unit's control group. Stopping the container terminates jobs.
+- **Desktop service**: On-demand Xvfb, Openbox, and noVNC stack on display `:99` without a login manager. Clipboard exchange is available without login-manager delay. Desktop provides full workspace access, not browser confinement. Closing the tunnel leaves the service running.
+
+## Backup and recovery
+
+- **Export safeguards**: `raft backup` exports stopped containers and snapshots to a local archive. Destination path must not exist, requires mode `0600`, and uses atomic hard-link publication.
+- **Host locking**: Export holds the host lifecycle lock, temporarily delaying expiry checks on the source host.
+- **Recovery admission**: `raft recover` imports archives into a stopped container with a fresh name, new MAC address, and cleared TTL, while enforcing the four-box admission limit. Recovery never overwrites existing boxes.
+- **Archive security**: Archives contain full container filesystems, including credentials. Native archive configuration is not sanitized; backups do not imply scheduled off-host uploads. Store archives privately and import only trusted exports.

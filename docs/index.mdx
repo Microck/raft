@@ -6,13 +6,13 @@ description: Persistent Linux workspaces powered by Incus.
 # Raft
 
 Raft is an independent, self-hosted open-source alternative to [boat.dev](https://boat.dev).
-It provides persistent Linux workspaces on your own ARM64 or AMD64 hardware,
-with command execution, Docker, file transfer, snapshots, forks, and private desktop access.
+It provides persistent Linux workspaces on ARM64 and AMD64 hardware,
+supporting command execution, Docker, file transfer, snapshots, forks, and desktop access.
 Raft is not affiliated with Boat.
 
 ## Getting started
 
-Review [System requirements](./requirements.mdx), proceed through [Installation and host setup](./operations.mdx), and launch your [First working box](./first-box.mdx).
+Read [System requirements](./requirements.mdx), follow [Installation and host setup](./operations.mdx), and create your [First working box](./first-box.mdx).
 
 ```sh title="CONTROLLER: Create and use a workspace"
 box=$(raft new --location lab --ttl 600)
@@ -21,7 +21,7 @@ raft ssh "$box"
 raft stop "$box"
 ```
 
-Stopping a workspace retains files and installed packages on disk. Resuming it renews its running lifetime.
+Stopping a workspace preserves files and packages on disk. Resuming resets its running lifetime.
 
 ## Task guides
 

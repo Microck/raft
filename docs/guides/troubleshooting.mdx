@@ -5,32 +5,32 @@ description: Diagnose configuration, host infrastructure, network filtering, and
 
 # Troubleshooting
 
-This guide outlines diagnostic procedures and solutions for common issues when deploying and managing Raft workspaces.
+Diagnostic procedures and solutions for common deployment, configuration, and runtime issues.
 
 ## Controller diagnostics
 
 ### Preflight checks with `raft doctor`
 
-Run `raft doctor` on your controller to inspect host health across all configured locations:
+Run `raft doctor` on your controller to inspect host health across configured locations:
 
 ```sh title="CONTROLLER: Run environment health check"
 raft doctor
 ```
 
-`raft doctor` connects to each configured location over SSH and outputs:
-- The Incus version running in project `raft`.
-- The active status of host systemd services (`incus`, `raft-expire.timer`, `raft-network.service`).
-- Host root filesystem disk usage (`df -h /`).
-- The status and storage usage of the `raft-data` Btrfs pool.
-- The count of existing saved containers.
+`raft doctor` connects to each host over SSH and reports:
+- Incus version running in project `raft`
+- Active status of host systemd services (`incus`, `raft-expire.timer`, `raft-network.service`)
+- Host root filesystem disk usage (`df -h /`)
+- Status and usage of the `raft-data` Btrfs pool
+- Count of existing saved containers
 
 <Callout type="info" title="Doctor scope">
-`raft doctor` reports runtime daemon and storage status. It does not validate configured image fingerprints, does not inspect nftables bridge rules, does not enforce admission caps, and does not emit 5 GiB low-disk warnings.
+`raft doctor` reports runtime daemon and storage status. It does not validate image fingerprints, inspect nftables bridge rules, enforce admission caps, or emit 5 GiB low-disk warnings.
 </Callout>
 
 ### Listing active and stopped containers
 
-Use `raft list` to inspect workspace states across locations:
+Inspect workspace states across locations:
 
 ```sh title="CONTROLLER: List workspaces across all hosts"
 raft list
@@ -39,15 +39,15 @@ raft list
 raft list --location lab
 ```
 
-If a host is temporarily unreachable over SSH, the CLI reports a connection failure. An unreachable host does not mean containers on that host are absent or deleted.
+If a host is unreachable over SSH, the CLI reports a connection failure. An unreachable host does not mean containers are absent or deleted.
 
 ## Host-side diagnostics
 
-When commands fail or network behavior is unexpected, connect to the host over SSH to inspect underlying services.
+Connect to the host over SSH to inspect underlying services when commands fail.
 
 ### Inspecting Incus project status
 
-Verify container states and storage pools directly within the `raft` project:
+Verify container states and storage pools in project `raft`:
 
 ```sh title="HOST: Inspect containers and storage pools"
 sudo incus --project raft list
@@ -60,7 +60,7 @@ Raft installs two systemd units on the host:
 - `raft-network.service`: Applies firewall and bridge isolation rules before Incus starts.
 - `raft-expire.timer` / `raft-expire.service`: Runs the expiration worker every 15 seconds to stop expired workspaces.
 
-Inspect their logs using `journalctl`:
+Inspect unit logs with `journalctl`:
 
 ```sh title="HOST: Check Raft systemd unit logs"
 sudo systemctl status raft-network.service
@@ -69,54 +69,54 @@ sudo journalctl -u raft-expire.service -n 50 --no-pager
 ```
 
 <Callout type="warn" title="Host journals and guest secrets">
-Host system journals and systemd execution logs can capture command lines, arguments, and environment variables executed in guest containers. Treat host logs as sensitive records that may contain guest credentials.
+Host system journals can capture command lines, arguments, and environment variables executed in guest containers. Treat host logs as sensitive records that may contain guest credentials.
 </Callout>
 
 ### Manually triggering garbage collection
 
-The host timer stops expired containers every 15 seconds. To trigger an immediate expiration run from the controller:
+The host timer stops expired containers every 15 seconds. Trigger an immediate expiration run from the controller:
 
 ```sh title="CONTROLLER: Run expiration workers manually"
 raft gc
 ```
 
-Expired containers transition from `Running` to `Stopped` state. Expiration never deletes container files or snapshots.
+Expired containers transition from `Running` to `Stopped`. Expiration never deletes container files or snapshots.
 
 ## Common error scenarios
 
 ### Configuration errors
 
 #### Missing configuration file error
-If `~/.config/raft/incus.json` does not exist, the Python runtime raises a file error (`FileNotFoundError`). Ensure the directory and file exist with mode `0600`.
+If `~/.config/raft/incus.json` does not exist, the CLI raises `FileNotFoundError`. Create the configuration directory and file. Set mode `0600` on the file only.
 
 #### "Configure at least one host in ~/.config/raft/incus.json"
-This error is raised when the configuration file exists and is valid JSON, but contains an empty dictionary `{}` or non-dictionary data. Ensure the file defines at least one location with a non-empty `ssh` string.
+The configuration file contains valid JSON that is `{}` or is not an object (an empty file raises a JSON decoding error instead). Ensure the file defines at least one location with a non-empty `ssh` string.
 
 #### "Build an image and configure its full immutable fingerprint before creating boxes"
-The `image` field in `~/.config/raft/incus.json` is missing or is not a 64-character hexadecimal SHA-256 fingerprint. You cannot use an alias like `raft-dev` in the configuration file; supply the full fingerprint from `sudo incus --project raft image list raft-dev --format json`.
+The `image` field is missing or is not a 64-character hexadecimal SHA-256 fingerprint. Supply the full fingerprint from `sudo incus --project raft image list raft-dev --format json`.
 
 ### Admission and capacity errors
 
 #### "Location already holds four boxes"
-Raft enforces a hard limit of four saved boxes per location. Both running and stopped containers count toward this limit because their filesystem data occupies storage. Destroy unused boxes with `raft destroy <box>` before creating, forking, or recovering a new box.
+Raft enforces a hard limit of four saved boxes per location. Both running and stopped containers count toward this limit. Destroy unused boxes with `raft destroy <box>` before creating, forking, or recovering a box.
 
 #### Low disk warnings
-`raft limits` emits diagnostic warnings when free space on host disk or the `raft-data` Btrfs storage pool falls below 5 GiB. This warning does not halt container creation or resumption; there is no automated policy guard. Operators must inspect host disk usage and explicitly clean up dangling images, old snapshots, or unused containers. Note that `raft limits` inspects `/var/lib/incus` storage volume metrics, while `raft doctor` reports `df -h /`.
+`raft limits` warns when free space on host disk or the `raft-data` pool falls below 5 GiB. This warning is diagnostic and does not halt container operations. Clean up dangling images, old snapshots, or unused containers to free space.
 
 ### Network and forwarding issues
 
 #### Port forward connects but returns connection refused
-If `raft forward "$box" --remote 8080 --local 8080` succeeds but visiting `http://127.0.0.1:8080` fails, verify that your service inside the workspace is bound to `0.0.0.0` or the container's `eth0` IP address. Services bound strictly to `127.0.0.1` inside the container cannot receive traffic routed through the container bridge.
+Verify that the guest service binds to `0.0.0.0` or the container's `eth0` IP address. Services bound strictly to `127.0.0.1` inside the container cannot receive traffic routed through the bridge.
 
 #### Workspaces cannot reach other workspaces on the same host
-This is intended behavior. Raft configures nftables bridge filtering on `rfbr0` to prevent network communication between workspaces on the same private bridge.
+This is intended behavior. Raft configures nftables bridge filtering on `rfbr0` to prevent communication between workspaces on the same bridge.
 
 ### Host crash during recovery
 
-If the controller crashes or the SSH connection drops while `raft recover` is transferring an archive:
+If the controller crashes or SSH drops while `raft recover` is transferring an archive:
 1. Check the `Recovery handle: <location>:<name>` output printed to stderr when `raft recover` started.
-2. Check `raft list --location <location>` to see if the container was imported into Incus.
-3. Because `raft recover` prints the recovery handle rather than the host staging path, inspect `/tmp` on the host to carefully identify the exact staging file (`/tmp/raft-recovery.XXXXXXXX`) owned by your user account matching the timestamp of the interrupted operation. Do not run wildcard deletion (`rm /tmp/raft-recovery.*`), which risks deleting concurrent staging files owned by other operations. Remove only the confirmed owned staging file after verifying container status:
+2. Inspect the reported handle with `raft list --location <location>` and confirm container status before removing staging.
+3. Inspect `/tmp` on the host to identify the exact owned staging file (`/tmp/raft-recovery.XXXXXXXX`) by owner and timestamp. Avoid wildcard deletion (`rm /tmp/raft-recovery.*`), which risks removing concurrent files. Remove only the confirmed owned staging file after verifying container status:
    ```sh title="HOST: Remove verified owned staging file"
    sudo -n rm -f -- /tmp/raft-recovery.XXXXXXXX
    ```

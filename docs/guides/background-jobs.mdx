@@ -5,11 +5,11 @@ description: Run detached commands with systemd logging and process management.
 
 # Background jobs
 
-Raft allows you to run detached background commands inside workspaces. Detached execution runs commands under the guest systemd init system using transient service units.
+Raft runs detached background commands under the guest systemd init system using transient service units.
 
 ## Target workspace handle
 
-Commands in this guide target an existing running workspace. Review [First working box](../first-box.mdx) to launch a new workspace, or select an existing one with `raft list`:
+Commands in this guide target a running workspace. Select one from `raft list` (see [First working box](../first-box.mdx)):
 
 ```sh title="CONTROLLER: Select running workspace"
 raft list
@@ -18,7 +18,7 @@ box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
 
 ## Launching detached commands
 
-To start a command in the background, pass the `--detach` flag to `raft exec`, placing the workspace handle first and delimiting the command with `--`:
+Start a background command by passing `--detach` to `raft exec`, delimiting the payload with `--`:
 
 ```sh title="CONTROLLER: Start a detached background job"
 job=$(raft exec "$box" --detach -- bash -lc '
@@ -29,24 +29,24 @@ echo "Task finished at $(date)"
 echo "Started background job: $job"
 ```
 
-The command returns immediately with a 32-hex systemd unit name prefixed with `rfcmd-` (for example `rfcmd-a1b2c3d4e5f60718293a4b5c6d7e8f90`).
+The command returns a 32-hex systemd unit name prefixed with `rfcmd-` (such as `rfcmd-a1b2c3d4e5f60718293a4b5c6d7e8f90`).
 
 ## Checking job status
 
-Use `raft status` to query the underlying systemd unit properties:
+Use `raft status` to query guest systemd unit properties:
 
 ```sh title="CONTROLLER: Inspect background job state"
 raft status "$box" "$job"
 ```
 
-The command outputs the unit properties queried from `systemctl show`:
+Active jobs report running substate:
 ```text
 ActiveState=active
 SubState=running
 ExecMainStatus=0
 ```
 
-Because Raft runs detached commands with `RemainAfterExit=yes`, completed jobs remain recorded after exiting:
+Because Raft runs detached commands with `RemainAfterExit=yes`, completed jobs retain their exit record:
 ```text
 ActiveState=active
 SubState=exited
@@ -54,39 +54,39 @@ ExecMainStatus=0
 ```
 
 <Callout type="info" title="Exit status vs CLI return code">
-`ExecMainStatus` reports the exit code returned by your command payload inside the guest container. The `raft status` command itself returns exit code 0 whenever the systemd query succeeds. `raft status` queries unit state; it does not report process PIDs or start timestamps.
+`ExecMainStatus` reports the command payload exit code inside the container. The `raft status` command returns exit code 0 when the query succeeds. It queries unit state and does not report process PIDs or start timestamps.
 </Callout>
 
 ## Viewing job logs
 
-Use `raft logs` to retrieve standard output and standard error recorded by the guest journal:
+Retrieve output recorded in the guest systemd journal:
 
 ```sh title="CONTROLLER: Retrieve job log output"
 raft logs "$box" "$job"
 ```
 
-The command executes `journalctl --no-pager -o cat -u <job>` inside the container, printing existing journal records. It outputs recorded logs without a pager and without streaming or follow mode.
+The command runs `journalctl --no-pager -o cat -u <job>` inside the container. It prints recorded logs without a pager or stream follow mode.
 
 ## Cancelling jobs
 
-To terminate a running detached command, use `raft cancel`:
+Terminate a running detached command:
 
 ```sh title="CONTROLLER: Terminate background job"
 raft cancel "$box" "$job"
 ```
 
-`raft cancel` calls `systemctl stop <job>`, cleanly terminating processes within the job's systemd control group.
+`raft cancel` executes `systemctl stop <job>`, terminating processes in the job's systemd control group.
 
 ## Extending workspace lifetime
 
 <Callout type="warn" title="No process checkpointing">
-Stopping a workspace with `raft stop` or allowing its TTL to expire terminates all running background jobs. Raft does not freeze or checkpoint running process memory.
+Stopping a workspace with `raft stop` or allowing its TTL to expire terminates all running background jobs. Raft does not checkpoint running process memory.
 </Callout>
 
-If a detached job requires additional time to finish, use `raft extend` before the workspace expires:
+Extend the workspace lifetime before it expires:
 
 ```sh title="CONTROLLER: Reset workspace expiration"
 raft extend "$box" --ttl 1800
 ```
 
-`raft extend` resets the container expiration deadline to `now + TTL` seconds. It calculates the new deadline from the current host timestamp; it does not append time to the existing deadline.
+`raft extend` resets the container expiration deadline to `now + TTL` seconds using the host clock. It does not add time to the existing deadline.

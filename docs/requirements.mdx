@@ -5,7 +5,7 @@ description: Hardware, operating system, network, and tool requirements for runn
 
 # System requirements
 
-Raft coordinates unprivileged Linux system containers across two environments: dedicated workspace hosts running Incus, and a controller machine running the Raft CLI.
+Raft coordinates unprivileged Linux containers across two environments: dedicated Incus workspace hosts, and a controller running the Raft CLI.
 
 ## Workspace host requirements
 
@@ -19,21 +19,21 @@ Each workspace host must be a dedicated physical machine or virtual instance:
 | **RAM** | At least 8 GiB | Sizing calculations reserve the larger of 2 GiB or 10% of host RAM (an advisory estimate, not an enforced host reservation). |
 | **Free disk** | At least 80 GiB on host disk | The deployer provisions a 60 GiB dedicated Btrfs pool (`raft-data`). |
 
-Resource reserves for host CPU and RAM are advisory estimates used by `raft limits` capacity calculations, not enforced host reservations or cgroup locks.
+Host CPU and RAM reserves are advisory estimates for `raft limits`, not enforced cgroup locks.
 
 <Callout type="warn" title="Dedicated host requirement">
-Do not deploy Raft on a host with existing production Incus storage pools or shared virtualization workloads. The deployment configures dedicated nftables rules, storage pools, and system services for Raft.
+Do not deploy Raft on hosts with existing Incus storage pools or shared virtualization workloads. Deployment configures dedicated nftables rules, storage pools, and system services.
 </Callout>
 
 ### Host access and permissions
 
-- **SSH access**: You must have SSH access to the host as a user with passwordless `sudo` privileges (`sudo -n true`).
-- **Single-operator security model**: Sudo privileges on the host grant full root access. Deploy only on hardware and networks you trust.
-- **Network connectivity**: Hosts require outbound internet access to download Debian packages, Incus release packages, and container images. Inbound SSH (default port 22 or configured port) is required from your controller. No public Incus listener or cloud management account is needed.
+- **SSH access**: SSH access with passwordless `sudo` (`sudo -n true`).
+- **Security model**: Single operator with root access. Deploy only on trusted hardware and networks.
+- **Network connectivity**: Outbound internet for Debian packages, Incus releases, and container images. Inbound SSH from the controller. No public Incus listener or cloud account needed.
 
 ## Controller machine requirements
 
-The controller is your local workstation, developer machine, or continuous integration runner:
+The controller is your local workstation, developer machine, or CI runner:
 
 | Component | Requirement | Notes |
 | :--- | :--- | :--- |
@@ -44,4 +44,4 @@ The controller is your local workstation, developer machine, or continuous integ
 
 ## Next step
 
-Proceed to [Installation and setup](./operations.mdx) to install the CLI, configure host inventory, provision Incus, and acquire a workspace image.
+Proceed to [Installation and setup](./operations.mdx) to install the CLI, configure inventory, provision Incus, and acquire a workspace image.

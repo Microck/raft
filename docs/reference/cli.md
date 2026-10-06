@@ -5,14 +5,14 @@ description: Complete command-line reference for the Raft controller CLI.
 
 # CLI command reference
 
-This document describes all subcommands, arguments, and options provided by the `raft` command-line tool.
+Command-line reference for the `raft` controller tool.
 
-Every command follows the format:
+Syntax:
 ```text
 raft <subcommand> [options] [arguments]
 ```
 
-Workspaces are referenced by location-qualified handles in the format `<location>:<instance-name>`, such as `lab:rf-a1b2c3d4e5f60718`.
+Workspaces are referenced by location-qualified handles formatted as `<location>:<instance-name>` (for example `lab:rf-a1b2c3d4e5f60718`).
 
 ## Workspace lifecycle commands
 
@@ -24,12 +24,12 @@ Create and launch a new workspace container.
 raft new [--location LOCATION] [--ttl TTL] [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB}]
 ```
 
-- `--location LOCATION`: Target host location defined in `~/.config/raft/incus.json`. Defaults to the first configured location.
-- `--ttl TTL`: Initial lifetime in seconds before the container automatically stops. Accepts values from `60` to `2592000` (30 days). Defaults to `600` (10 minutes).
-- `--cpu {1,2}`: CPU core count and affinity managed by Incus. Defaults to `1`.
-- `--memory {1GiB,2GiB,4GiB}`: Memory limit for the container. Defaults to `2GiB`.
+- `--location LOCATION`: Target host location in `~/.config/raft/incus.json`. Defaults to first configured location.
+- `--ttl TTL`: Lifetime in seconds before automatic stop (`60` to `2592000`). Default: `600`.
+- `--cpu {1,2}`: CPU core count managed by Incus. Default: `1`.
+- `--memory {1GiB,2GiB,4GiB}`: Memory limit. Default: `2GiB`.
 
-Returns the qualified workspace handle (for example `lab:rf-a1b2c3d4e5f60718`).
+Returns the qualified workspace handle.
 
 ### `stop`
 
@@ -39,27 +39,27 @@ Stop a running workspace.
 raft stop <box>
 ```
 
-Terminates all guest processes and stops the container. Filesystem contents, installed packages, and snapshots are preserved on disk. Does not delete the container.
+Terminates guest processes and stops the container. Filesystem contents, packages, and snapshots are preserved on disk.
 
 ### `resume`
 
-Start a previously stopped workspace with a renewed lifetime deadline.
+Start a stopped workspace with a renewed lifetime deadline.
 
 ```text
 raft resume <box> --ttl TTL
 ```
 
-- `--ttl TTL`: Lifetime in seconds from the time of resumption. Required. Accepts values from `60` to `2592000`.
+- `--ttl TTL`: Lifetime in seconds from resumption (`60` to `2592000`). Required.
 
 ### `extend`
 
-Reset the expiration deadline for a currently running workspace without restarting it.
+Reset the expiration deadline for a running workspace without restarting it.
 
 ```text
 raft extend <box> --ttl TTL
 ```
 
-- `--ttl TTL`: New lifetime in seconds from the current host timestamp. Required.
+- `--ttl TTL`: Lifetime in seconds from the current host timestamp. Required.
 
 ### `destroy`
 
@@ -69,7 +69,7 @@ Permanently delete a workspace container and its snapshots.
 raft destroy <box>
 ```
 
-Stops the container if currently running, deletes all associated Btrfs snapshots, and releases storage on the host.
+Stops the container if running, removes all associated Btrfs snapshots, and releases host storage.
 
 ## Execution and inspection commands
 
@@ -81,43 +81,37 @@ Execute a command inside a workspace.
 raft exec <box> [--detach] [--] <command ...>
 ```
 
-- `--detach`: Run the command in the background as a guest systemd unit. Returns a job identifier immediately.
-- `<command ...>`: The command and its arguments. Arguments following `--` are passed directly to `execve`. For shell syntax (pipes, redirects, environment variables), wrap with `bash -lc '...'`.
+- `--detach`: Run in background as a guest systemd unit. Returns a job ID immediately.
+- `<command ...>`: Command and arguments passed to `execve`. For shell features (pipes, redirects, variables), wrap with `bash -lc '...'`.
 
-Example running a detached job:
+Example:
 ```sh
 job=$(raft exec "$box" --detach -- make test)
 ```
 
 ### `ssh`
 
-Open an interactive root terminal session inside the workspace.
+Open an interactive root terminal session inside the workspace over host SSH and Incus exec.
 
 ```text
 raft ssh <box>
 ```
 
-Allocates a pseudo-terminal (PTY) over host SSH and Incus exec. Does not expose a guest SSH port.
-
 ### `info`
 
-Display detailed metadata for a workspace.
+Display container metadata from Incus in JSON format, including status, IP addresses, resource limits, and timestamps.
 
 ```text
 raft info <box>
 ```
 
-Outputs JSON-formatted container metadata from Incus, including status, IP addresses, CPU and memory limits, and creation timestamps.
-
 ### `usage`
 
-Display active resource consumption for a running workspace.
+Display active resource consumption for a running workspace: cgroup memory, CPU microseconds, CPU affinity, and shared-pool disk space.
 
 ```text
 raft usage <box>
 ```
-
-Reports cgroup memory consumption, cumulative CPU microseconds, effective CPU affinity, and shared-pool disk space. Requires a running container.
 
 ## Background job commands
 
@@ -129,33 +123,29 @@ Check the execution state of a detached background job.
 raft status <box> <job>
 ```
 
-Queries `systemctl show` inside the container and outputs `ActiveState`, `SubState`, and `ExecMainStatus`. Does not report PID or process start times.
+Queries `systemctl show` inside the container and outputs `ActiveState`, `SubState`, and `ExecMainStatus`.
 
 ### `logs`
 
-Retrieve standard output and standard error from a detached background job.
+Retrieve journal output from a detached background job using `journalctl --no-pager -o cat -u <job>`.
 
 ```text
 raft logs <box> <job>
 ```
 
-Prints recorded journal output from the guest systemd unit using `journalctl --no-pager -o cat -u <job>`. Outputs existing records without a pager and without streaming or follow mode.
-
 ### `cancel`
 
-Terminate a running detached background job.
+Terminate a running detached background job using `systemctl stop <job>`.
 
 ```text
 raft cancel <box> <job>
 ```
 
-Calls `systemctl stop <job>`, terminating processes within the job's systemd control group.
-
 ## File transfer commands
 
 ### `upload`
 
-Transfer a local file from the controller to a path inside the workspace.
+Transfer a local file from the controller to an absolute path inside the workspace.
 
 ```text
 raft upload <box> <source> <destination>
@@ -166,7 +156,7 @@ raft upload <box> <source> <destination>
 
 ### `download`
 
-Transfer a file from the workspace to the local controller.
+Transfer a file from an absolute path inside the workspace to the local controller.
 
 ```text
 raft download <box> <source> <destination>
@@ -179,17 +169,15 @@ raft download <box> <source> <destination>
 
 ### `snapshot`
 
-Create a named point-in-time snapshot of a stopped workspace.
+Create a named point-in-time snapshot of a stopped workspace. Names use alphanumeric characters, underscores, or hyphens up to 64 characters.
 
 ```text
 raft snapshot <box> <name>
 ```
 
-The workspace must be stopped before creating a snapshot. Snapshot names must use letters, digits, underscores, or hyphens up to 64 characters.
-
 ### `snapshots`
 
-List all existing snapshots for a workspace.
+List existing snapshots and creation timestamps for a workspace.
 
 ```text
 raft snapshots <box>
@@ -197,64 +185,60 @@ raft snapshots <box>
 
 ### `restore`
 
-Roll back a stopped workspace filesystem to a named snapshot.
+Roll back a stopped workspace filesystem to a named snapshot using `--diskonly`, preserving container configuration and MAC address.
 
 ```text
 raft restore <box> <name>
 ```
 
-Replaces disk contents with snapshot state while preserving the container instance configuration and network MAC address.
-
 ### `fork`
 
-Clone a stopped workspace into an independent container on the same host.
+Clone a stopped workspace into an independent container on the same host and start it.
 
 ```text
 raft fork <box> --ttl TTL
 ```
 
-- `--ttl TTL`: Lifetime in seconds for the newly created clone. Required.
+- `--ttl TTL`: Lifetime in seconds for the clone. Required.
 
-Returns the qualified handle of the newly created clone.
+Returns the qualified handle of the clone.
 
 ## Port forwarding and desktop commands
 
 ### `forward`
 
-Open a private SSH tunnel between the controller and a service inside the workspace.
+Open a private SSH tunnel between a guest port and controller loopback (`127.0.0.1`).
 
 ```text
 raft forward <box> --remote REMOTE --local LOCAL
 ```
 
-- `--remote REMOTE`: Port number inside the workspace. The service must be listening on the container's network interface or `0.0.0.0`.
-- `--local LOCAL`: Port number on the controller loopback interface (`127.0.0.1`).
+- `--remote REMOTE`: Port number inside the workspace (bound to `0.0.0.0` or container IP).
+- `--local LOCAL`: Port number on controller loopback (`127.0.0.1`).
 
-Runs in the foreground. Press `Ctrl+C` to close the tunnel.
+Runs in foreground; press `Ctrl+C` to close.
 
 ### `desktop`
 
-Launch the graphical desktop stack inside the container and open a private tunnel.
+Start `raft-desktop.service` inside the container and open a private tunnel for noVNC.
 
 ```text
 raft desktop <box> [--local LOCAL]
 ```
 
-- `--local LOCAL`: Controller port to bind for the noVNC client. Defaults to `6080`.
-
-Access the desktop in a local browser at `http://127.0.0.1:<LOCAL>/vnc.html`. Press `Ctrl+C` to disconnect.
+- `--local LOCAL`: Controller port to bind (default: `6080`). Access at `http://127.0.0.1:<LOCAL>/vnc.html`. Press `Ctrl+C` to close.
 
 ## Backup and recovery commands
 
 ### `backup`
 
-Export a stopped workspace and all its snapshots into a compressed archive.
+Export a stopped workspace and its snapshots to a compressed archive on the controller.
 
 ```text
 raft backup <box> <destination>
 ```
 
-- `<destination>`: Path to output archive (e.g. `./workspace.tar.gz`). Must not already exist. Created with mode `0600`.
+- `<destination>`: Output archive path (e.g. `./workspace.tar.gz`). Must not exist. Created with mode `0600`.
 
 ### `recover`
 
@@ -264,8 +248,8 @@ Import a portable backup archive onto a host as a fresh stopped workspace.
 raft recover <source> --location LOCATION
 ```
 
-- `<source>`: Path to local archive file on controller.
-- `--location LOCATION`: Target host location where the archive will be imported. Required.
+- `<source>`: Path to archive file on controller.
+- `--location LOCATION`: Target host location. Required.
 
 Returns the qualified handle of the imported stopped workspace.
 
@@ -279,18 +263,16 @@ Inspect host resource capacity, active allocations, and recommended workspace li
 raft limits [--location LOCATION] [--json]
 ```
 
-- `--location LOCATION`: Filter report to a specific host. If omitted, reports all configured locations.
-- `--json`: Output results as JSON.
+- `--location LOCATION`: Filter report to a specific host.
+- `--json`: Output report as JSON.
 
 ### `doctor`
 
-Inspect host connectivity, Incus project status, active systemd units, and storage pools.
+Inspect host connectivity, Incus version, active systemd units (`incus`, `raft-expire.timer`, `raft-network.service`), root filesystem usage, storage pool status, and saved box count across configured hosts.
 
 ```sh
 raft doctor
 ```
-
-Iterates over all configured locations and outputs Incus version, active state of host systemd units (`incus`, `raft-expire.timer`, `raft-network.service`), root filesystem usage (`df -h /`), `raft-data` pool information, and saved box count.
 
 ### `list`
 
@@ -300,14 +282,10 @@ List existing workspace containers across configured hosts.
 raft list [--location LOCATION]
 ```
 
-Lists workspaces across all configured locations unless `--location` is specified.
-
 ### `gc`
 
-Trigger the host expiration worker immediately.
+Trigger the host expiration worker across all configured hosts immediately to stop expired containers.
 
 ```sh
 raft gc
 ```
-
-Runs the expiration worker across all configured locations. Checks running workspace lifetimes and transitions expired containers to stopped state.
