@@ -2,7 +2,7 @@
 
 ## Requirements
 
-Use a dedicated ARM64 Ubuntu 22.04 Linux host with systemd, SSH access,
+Use a dedicated ARM64 or AMD64 Ubuntu 22.04/24.04 Linux host with systemd, SSH access,
 passwordless sudo, at least 2 CPUs, 8 GiB RAM and sufficient free disk. Reserve
 at least 80 GiB for the 60 GiB workspace pool, image cache and build artifacts.
 Image builds use 2 CPUs and 4 GiB RAM. The deployment is single-operator software.
@@ -49,12 +49,18 @@ The builder downloads a public `images:debian/13` container image, installs the
 development tools and publishes local alias `raft-dev`. It prints the base and
 resulting image fingerprints. Put the full resulting fingerprint into the
 location's `image` field. Do not use an alias in the controller configuration.
-Build each host's image separately. No prebuilt Raft image is published.
+The builder selects the host's native architecture automatically. ARM64 uses
+Node's `arm64` archive; AMD64 uses `x64`. Cross-architecture emulation is not
+supported. Build each host's image separately. Native image CI builds both ARM64 and AMD64 templates. Successful runs attach
+seven-day image artifacts and boot reports; validation status is recorded in
+[boot performance](boot-performance.md).
 
 A successful build removes its builder. Failed builds retain `raft-builder` for
-diagnosis. An existing `raft-dev` alias is rejected; inspect it and replace it
-explicitly when rebuilding. Package inventories are in `/opt/raft/` inside guests.
-The build has no operator credentials. Third-party tools retain their licenses.
+diagnosis. An existing `raft-dev` alias is rejected. Use `--alias raft-dev-next` to build
+a separate candidate without replacing a pinned image. Package inventories are in `/opt/raft/` inside guests.
+The build has no operator credentials. It omits coding-agent packages; install
+your preferred agent inside a workspace when needed. Guest SSH uses a fresh
+Ed25519 host key. Third-party tools retain their licenses.
 
 ```sh
 raft doctor

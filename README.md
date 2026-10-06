@@ -16,7 +16,7 @@
 control, with command execution, Docker, file transfer, snapshots, forks and a
 private desktop. Raft is not affiliated with Boat.
 
-the current runtime uses unprivileged ARM64 Incus system containers that share
+the current runtime uses unprivileged native-architecture Incus system containers that share
 the host kernel. KVM virtual machines and complete Boat feature parity are not
 implemented. the table below lists what is available.
 
@@ -29,7 +29,7 @@ configuring SSH, provisioning Incus and building your image.
 
 | requirement | minimum |
 | --- | --- |
-| host | dedicated ARM64 Ubuntu 22.04, 2 CPUs, 8 GiB RAM, 80 GiB free disk |
+| host | dedicated ARM64 or AMD64 Ubuntu host, 2 CPUs, 8 GiB RAM, 80 GiB free disk |
 | host access | SSH and passwordless sudo |
 | controller | Linux, Python 3.11+, uv, SSH and SCP |
 
@@ -78,7 +78,7 @@ records limits and test coverage.
 | File upload/download | ✅ | Individual files |
 | Snapshots and same-host forks | ✅ | Stopped source |
 | Portable backup/recovery | ✅ | Manual archive storage |
-| Docker and development tools | ✅ | ARM64; not exact Boat tool versions |
+| Docker and development tools | ✅ | Native ARM64/AMD64 recipes; see image verification |
 | Private port forwarding | ✅ | Local SSH tunnel |
 | Desktop access | ✅ | noVNC; see verification limits |
 | Recursive SCP and reverse forwarding | ❌ | Not implemented |

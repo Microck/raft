@@ -43,7 +43,8 @@ def main():
     if len(bases) != 1:
         raise RuntimeError("Expected exactly one native Debian 13 default container image")
     fingerprint = bases[0]["fingerprint"]
-    remote(host, prefix + " image copy images:" + fingerprint + " local:")
+    # Incus --project selects the source project; the destination must be explicit.
+    remote(host, prefix + " image copy images:" + fingerprint + " local: --target-project raft")
     print("Published base fingerprint: " + fingerprint, flush=True)
     remote(
         host,

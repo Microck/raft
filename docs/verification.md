@@ -99,4 +99,5 @@ controller configuration, workspace archives or guest journals.
 
 Local packaging, Python 3.11/3.14 compilation, Ruff, shell syntax and skill
 validation passed. A clean wheel install and CLI execution were checked outside
-the worktree. The public GitHub workflow is prepared but has not run on GitHub.
+the worktree. The public package workflow passed on Python 3.11 and 3.14. Native image
+validation and startup measurements are recorded in [boot performance](boot-performance.md).

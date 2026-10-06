@@ -5,8 +5,8 @@ description: Create and use private persistent Linux workspaces on configured Li
 
 # Raft
 
-Raft runs unprivileged ARM64 Incus system containers. They share the host kernel.
-The current deployment does not implement Incus VMs. Do not describe these boxes as VMs or promise x86 compatibility.
+Raft runs unprivileged native ARM64 or AMD64 Incus system containers. They share the host kernel.
+The current deployment does not implement Incus VMs. Do not describe these boxes as VMs or promise cross-architecture emulation.
 
 Run `raft doctor` and `raft list` before allocating. Keep the exact
 location-qualified handle returned by `new`. There is no implicit current box.
@@ -20,8 +20,8 @@ raft destroy "$box"
 
 The default development image has systemd, a guest Docker daemon, Node/npm/pnpm,
 Bun, Deno, Python/pip/venv/uv, Go, Rust, Java, Kotlin, Scala, Ruby, PHP,
-Erlang/Elixir, .NET, R, C/C++ tools, Git, Chromium and FFmpeg. Claude, Codex,
-Pi and OpenCode are installed; authentication is separate. Never copy host
+Erlang/Elixir, .NET, R, C/C++ tools, Git, Chromium and FFmpeg. Coding agents are not included in new images; install
+your preferred agent when needed and authenticate separately. Never copy host
 credentials into a box without authorization. Inspect `/opt/raft/` inside the
 box for recorded package versions. Do not assume every language has every
 version manager or that agents have an authenticated account.

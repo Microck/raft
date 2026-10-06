@@ -1,0 +1,80 @@
+# Native images and boot performance
+
+Raft builds Debian 13 system-container images for native ARM64 and AMD64 hosts.
+The installer, base-image selection and Node archive follow the host package
+architecture. These are separate image fingerprints, not emulation or a single
+architecture-independent root filesystem.
+
+## Build and verify
+
+Use the normal image builder on each native host. To keep an existing image,
+pass a fresh alias such as `--alias raft-dev-next`. Creating the candidate does
+not change the immutable fingerprint in your controller configuration.
+
+The [native images workflow](../.github/workflows/images.yml) runs on GitHub's
+native `ubuntu-24.04` and `ubuntu-24.04-arm` VMs. It builds each image, runs the
+extended lifecycle suite and all 31 development-tool checks, measures startup
+and exports the clean template with SHA256 checksums. Successful runs attach
+seven-day artifacts named `raft-dev-amd64` and `raft-dev-arm64`. GitHub artifact
+downloads require a GitHub login. These are CI artifacts, not a stable release
+channel. Each archive must be imported into a host of the same architecture.
+
+The CI fixture uses a sparse Btrfs pool on an ephemeral VM. It does not certify
+the production deployer's 80 GiB free-space preflight or fresh-host provisioning.
+The builder omits coding-agent binaries. Existing pinned images retain their
+previous contents until you explicitly select another fingerprint.
+
+## Benchmark method
+
+```sh
+python3 deploy/benchmark-boot.py --location lab --samples 5 --desktop > boot.json
+```
+
+The benchmark creates and destroys only its own boxes. Each sample measures new
+creation, then stops and resumes that same box. Guests have one CPU and 2 GiB RAM.
+It reports CLI return, successful command execution and a successful Docker API
+response, all measured from the start of the controller request. Desktop timing
+starts with its separate on-demand request and requires both noVNC HTTP and a
+real VNC protocol greeting. The report includes median, minimum, maximum and
+nearest-rank p95, SSH round-trip time, image size and systemd's boot critical chain.
+
+The image is already downloaded. A first use can still unpack Incus's optimized
+storage volume; newer reports record whether that volume exists at the start.
+These numbers do not measure image download, a hard host reboot, process-memory
+restoration or remote browser rendering. Small samples are exploratory; p95
+from three or five samples is effectively their maximum.
+
+## Baseline measured on 2026-10-06
+
+These are three-sample medians from two ARM64 hosts with two host CPUs. Both
+already had their optimized image volumes. Anonymous reports retain the raw
+samples: [host A](benchmarks/arm64-baseline-a.json) and
+[host B](benchmarks/arm64-baseline-b.json).
+
+| Controller-visible operation | ARM64 host A | ARM64 host B |
+| --- | ---: | ---: |
+| Create returns handle | 0.864 s | 2.906 s |
+| Create accepts a command | 1.918 s | 6.936 s |
+| Create has Docker ready | 3.941 s | 10.753 s |
+| Resume returns | 1.056 s | 3.889 s |
+| Resume accepts a command | 1.851 s | 8.213 s |
+| Resume has Docker ready | 3.917 s | 11.653 s |
+| Desktop starts after create | 2.602 s | 7.631 s |
+| Desktop starts after resume | 2.430 s | 7.669 s |
+| Separate host SSH request | 0.397 s | 3.556 s |
+
+Different transport latency dominates much of this difference. It is not an
+ARM64 versus AMD64 comparison. A host in a different network or a GitHub runner
+is not a matched hardware benchmark. No hosted Boat speed comparison was run.
+
+## Changes under validation
+
+- Only the advertised Ed25519 SSH host key is generated on first boot. The
+  baseline generated unused RSA and ECDSA keys too; host A's SSH unit took 1.898 s.
+- Desktop startup waits for a real X server response instead of sleeping for a
+  fixed second. It still fails explicitly if Xvfb never becomes ready.
+- Coding-agent packages are omitted from new images. This should reduce image
+  transfer and first-unpack work; boot improvement must be measured separately.
+
+Native CI and the new image comparison are in progress. Do not infer AMD64 E2E
+coverage or a startup speedup from the image recipe alone.

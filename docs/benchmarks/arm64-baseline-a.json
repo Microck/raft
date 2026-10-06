@@ -1,0 +1,108 @@
+{
+  "hostArchitecture": "aarch64",
+  "hostCpus": 2,
+  "guestCpus": 1,
+  "guestMemory": "2GiB",
+  "sshRoundTripSeconds": 0.397,
+  "scope": "Cached local image; includes controller CLI and SSH; no host reboot or download",
+  "samples": [
+    {
+      "create": {
+        "cliReturnSeconds": 0.844,
+        "commandReadySeconds": 2.591,
+        "dockerReadySeconds": 4.36,
+        "desktopStartSeconds": 2.888
+      },
+      "resume": {
+        "cliReturnSeconds": 1.547,
+        "commandReadySeconds": 3.907,
+        "dockerReadySeconds": 4.959,
+        "desktopStartSeconds": 2.305
+      }
+    },
+    {
+      "create": {
+        "cliReturnSeconds": 0.978,
+        "commandReadySeconds": 1.918,
+        "dockerReadySeconds": 3.941,
+        "desktopStartSeconds": 2.602
+      },
+      "resume": {
+        "cliReturnSeconds": 1.0,
+        "commandReadySeconds": 1.804,
+        "dockerReadySeconds": 3.917,
+        "desktopStartSeconds": 2.492
+      }
+    },
+    {
+      "create": {
+        "cliReturnSeconds": 0.864,
+        "commandReadySeconds": 1.724,
+        "dockerReadySeconds": 3.768,
+        "desktopStartSeconds": 2.511
+      },
+      "resume": {
+        "cliReturnSeconds": 1.056,
+        "commandReadySeconds": 1.851,
+        "dockerReadySeconds": 3.296,
+        "desktopStartSeconds": 2.43
+      }
+    }
+  ],
+  "guestArchitecture": "arm64",
+  "imageSizeBytes": 2626705196,
+  "summary": {
+    "create": {
+      "cliReturnSeconds": {
+        "median": 0.864,
+        "min": 0.844,
+        "max": 0.978,
+        "p95": 0.978
+      },
+      "commandReadySeconds": {
+        "median": 1.918,
+        "min": 1.724,
+        "max": 2.591,
+        "p95": 2.591
+      },
+      "dockerReadySeconds": {
+        "median": 3.941,
+        "min": 3.768,
+        "max": 4.36,
+        "p95": 4.36
+      },
+      "desktopStartSeconds": {
+        "median": 2.602,
+        "min": 2.511,
+        "max": 2.888,
+        "p95": 2.888
+      }
+    },
+    "resume": {
+      "cliReturnSeconds": {
+        "median": 1.056,
+        "min": 1.0,
+        "max": 1.547,
+        "p95": 1.547
+      },
+      "commandReadySeconds": {
+        "median": 1.851,
+        "min": 1.804,
+        "max": 3.907,
+        "p95": 3.907
+      },
+      "dockerReadySeconds": {
+        "median": 3.917,
+        "min": 3.296,
+        "max": 4.959,
+        "p95": 4.959
+      },
+      "desktopStartSeconds": {
+        "median": 2.43,
+        "min": 2.305,
+        "max": 2.492,
+        "p95": 2.492
+      }
+    }
+  }
+}

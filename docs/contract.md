@@ -56,8 +56,9 @@ Incus virtual machines require usable KVM and are not silently substituted.
 - Desktop is an on-demand Xvfb/Openbox/noVNC stack. Its dedicated X display
   has no login manager; clipboard exchange is available without a login-manager delay. Closing its tunnel does not
   stop the desktop service. It is full desktop access, not browser confinement.
-- Coding-agent binaries are installed without account credentials. Managed agent
-  orchestration is not implemented.
+- The development image omits coding-agent packages and account credentials.
+  Operators can install their preferred agent. Managed agent orchestration is
+  not implemented. Guest SSH advertises a fresh Ed25519 host key.
 - `cancel` stops an ordinary detached command's systemd control group.
 - `usage` reports running-guest cgroup memory, cumulative CPU microseconds,
   effective CPU affinity and shared-pool filesystem space. Disk values are not
