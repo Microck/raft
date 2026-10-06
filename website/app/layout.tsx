@@ -4,13 +4,19 @@ import localFont from 'next/font/local';
 import StaticSearch from '@/components/search';
 import './global.css';
 
-const spaceGrotesk = localFont({
+const inter = localFont({
   src: [
-    { path: '../public/fonts/space-grotesk-regular.woff2', weight: '400', style: 'normal' },
-    { path: '../public/fonts/space-grotesk-medium.woff2', weight: '500', style: 'normal' },
-    { path: '../public/fonts/space-grotesk-bold.woff2', weight: '700', style: 'normal' },
+    { path: '../public/fonts/inter-regular.woff2', weight: '400', style: 'normal' },
+    { path: '../public/fonts/inter-bold.woff2', weight: '700', style: 'normal' },
   ],
-  variable: '--font-space-grotesk',
+  variable: '--font-inter',
+  display: 'swap',
+});
+
+const funnelDisplay = localFont({
+  src: '../public/fonts/funnel-display-regular.woff2',
+  weight: '400',
+  variable: '--font-funnel-display',
   display: 'swap',
 });
 
@@ -22,7 +28,7 @@ export const metadata: Metadata = {
 
 export default function Layout({ children }: LayoutProps<'/'>) {
   return (
-    <html lang="en" className={`dark ${spaceGrotesk.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`dark ${inter.variable} ${funnelDisplay.variable}`} suppressHydrationWarning>
       <body className="flex flex-col min-h-screen">
         <RootProvider search={{ SearchDialog: StaticSearch }} theme={{ forcedTheme: 'dark', enableSystem: false }}>{children}</RootProvider>
       </body>

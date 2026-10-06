@@ -3,7 +3,7 @@
 @import 'fumadocs-ui/css/preset.css';
 
 @theme inline {
-  --font-sans: var(--font-space-grotesk);
+  --font-sans: var(--font-inter);
 }
 
 .dark {
@@ -33,7 +33,7 @@ html {
 }
 
 body {
-  font-family: var(--font-space-grotesk), sans-serif;
+  font-family: var(--font-inter), sans-serif;
   background-color: #000;
   color: #fff;
 }
@@ -56,8 +56,29 @@ body {
 }
 
 .prose h1 {
+  font-family: var(--font-funnel-display), sans-serif;
+  font-size: 2.25rem;
+  font-weight: 400;
+  line-height: 1.2;
   margin-bottom: 1.25rem;
   color: #fff;
+}
+
+.prose h2,
+.prose h3 {
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.prose p,
+.prose li {
+  line-height: 1.65;
+}
+
+.prose figure.shiki,
+.prose table {
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .prose table {

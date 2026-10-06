@@ -91,9 +91,9 @@ try {
   assert.match(headings[0][1], />Raft</, 'Entry page must display the Raft overview heading');
 
   assert.equal(await (await get('/CNAME')).text(), await readFile(new URL('../public/CNAME', import.meta.url), 'utf8'));
-  assert.match(await (await get('/fonts/OFL.txt')).text(), /SIL OPEN FONT LICENSE/);
+  assert.match(await (await get('/fonts/boat-fonts-license.txt')).text(), /SIL OPEN FONT LICENSE/);
   const fonts = new Set([...home.matchAll(/href="([^"]+\.woff2)"/g)].map((match) => match[1]));
-  assert.equal(fonts.size, 3, 'Entry page must preload all three local font weights');
+  assert.equal(fonts.size, 3, 'Entry page must preload Inter body weights and Funnel Display');
   for (const path of fonts) {
     const response = await fetch(`${origin}${path}`, { headers: requestHeaders });
     assert.equal(response.status, 200, `Missing local font: ${path}`);

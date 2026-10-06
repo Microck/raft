@@ -64,7 +64,9 @@ ingress to Raft workspaces.
 
 ## Typography
 
-Space Grotesk is bundled locally in `website/public/fonts/`, with its SIL Open
-Font License in `OFL.txt`. Moji downloaded the regular, medium and bold WOFF2
-files from Fontsource. `next/font/local` loads them without a third-party font request.
-Code blocks keep the monospace font.
+The site follows boat.dev's typography: Funnel Display for page titles and Inter
+for body text. Both fonts are bundled in `website/public/fonts/`, with their SIL
+Open Font Licenses in `boat-fonts-license.txt`. The upright Latin WOFF2 files come
+from Fontsource. `next/font/local` serves them without third-party font requests.
+Code blocks keep the monospace font. The documentation keeps a black background
+and white text, adapting Boat's thin borders and restrained typography to dark mode.
