@@ -35,6 +35,26 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | Storage contract | Disposable oversized pool is rejected without automatic resizing |
 | CLI options and errors | Help for all 26 commands; default location, TTL and desktop port; all six sizing profiles; global and per-location reports; invalid TTLs, sizes, required arguments, handles, paths, snapshot names, jobs and ports |
 
+## Command and option audit (2026-10-06)
+
+<details>
+<summary>Coverage, regressions and remaining limits</summary>
+
+The audit checked help for all 26 commands and expanded the live suites to cover defaults, invalid arguments, manual garbage collection, maximum lifetimes and unknown job IDs. Two ARM64 hosts passed extended lifecycle tests, all six sizing profiles and all 31 development-tool checks.
+
+After the fixes, live lifecycle and same-host recovery passed again. Cross-host recovery passed with a 384,827,472-byte archive. Test boxes and archives were removed without rebooting or reconfiguring the existing hosts.
+
+The audit found and fixed two CLI bugs:
+
+- Unknown background jobs appeared to succeed. Job inspection now distinguishes unknown IDs, loaded jobs and canceled jobs with retained journal entries. Tests cover inspection after cancellation and journal rotation.
+- SSH could report success after a controller write failed. Downloads and backups now copy the stream through Python so local write errors reach the caller. Real `/dev/full` tests verify both receiving paths. The same Incus/SSH producer falsely succeeded with the previous implementation and raised `ENOSPC` with the fix.
+
+This covers implemented workflows and selected option combinations, not every possible workload or environment. A full-image export exceeded the local controller's free disk space and was interrupted. Full-sized archive validation runs on disposable CI hosts with sufficient scratch space.
+
+The [final runtime validation](https://github.com/Microck/raft/actions/runs/37542355027) tests commit `ac618e64`. ARM64 and AMD64 both passed extended lifecycle tests with daemon restarts, capacity transitions and full development-image backup/recovery. [Packaging checks](https://github.com/Microck/raft/actions/runs/37542355021) passed on Python 3.11 and 3.14, and [documentation checks](https://github.com/Microck/raft/actions/runs/37542355020) passed.
+
+</details>
+
 ## Running verification suites
 
 Test commands require configured hosts and immutable image fingerprints. Suites destroy only the fixtures they create.
