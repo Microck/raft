@@ -100,6 +100,39 @@ Disk reporting covers the shared pool, not strict per-workspace quotas.
 Large backup/import operations hold a host-wide lifecycle lock and can delay
 expiry checks; timely TTL enforcement during these operations is not promised.
 
+## Review-fix validation
+
+On 2026-10-06, the extended suite passed on two configured ARM64 hosts after
+redeployment of the review fixes. Each ran all 31 tool checks, six sizing
+combinations and deterministic queued snapshot/restore/fork rejection when a
+source started before its transaction obtained the host lock. Docker, files,
+jobs, private HTTP and desktop access, network restrictions and TTL checks passed.
+A cross-host Debian backup/recovery run passed with a 385,265,470-byte archive,
+including permissions and snapshot rollback. Both hosts had no remaining test
+boxes. These checks did not reboot either host.
+
+The image-inspector suite passed 15 real archive cases, including a generated
+non-root SSH private key, symlinks, hardlinks, FIFO entries and clean controls.
+An isolated network namespace verified initial and repeated firewall application
+while preserving an unrelated chain. Package and documentation-site CI passed
+for the fix commit.
+
+The [review-fix native run](https://github.com/Microck/raft/actions/runs/37496577945)
+passed all native steps on ARM64 and AMD64: development-image builds, extended
+lifecycle with daemon restart, capacity transitions, full-image backup/recovery,
+startup measurements and clean-image inspection. Both architectures passed the
+queued-source race cases. Recovery archives were 3,844,136,311 bytes on ARM64 and
+3,985,872,081 bytes on AMD64.
+
+The same run passed fresh provisioning on a disposable AMD64 KVM host. A repeat
+deploy removed an injected stale allowance, retained an unrelated chain and left
+the Incus daemon start timestamp unchanged. Deliberately failed filtering blocked
+both normal and socket-activated Incus startup. After a real host reboot, timestamp
+assertions proved that filtering became active before Incus started, and guest
+data, snapshots, states, Docker and peer separation passed. A disposable pool
+grown to 61 GiB caused deployment to fail and retained that size. ARM64 host reboot
+and physical disk capacity remain outside this verification.
+
 ## Native image validation
 
 On 2026-10-06, the [native CI run](https://github.com/Microck/raft/actions/runs/37447415532)

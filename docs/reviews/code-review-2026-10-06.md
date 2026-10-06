@@ -131,7 +131,8 @@ scroll within their container rather than widening the mobile page.
 
 The simplification pass ran in the parent context across reuse, quality and
 efficiency. No behavior-preserving refactor was warranted. No runtime review
-finding above was fixed, and no workspace host was modified by site checks.
+finding above was fixed at that stage, and site checks did not modify
+workspace hosts.
 
 ## Runtime-fix follow-up
 
@@ -151,8 +152,17 @@ The extended lifecycle suite passed on two configured ARM64 hosts. Each complete
 all 31 developer-tool checks, six sizing combinations, the deterministic race
 cases, Docker, files, jobs, snapshots, forks, restore, private tunnels, desktop,
 network restrictions and scheduled TTL stop/resume. Each removed its fixtures.
-Lint, formatting, compilation and release archive/privacy checks passed.
+A cross-host control run also passed portable backup/recovery, snapshot rollback,
+permissions, cancellation and usage checks with a 385,265,470-byte archive.
+Both hosts had zero remaining test boxes afterward. Lint, formatting, compilation
+and release archive/privacy checks passed.
 
-Native ARM64/AMD64 rebuilds and fresh-host failure/reboot/storage checks run in CI.
-Their final result is recorded after the workflow completes; local ARM64 checks
-alone do not certify the disposable-host behavior.
+The [fix verification run](https://github.com/Microck/raft/actions/runs/37496577945)
+passed native ARM64 and AMD64 builds, extended lifecycle with daemon restart,
+capacity transitions, full development-image backup/recovery, startup measurements
+and clean image inspection for commit `27b08c143dc1837d9cfb95f3c3a784318879b284`.
+The disposable AMD64 KVM host passed stale-rule removal without an Incus restart,
+failed-firewall rejection for normal and socket startup, real host reboot with
+filtering before Incus, and rejection of a 61 GiB pool without resizing it.
+ARM64 host reboot remains unverified. Package and documentation-site workflows
+also passed. No published release assets or configured image fingerprints changed.
