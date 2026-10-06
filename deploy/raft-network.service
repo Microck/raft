@@ -1,0 +1,11 @@
+[Unit]
+Description=Private Raft bridge firewall rules
+After=network-online.target docker.service incus.service
+Wants=network-online.target
+Before=raft-expire.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/raft/network
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+[Unit]
+Description=Private Raft desktop on demand
+After=network.target
+[Service]
+ExecStart=/usr/local/bin/raft-desktop
+Restart=on-failure
+KillMode=control-group

@@ -1,0 +1,8 @@
+[Unit]
+Description=Stop expired Raft workspaces and retain their disks
+After=incus.service
+Requires=incus.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock /run/lock/raft-incus.lock /usr/local/lib/raft/expire-worker
+TimeoutStartSec=180

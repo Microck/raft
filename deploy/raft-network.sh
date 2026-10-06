@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+iptables -N RAFT-INPUT 2>/dev/null || true
+iptables -F RAFT-INPUT
+iptables -A RAFT-INPUT -p udp --dport 67 -j ACCEPT
+iptables -A RAFT-INPUT -d 10.232.0.1 -p udp --dport 53 -j ACCEPT
+iptables -A RAFT-INPUT -d 10.232.0.1 -p tcp --dport 53 -j ACCEPT
+iptables -A RAFT-INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A RAFT-INPUT -j REJECT
+iptables -C INPUT -i rfbr0 -j RAFT-INPUT 2>/dev/null || iptables -I INPUT 1 -i rfbr0 -j RAFT-INPUT
+iptables -N RAFT-FORWARD 2>/dev/null || true
+iptables -F RAFT-FORWARD
+for subnet in 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16; do
+  iptables -A RAFT-FORWARD -d "$subnet" -j REJECT
+ done
+iptables -A RAFT-FORWARD -j ACCEPT
+iptables -C FORWARD -i rfbr0 -j RAFT-FORWARD 2>/dev/null || iptables -I FORWARD 1 -i rfbr0 -j RAFT-FORWARD
+iptables -C FORWARD -o rfbr0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -I FORWARD 1 -o rfbr0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+iptables -C FORWARD -o rfbr0 -m conntrack --ctstate NEW -j REJECT 2>/dev/null || iptables -I FORWARD 1 -o rfbr0 -m conntrack --ctstate NEW -j REJECT
+# IPv6 is not provided on this bridge; reject link-local peer traffic too.
+ip6tables -C INPUT -i rfbr0 -j REJECT 2>/dev/null || ip6tables -I INPUT 1 -i rfbr0 -j REJECT
+ip6tables -C FORWARD -i rfbr0 -j REJECT 2>/dev/null || ip6tables -I FORWARD 1 -i rfbr0 -j REJECT
+ip6tables -C FORWARD -o rfbr0 -j REJECT 2>/dev/null || ip6tables -I FORWARD 1 -o rfbr0 -j REJECT
