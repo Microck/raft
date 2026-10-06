@@ -24,73 +24,42 @@ implemented. the table below lists what is available.
 
 ## quickstart
 
-use an ARM64 Ubuntu host with SSH, passwordless sudo, at least 2 CPUs, 8 GiB RAM
-and 80 GiB free disk. the controller requires Python 3.11+, uv, SSH and SCP.
-read [installation and operations](docs/operations.md) before provisioning.
+start with the [setup guide](docs/operations.md). it covers installing the CLI,
+configuring SSH, provisioning Incus and building your image.
+
+| requirement | minimum |
+| --- | --- |
+| host | dedicated ARM64 Ubuntu 22.04, 2 CPUs, 8 GiB RAM, 80 GiB free disk |
+| host access | SSH and passwordless sudo |
+| controller | Linux, Python 3.11+, uv, SSH and SCP |
+
+once your host and image are configured:
 
 ```sh
-uv sync --locked
-uv tool install --editable .
-mkdir -p ~/.config/raft
-cp docs/incus.example.json ~/.config/raft/incus.json
-chmod 600 ~/.config/raft/incus.json
-# Edit the configuration with your own SSH target.
-python3 deploy/deploy.py --location lab
-python3 deploy/build-image.py --location lab
-# Set image to the full development-image fingerprint printed by the builder.
-raft doctor
 box=$(raft new --location lab --ttl 600)
 raft exec "$box" -- node --version
-raft exec "$box" -- docker info
 raft ssh "$box"
 raft stop "$box"
-raft resume "$box" --ttl 600
-raft destroy "$box"
 ```
 
-location names come from configuration and use letters, digits, underscores or
-hyphens. the first configured location is the default. expiration stops processes
-and retains files. `destroy` deletes the workspace and its snapshots. each host
-admits four saved boxes, including stopped boxes.
-
-long backup/import operations serialize host lifecycle changes and delay expiry
-checks on that host. check free space before creating large archives.
+`stop` and expiration retain your files. `resume` starts the box again;
+`destroy` deletes it and its snapshots. each host admits four saved boxes,
+including stopped boxes. location names come from your configuration.
 
 ## image and workspace control
 
-the checked-in builder starts from the public Incus Debian 13 image and installs
-language runtimes, build tools, Docker, Chromium, FFmpeg and an on-demand noVNC
-desktop. it records package inventories under `/opt/raft/`. no prebuilt Raft
-image is distributed. build your own clean image and pin its fingerprint.
-third-party packages retain their own licenses. optional coding-agent binaries
-in the image require separate sign-in; Raft has no managed agent service.
+the image builder starts from public Debian 13 and adds language runtimes,
+build tools, Docker, Chromium, FFmpeg and a noVNC desktop. build your own image
+and pin its fingerprint. no prebuilt Raft image is distributed.
 
-```sh
-box=$(raft new --location lab --ttl 1800)
-job=$(raft exec "$box" --detach -- bash -lc 'echo hello; sleep 600')
-raft status "$box" "$job"
-raft logs "$box" "$job"
-raft cancel "$box" "$job"
-raft extend "$box" --ttl 1800
-raft usage "$box"
-raft upload "$box" ./source.tar /workspace/source.tar
-raft download "$box" /workspace/source.tar ./download.tar
-raft stop "$box"
-raft snapshot "$box" prepared
-copy=$(raft fork "$box" --ttl 600)
-raft desktop "$copy" --local 6080
-# Ctrl+C closes the private tunnel. Open /vnc.html in your browser.
-raft destroy "$copy"
-raft backup "$box" ./workspace.tar.gz
-recovered=$(raft recover ./workspace.tar.gz --location lab)
-raft resume "$recovered" --ttl 600
-raft destroy "$recovered"
-raft destroy "$box"
-```
+see the operations guide for [background jobs and files](docs/operations.md#jobs-and-files),
+[snapshots and forks](docs/operations.md#snapshots-and-forks),
+[private services and desktop access](docs/operations.md#private-services)
+and [backup and recovery](docs/operations.md#backups-and-troubleshooting).
 
-backups include files, secrets and native instance configuration. import only
-trusted exports and store them privately. snapshots and forks require a stopped
-source. stop terminates jobs; it does not checkpoint process memory.
+snapshots and forks require a stopped source. stop terminates jobs without
+saving process memory. backups include guest secrets; keep them private and
+import only trusted exports. long backups can delay host expiry checks.
 
 ## feature parity
 

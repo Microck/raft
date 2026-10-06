@@ -77,6 +77,51 @@ and check expiry every 15 seconds. Stop allows 30 seconds for shutdown. Lifecycl
 operations share `/run/lock/raft-incus.lock`; long backups delay expiry checks.
 Restart and reverify network filtering if other tooling flushes firewall rules.
 
+## Jobs and files
+
+The examples below use a running box handle returned by `raft new`:
+
+```sh
+box=$(raft new --location lab --ttl 1800)
+```
+
+Run a background command, inspect its output and stop it:
+
+```sh
+job=$(raft exec "$box" --detach -- bash -lc 'echo hello; sleep 600')
+raft status "$box" "$job"
+raft logs "$box" "$job"
+raft cancel "$box" "$job"
+```
+
+Extend the running box's deadline without restarting it and inspect resource use:
+
+```sh
+raft extend "$box" --ttl 1800
+raft usage "$box"
+```
+
+Transfer individual files:
+
+```sh
+raft upload "$box" ./source.tar /workspace/source.tar
+raft download "$box" /workspace/source.tar ./download.tar
+```
+
+## Snapshots and forks
+
+Stop the source before saving a snapshot or creating a same-host copy:
+
+```sh
+raft stop "$box"
+raft snapshot "$box" prepared
+copy=$(raft fork "$box" --ttl 600)
+```
+
+The copy runs independently. Destroy it when finished with `raft destroy "$copy"`.
+Restore the stopped original with `raft restore "$box" prepared`. Restore replaces
+its files with snapshot contents and retains its current instance configuration.
+
 ## Private services
 
 `raft forward` connects through the guest's managed network address. Bind the
@@ -84,6 +129,16 @@ service to that address or `0.0.0.0`; a service listening only on guest
 `127.0.0.1` is not reachable through this command. The desktop already listens
 on the guest network interface. The controller-side listener remains loopback
 only. This does not publish a service to the internet.
+
+Start a private desktop tunnel for a running box. If the snapshot example left
+it stopped, first run `raft resume "$box" --ttl 1800`:
+
+```sh
+raft desktop "$box" --local 6080
+```
+
+Open `http://127.0.0.1:6080/vnc.html` in your browser. Ctrl+C closes the tunnel.
+For another service, use `raft forward "$box" --remote 8080 --local 8080`.
 
 ## Backups and troubleshooting
 
