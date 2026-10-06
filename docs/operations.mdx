@@ -127,9 +127,9 @@ Download the release archive, checksum, and manifest from [Raft releases](https:
 <Tab value="ARM64">
 
 ```sh title="HOST (ARM64): Download, verify, and import release image"
-curl -fsSL -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' -O https://github.com/Microck/raft/releases/download/v0.1.0/raft-dev-arm64.tar.gz
-curl -fsSL -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' -O https://github.com/Microck/raft/releases/download/v0.1.0/SHA256SUMS
-curl -fsSL -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' -O https://github.com/Microck/raft/releases/download/v0.1.0/manifest-arm64.json
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/raft-dev-arm64.tar.gz
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/SHA256SUMS
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/manifest-arm64.json
 
 sha256sum --ignore-missing -c SHA256SUMS && \
   sudo incus --project raft image import ./raft-dev-arm64.tar.gz --alias raft-dev
@@ -140,9 +140,9 @@ sha256sum --ignore-missing -c SHA256SUMS && \
 <Tab value="AMD64">
 
 ```sh title="HOST (AMD64): Download, verify, and import release image"
-curl -fsSL -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' -O https://github.com/Microck/raft/releases/download/v0.1.0/raft-dev-amd64.tar.gz
-curl -fsSL -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' -O https://github.com/Microck/raft/releases/download/v0.1.0/SHA256SUMS
-curl -fsSL -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' -O https://github.com/Microck/raft/releases/download/v0.1.0/manifest-amd64.json
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/raft-dev-amd64.tar.gz
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/SHA256SUMS
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/manifest-amd64.json
 
 sha256sum --ignore-missing -c SHA256SUMS && \
   sudo incus --project raft image import ./raft-dev-amd64.tar.gz --alias raft-dev
