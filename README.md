@@ -62,6 +62,27 @@ snapshots and forks require a stopped source. stop terminates jobs without
 saving process memory. backups include guest secrets; keep them private and
 import only trusted exports. long backups can delay host expiry checks.
 
+## startup performance
+
+measured medians from five runs per architecture on native Ubuntu 24 CI hosts,
+with one CPU and 2 GiB RAM per box and a cached image:
+
+| measurement | ARM64 | AMD64 |
+| --- | ---: | ---: |
+| command ready after create | 0.87 s | 1.38 s |
+| Docker ready after create | 2.28 s | 3.04 s |
+| desktop, after its separate start request | 1.12 s | 1.59 s |
+| compressed development image | 1.79 GiB | 1.86 GiB |
+
+timings depend on hardware, host and guest software, installed services,
+storage, image cache and SSH latency. these include CLI and SSH overhead;
+they exclude downloads and host reboots. a first image unpack can take much
+longer. different runner hardware means this is not proof that ARM64 is faster.
+
+both native images passed E2E and all 31 development-tool checks. see
+[measurements and methodology](docs/boot-performance.md) for raw samples,
+resume timings and the measured image-size and desktop-startup improvements.
+
 ## feature parity
 
 ✅ means Raft implements the workflow, not that its behavior is identical to Boat.
