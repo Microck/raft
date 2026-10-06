@@ -54,9 +54,10 @@ location's `image` field. Do not use an alias in the controller configuration.
 The builder selects the host's native architecture automatically. ARM64 uses
 Node's `arm64` archive; AMD64 uses `x64`. Cross-architecture emulation is not
 supported. Build each host's image separately. Native image CI builds both
-ARM64 and AMD64 templates. Successful runs attach
-versioned [image releases](https://github.com/Microck/raft/releases) and
-seven-day CI artifacts; validation status is recorded in
+ARM64 and AMD64 templates. Successful runs attach seven-day CI artifacts.
+Manual runs with a new release tag also publish permanent
+[image releases](https://github.com/Microck/raft/releases) after fresh-host
+validation; results are recorded in
 [boot performance](boot-performance.md).
 
 A successful build removes its builder. Failed builds retain `raft-builder` for

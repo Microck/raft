@@ -79,8 +79,9 @@ direction also exited 0 with a 385,272,379-byte fixture archive. All fixtures
 from those runs were destroyed.
 
 Tests cannot establish every possible application, package feed or long-running
-workload. Fresh-host provisioning, hard host reboot, host loss, adversarial
-multi-tenant security and exact Boat image/version parity are not certified.
+workload. Host loss, adversarial multi-tenant security and exact Boat
+image/version parity are not certified. ARM64 host reboot and physical disk
+capacity are not certified by the AMD64 VM test described below.
 Containers share the host kernel; these checks do not establish VM isolation.
 Disk reporting covers the shared pool, not strict per-workspace quotas.
 Large backup/import operations hold a host-wide lifecycle lock and can delay
@@ -96,7 +97,35 @@ noVNC client, IPv4/IPv6 peer isolation, host/metadata restrictions, Docker,
 files, jobs, snapshots, forks, restore and scheduled TTL stop/resume all passed.
 Five boot samples per architecture and clean image exports followed.
 [Boot performance](boot-performance.md) records timings and limits. This does
-not repeat the portable backup suite on AMD64 or certify production provisioning.
+not certify production provisioning.
+
+The native image jobs in the [release-validation run](https://github.com/Microck/raft/actions/runs/37469540182)
+also passed full development-image backup and recovery on both architectures.
+The recovered package inventories matched, all 31 tool checks passed again,
+and snapshots, file permissions, fresh MAC addresses and distinct concurrent
+IP addresses passed. Native backup archives were 3,844,135,523 bytes on ARM64
+and 3,985,894,517 bytes on AMD64. Both clean image exports passed fingerprint,
+credential-file and machine-ID inspection.
+
+## Fresh-host and reboot validation
+
+The [release run](https://github.com/Microck/raft/actions/runs/37469540182)
+passed native image build, extended lifecycle, full-image backup/recovery and
+clean-template inspection on both ARM64 and AMD64. A separate KVM VM booted a
+checksum-verified Ubuntu 24 AMD64 cloud image and passed the canonical deployer,
+a second deployment, release-image import and lifecycle verification.
+
+The VM then rebooted. A changed kernel boot ID and active Incus, network and
+expiry services were required before checking retained files, snapshots, running
+and stopped workspace states, Docker execution and IPv4/IPv6 peer isolation.
+These checks passed. The VM, SSH keys and controller configuration were disposable;
+existing operator hosts were not rebooted or reconfigured.
+
+The host test uses a sparse 100 GiB virtual disk and accessible KVM. It preserves
+the production deployer's 80 GiB free-disk check but does not prove 80 GiB of
+underlying physical capacity. ARM64 host reboot, host loss and cross-architecture
+recovery remain unverified. VM acceleration belongs to the test host; released
+workspaces are system containers, not VMs.
 
 ## Package and privacy checks
 
