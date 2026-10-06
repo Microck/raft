@@ -19,12 +19,14 @@ HOSTS = {name: entry["ssh"] for name, entry in configuration().items()}
 
 
 def remote(host, command):
-    return subprocess.run(
+    response = subprocess.run(
         ["ssh", "-T", "-o", "BatchMode=yes", host, command],
-        check=True,
         capture_output=True,
         text=True,
-    ).stdout
+    )
+    if response.returncode:
+        raise RuntimeError(response.stderr.strip() or "Remote command failed: " + command)
+    return response.stdout
 
 
 def copy(host, source, destination):

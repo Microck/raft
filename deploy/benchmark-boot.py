@@ -82,6 +82,13 @@ def benchmark(location, samples, desktop):
         "scope": "Cached local image; includes controller CLI and SSH; no host reboot or download",
         "samples": [],
     }
+    image = configuration()[location]["image"]
+    volumes = json.loads(
+        incus(location, "storage", "volume", "list", "raft-data", "--format", "json")
+    )
+    report["imageVolumeCachedAtStart"] = any(
+        volume["type"] == "image" and volume["name"] == image for volume in volumes
+    )
     for index in range(samples):
         box = None
         try:

@@ -72,6 +72,12 @@ jobs:
           config=json.loads(path.read_text()); config['lab']['image']=fingerprint
           path.write_text(json.dumps(config))
           PY
+      - name: Diagnose a failed native build
+        if: failure()
+        run: |
+          sudo incus --project raft info raft-builder --show-log || true
+          sudo journalctl -u incus --no-pager -n 80
+          df -h /
       - name: Verify lifecycle, desktop and all development tools
         run: python3 deploy/verify-live.py --location lab --extended
       - name: Measure cached-image startup
