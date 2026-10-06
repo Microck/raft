@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import tarfile
 
 
@@ -33,9 +34,21 @@ def verify(archive, architecture, fingerprint):
             if (
                 name.startswith(("rootfs/root/.ssh/", "rootfs/workspace/"))
                 or name.startswith("rootfs/etc/ssh/ssh_host_")
-                or path.name in {".npmrc", ".netrc", "incus.json"}
+                or path.name in {".netrc", "incus.json"}
+                or (
+                    path.name == ".npmrc"
+                    and path.parts[:2] in {("rootfs", "root"), ("rootfs", "home")}
+                )
             ):
                 raise ValueError("Operator content or credential file in template: " + name)
+            # npm itself ships a package-local .npmrc. Check all npm configs
+            # for credentials rather than treating every package config as a secret.
+            if path.name in {".npmrc", "npmrc"}:
+                content = image.extractfile(member).read().decode(errors="replace")
+                if re.search(
+                    r"(?mi)^[^#;\n]*(?:_authToken|_auth|_password|password)\s*=\s*\S+", content
+                ):
+                    raise ValueError("Credential setting in npm config: " + name)
             if name in wanted:
                 content = image.extractfile(member).read()
                 found.add(name)
