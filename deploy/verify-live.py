@@ -578,8 +578,6 @@ def verify(location, extended=False, restart_incus=False):
         verify_peers(box, child)
         raft("stop", child)
         raft("resume", child, "--ttl", "60")
-        from raft import settings
-
         if restart_incus:
             subprocess.run(
                 ["ssh", "-T", settings(location)["ssh"], "sudo -n systemctl restart incus"],
