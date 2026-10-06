@@ -108,6 +108,8 @@ Display active resource consumption for a running workspace: cgroup memory, CPU 
 
 ## Background job commands
 
+`status`, `logs` and `cancel` require a job ID returned by `exec --detach` in the selected running workspace. Unknown jobs return an error.
+
 ### `status`
 
 Check the execution state of a detached background job.

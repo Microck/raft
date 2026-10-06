@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CLI = [sys.executable, str(ROOT / "raft.py")]
 USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
 sys.path.insert(0, str(ROOT))
-from raft import settings  # noqa: E402
+from raft import configuration, incus, settings  # noqa: E402
 
 
 def raft(*arguments, check=True, env=None):
@@ -371,12 +371,16 @@ def browser_session(box):
         raft("cancel", box, job)
 
 
-def fetch_through_tunnel(arguments, path, timeout=15):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
+def fetch_through_tunnel(arguments, path, timeout=15, default_port=None):
+    if default_port is None:
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        arguments = [*arguments, "--local", str(port)]
+    else:
+        port = default_port
     tunnel = subprocess.Popen(
-        [*CLI, *arguments, "--local", str(port)],
+        [*CLI, *arguments],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -408,13 +412,65 @@ def verify_configuration():
         {"lab": {}},
         {"lab": {"ssh": "unused", "image": ""}},
     ]
-    for configuration in cases:
+    for invalid_configuration in cases:
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / ".config/raft"
             config.mkdir(parents=True)
-            (config / "incus.json").write_text(json.dumps(configuration))
+            (config / "incus.json").write_text(json.dumps(invalid_configuration))
             response = raft("new", check=False, env={**os.environ, "HOME": directory})
             assert response.returncode == 1 and "Traceback" not in response.stderr
+
+
+def verify_arguments():
+    # Invoke actual CLI processes: help and argument errors must not access a host.
+    commands = "new list limits doctor gc recover info stop resume extend destroy ssh exec upload download snapshot snapshots restore fork forward desktop logs status cancel backup usage".split()
+    assert raft("--help").returncode == 0
+    for command in commands:
+        assert raft(command, "--help").returncode == 0
+    missing = "lab:rf-0000000000000000"
+    for command in ["new", "resume", "extend", "fork"]:
+        prefix = [command] if command == "new" else [command, missing]
+        for lifetime in ["59", "2592001", "invalid"]:
+            rejected = raft(*prefix, "--ttl", lifetime, check=False)
+            assert rejected.returncode == 2 and "Traceback" not in rejected.stderr
+    for options in [["--cpu", "0"], ["--cpu", "3"], ["--memory", "8GiB"]]:
+        assert raft("new", *options, check=False).returncode == 2
+    for arguments in [["exec", missing], ["recover", "missing"], ["forward", missing]]:
+        assert raft(*arguments, check=False).returncode == 2
+    print("CLI help and invalid sizing, TTL and required arguments passed", flush=True)
+
+
+def verify_option_edges(location, box):
+    assert any(json.loads(line)["box"] == box for line in raft("list").stdout.splitlines())
+    reports = [json.loads(line) for line in raft("limits", "--json").stdout.splitlines()]
+    assert {report["location"] for report in reports} == set(configuration())
+    assert "CPU  RAM GiB" in raft("limits").stdout
+    for arguments, message in [
+        (["info", "invalid"], "location-qualified handle"),
+        (["info", location + ":rf-0000000000000000"], "Raft box not found"),
+        (["list", "--location", "missing-location"], "Unknown location"),
+        (["limits", "--location", "missing-location"], "Unknown location"),
+        (["new", "--location", "missing-location"], "Unknown location"),
+        (["upload", box, "missing", "relative"], "must be absolute"),
+        (["download", box, "relative", "missing"], "must be absolute"),
+        (["snapshot", box, "../invalid"], "Invalid snapshot name"),
+        (["restore", box, "../invalid"], "Invalid snapshot name"),
+        (["forward", box, "--remote", "0", "--local", "8080"], "Ports must"),
+        (["forward", box, "--remote", "8080", "--local", "65536"], "Ports must"),
+        (["desktop", box, "--local", "0"], "Ports must"),
+    ]:
+        rejected = raft(*arguments, check=False)
+        assert rejected.returncode == 1 and message in rejected.stderr, (arguments, rejected.stderr)
+    for command in ["status", "logs", "cancel"]:
+        for job, message in [
+            ("invalid", "Use the job ID"),
+            ("rfcmd-" + "0" * 32, "Detached job not found"),
+        ]:
+            rejected = raft(command, box, job, check=False)
+            assert rejected.returncode == 1 and message in rejected.stderr
+    print(
+        f"{location}: global reports and invalid handles, paths, jobs and ports passed", flush=True
+    )
 
 
 def verify_stopped_race(location, box):
@@ -586,11 +642,13 @@ def verify_reboot(location, box, child):
 
 def verify(location, extended=False, restart_incus=False, reboot_host=False):
     verify_configuration()
+    verify_arguments()
     fixtures = []
     print(f"{location}: allocation", flush=True)
     try:
         started = time.monotonic()
-        box = raft("new", "--location", location, "--ttl", "1800").stdout.strip()
+        target = [] if location == next(iter(configuration())) else ["--location", location]
+        box = raft("new", *target, "--ttl", "1800").stdout.strip()
         fixtures.append(box)
         print(f"{location}: new took {time.monotonic() - started:.1f}s", flush=True)
         wait_running(box)
@@ -610,6 +668,7 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
         assert raft("snapshot", box, "running", check=False).returncode != 0
         assert raft("fork", box, "--ttl", "600", check=False).returncode != 0
         terminal_session(box)
+        verify_option_edges(location, box)
         if extended:
             subprocess.run([sys.executable, str(ROOT / "deploy/verify-tools.py"), box], check=True)
             for cpu in [1, 2]:
@@ -622,10 +681,12 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
                         str(cpu),
                         "--memory",
                         memory,
-                        "--ttl",
-                        "600",
                     ).stdout.strip()
                     fixtures.append(sized)
+                    assert (
+                        int(json.loads(raft("info", sized).stdout)["config"]["user.raft.expires"])
+                        > int(execute(sized, "date", "+%s")) + 550
+                    )
                     assert execute(sized, "nproc") == str(cpu)
                     assert execute(sized, "cat", "/sys/fs/cgroup/memory.max") == str(
                         int(memory[0]) * 1024**3
@@ -720,6 +781,9 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
         )
         assert "ActiveState=active" in raft("status", box, server).stdout
         assert b"noVNC" in fetch_through_tunnel(["desktop", box], "/vnc.html", timeout=20)
+        assert b"noVNC" in fetch_through_tunnel(
+            ["desktop", box], "/vnc.html", timeout=20, default_port=6080
+        )
         assert execute(box, "systemctl", "is-active", "raft-desktop") == "active"
         assert "noVNC" in execute(
             box,
@@ -771,6 +835,25 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
         raft("resume", child, "--ttl", "300")
         assert execute(child, "cat", "/workspace/persistent") == "saved"
         print(f"{location}: scheduled TTL stop retained disk and resumed successfully", flush=True)
+        incus(
+            location,
+            "config",
+            "set",
+            child.split(":", 1)[1],
+            "user.raft.expires=1",
+            locked=True,
+        )
+        raft("gc")
+        assert json.loads(raft("info", child).stdout)["status"] == "Stopped"
+        raft("resume", child, "--ttl", "2592000")
+        assert execute(child, "cat", "/workspace/persistent") == "saved"
+        assert (
+            int(json.loads(raft("info", child).stdout)["config"]["user.raft.expires"])
+            > int(execute(child, "date", "+%s")) + 2591950
+        )
+        print(
+            f"{location}: manual gc retained disk and maximum TTL resumed successfully", flush=True
+        )
         if reboot_host:
             verify_reboot(location, box, child)
     finally:

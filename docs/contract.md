@@ -68,7 +68,7 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 
 ## Background jobs and desktop
 
-- **Detached jobs**: Commands run as guest systemd units with journal logging and exit status. `raft cancel` stops the unit's control group. Stopping the container terminates jobs.
+- **Detached jobs**: Commands run as guest systemd units with journal logging and exit status. Job inspection and cancellation reject unknown IDs in the selected workspace. `raft cancel` stops the unit's control group. Stopping the container terminates jobs.
 - **Desktop service**: On-demand Xvfb, Openbox, and noVNC stack on display `:99` without a login manager. Clipboard exchange is available without login-manager delay. Desktop provides full workspace access, not browser confinement. Closing the tunnel leaves the service running.
 
 ## Backup and recovery

@@ -142,15 +142,23 @@ def verify(source, target, directory, development_image=False):
             live.raft("exec", box, "--", "test", "-e", "/proc/" + child, check=False).returncode
             != 0
         )
-        assert live.raft("cancel", box, "rfcmd-" + "0" * 32, check=False).returncode != 0
+        for command in ["status", "logs", "cancel"]:
+            missing = live.raft(command, box, "rfcmd-" + "0" * 32, check=False)
+            assert missing.returncode == 1 and "Detached job not found" in missing.stderr
         usage = json.loads(live.raft("usage", box).stdout)
         assert 0 < usage["memoryBytes"] < int(usage["memoryLimit"])
         assert usage["filesystemScope"] == "shared Raft pool, not per-box usage"
         with tempfile.TemporaryDirectory(dir=directory, prefix="raft-controls-") as work:
-            archive = Path(work) / "workspace.tar.gz"
+            archive = Path(work) / "workspace with spaces.tar.gz"
             assert live.raft("backup", box, str(archive), check=False).returncode != 0
             assert not archive.exists()
             live.raft("stop", box)
+            uploaded = Path(work) / "stopped upload.bin"
+            downloaded = Path(work) / "stopped download.bin"
+            uploaded.write_bytes(bytes(range(256)))
+            live.raft("upload", box, str(uploaded), "/workspace/stopped file.bin")
+            live.raft("download", box, "/workspace/stopped file.bin", str(downloaded))
+            assert downloaded.read_bytes() == uploaded.read_bytes()
             assert live.raft("extend", box, "--ttl", "600", check=False).returncode != 0
             live.raft("snapshot", box, "checkpoint")
             print(f"{source}: exporting stopped workspace and snapshot", flush=True)

@@ -20,10 +20,10 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | Root terminal/exec | Real PTY, workspace directory, literal arguments and exit code |
 | Resource sizing | Effective CPU affinity and cgroup memory limit |
 | Host capacity | Mixed-size budgets, stopped/frozen boxes, low RAM/disk and four saved slots; live create/stop/resume/destroy changes in CPU/memory allocations |
-| Background jobs | Journal output, nonzero exit status and cancellation of child processes |
-| TTL/extend/resume | Host-enforced stop, retained files and uninterrupted lifetime extension |
+| Background jobs | Journal output, nonzero exit status, cancellation of child processes and rejection of unknown job IDs |
+| TTL/extend/resume | Host-enforced stop, manual `gc`, retained files, uninterrupted lifetime extension and 30-day resume |
 | Usage | Real cgroup counters and explicitly shared-pool disk scope |
-| File transfer | Binary content and paths containing spaces |
+| File transfer | Binary content, paths containing spaces, stopped-workspace transfers and preservation of the destination after a failed download |
 | Docker | Real image build and container execution |
 | Snapshot/restore/fork | File rollback, independent copy, retained network identity and deterministic concurrent-resume rejection under the real host lock |
 | Backup/recovery | Stopped source, no overwrite, snapshots, content, permissions and fresh MAC |
@@ -33,6 +33,7 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | Development image | Real developer-user tool checks, immutable selection and credential-path archive rejection |
 | Deployment/firewall | Repeat deployment removes stale rules without restarting Incus; failed filtering blocks normal and socket startup; boot timestamps prove filtering precedes Incus |
 | Storage contract | Disposable oversized pool is rejected without automatic resizing |
+| CLI options and errors | Help for all 26 commands; default location, TTL and desktop port; all six sizing profiles; global and per-location reports; invalid TTLs, sizes, required arguments, handles, paths, snapshot names, jobs and ports |
 
 ## Running verification suites
 
@@ -187,4 +188,3 @@ On 2026-10-06, `raft limits` passed read-only text and JSON inspection and live 
 Allocation fixtures validated mixed sizing budgets, frozen containers, low RAM and disk conditions, host reserves, and admission limits. The four-stopped-box admission test verified that creation, forking, and recovery reject a fifth container when slots are exhausted. These are conservative allocation checks, not workload saturation benchmarks.
 
 </details>
-
