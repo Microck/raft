@@ -20,7 +20,8 @@ def inspect(name, content):
         raise ValueError("Private metadata or unsafe archive member: " + name)
     if path.suffix == ".pyc":
         raise ValueError("Compiled cache in release: " + name)
-    match = PRIVATE_TEXT.search(content.decode("utf-8"))
+    # Source archives also contain binary branding assets; scan their readable bytes.
+    match = PRIVATE_TEXT.search(content.decode("utf-8", errors="replace"))
     if match:
         raise ValueError("Private path or email in release member: " + name)
 

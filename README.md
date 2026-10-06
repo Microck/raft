@@ -1,19 +1,32 @@
-# Raft
+<p align="center">
+  <img src=".github/assets/raft-logo.png" width="220" alt="raft logo">
+</p>
 
-Raft is an independent, self-hosted open-source alternative to
-[boat.dev](https://boat.dev). Create persistent Linux boxes on machines you
-control, run builds and Docker, transfer files, save snapshots, fork workspaces
-and access a private desktop. Raft is not affiliated with Boat.
+<h1 align="center">raft</h1>
 
-The current runtime uses unprivileged ARM64 Incus system containers. They share
-the host kernel. Raft does not currently deploy KVM virtual machines or provide
-complete Boat feature parity.
+<p align="center">
+  <a href="https://github.com/Microck/raft/actions/workflows/check.yml"><img src="https://img.shields.io/github/actions/workflow/status/Microck/raft/check.yml?branch=main&style=flat-square&label=ci&color=000000" alt="ci badge"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-mit-000000?style=flat-square" alt="license badge"></a>
+</p>
 
-## Quick start
+---
 
-Use an ARM64 Ubuntu host with SSH, passwordless sudo, at least 2 CPUs, 8 GiB RAM
-and 80 GiB free disk. The controller requires Python 3.11+, uv, SSH and SCP.
-Read [installation and operations](docs/operations.md) before provisioning.
+`raft` is an independent, self-hosted open-source alternative to
+[boat.dev](https://boat.dev). it gives you persistent Linux boxes on machines you
+control, with command execution, Docker, file transfer, snapshots, forks and a
+private desktop. Raft is not affiliated with Boat.
+
+the current runtime uses unprivileged ARM64 Incus system containers that share
+the host kernel. KVM virtual machines and complete Boat feature parity are not
+implemented. the table below lists what is available.
+
+[setup](docs/operations.md) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.md) | [agent skill](skills/raft-cli/SKILL.md)
+
+## quickstart
+
+use an ARM64 Ubuntu host with SSH, passwordless sudo, at least 2 CPUs, 8 GiB RAM
+and 80 GiB free disk. the controller requires Python 3.11+, uv, SSH and SCP.
+read [installation and operations](docs/operations.md) before provisioning.
 
 ```sh
 uv sync --locked
@@ -35,19 +48,21 @@ raft resume "$box" --ttl 600
 raft destroy "$box"
 ```
 
-Location names come from configuration and use letters, digits, underscores or hyphens. The first configured location is the
-default. Expiration stops processes and retains files. Explicit `destroy`
-deletes the workspace and its snapshots. Four saved boxes are admitted per host.
-Long backup/import operations serialize host lifecycle changes and delay expiry
-checks on that host. Use explicit free-space checks before large archives.
+location names come from configuration and use letters, digits, underscores or
+hyphens. the first configured location is the default. expiration stops processes
+and retains files. `destroy` deletes the workspace and its snapshots. each host
+admits four saved boxes, including stopped boxes.
 
-## Image and workspace control
+long backup/import operations serialize host lifecycle changes and delay expiry
+checks on that host. check free space before creating large archives.
 
-The checked-in builder starts from the public Incus Debian 13 image and installs
+## image and workspace control
+
+the checked-in builder starts from the public Incus Debian 13 image and installs
 language runtimes, build tools, Docker, Chromium, FFmpeg and an on-demand noVNC
-desktop. It records package inventories under `/opt/raft/`. No prebuilt Raft
-image is distributed. Build your own clean image and pin its fingerprint.
-Third-party packages retain their own licenses. Optional coding-agent binaries
+desktop. it records package inventories under `/opt/raft/`. no prebuilt Raft
+image is distributed. build your own clean image and pin its fingerprint.
+third-party packages retain their own licenses. optional coding-agent binaries
 in the image require separate sign-in; Raft has no managed agent service.
 
 ```sh
@@ -73,14 +88,14 @@ raft destroy "$recovered"
 raft destroy "$box"
 ```
 
-Backups include files, secrets and native instance configuration. Import only
-trusted exports and store them privately. Snapshots and forks require a stopped
-source. Stop terminates jobs; it does not checkpoint process memory.
+backups include files, secrets and native instance configuration. import only
+trusted exports and store them privately. snapshots and forks require a stopped
+source. stop terminates jobs; it does not checkpoint process memory.
 
-## Feature parity
+## feature parity
 
 ✅ means Raft implements the workflow, not that its behavior is identical to Boat.
-❌ means the capability is absent. The [full capability table](docs/boat-capabilities.md)
+❌ means the capability is absent. the [full capability table](docs/boat-capabilities.md)
 records limits and test coverage.
 
 | Boat-style capability | Raft | Limit |
@@ -107,17 +122,17 @@ records limits and test coverage.
 | Managed agent conversations | ❌ | Not implemented |
 | Automatic deletion and CLI self-update | ❌ | Explicit commands |
 
-## Verification and development
+## verification and development
 
-Use `uv sync --locked`, `uv run raft --help` and the real-host E2E suites in
-[verification](docs/verification.md). Tests allocate disposable boxes and remove
-only their own fixtures. The optional `--restart-incus` check restarts the host Incus daemon;
-run it on dedicated test infrastructure. There is no exhaustive Boat differential
+use `uv sync --locked`, `uv run raft --help` and the real-host E2E suites in
+[verification](docs/verification.md). tests allocate disposable boxes and remove
+only their own fixtures. the optional `--restart-incus` check restarts the host
+Incus daemon. run it on dedicated test infrastructure. there is no exhaustive Boat differential
 suite or security audit.
 
-Read [the contract](docs/contract.md), [architecture and references](docs/boat-parity-design.md)
+read [the contract](docs/contract.md), [architecture and references](docs/boat-parity-design.md)
 and the optional [agent skill](skills/raft-cli/SKILL.md).
 
-## License
+## license
 
-Raft source is MIT licensed. Third-party tools retain their own licenses.
+[MIT](LICENSE). third-party tools retain their own licenses.
