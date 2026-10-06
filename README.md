@@ -86,38 +86,40 @@ resume timings and the measured image-size and desktop-startup improvements.
 
 ## feature parity
 
-✅ means Raft implements the workflow, not that its behavior is identical to Boat.
-❌ means the capability is absent. the [full capability table](docs/boat-capabilities.md)
-records limits and test coverage.
+✅ supported · ❌ unavailable · ❓ not established in Boat's docs. matching checks
+do not imply identical behavior. the [full comparison](docs/boat-capabilities.md)
+records differences, sources and test coverage.
 
-| Boat-style capability | Raft | Limit |
-| --- | :---: | --- |
-| Create/list/inspect/delete | ✅ | Single operator |
-| Persistent stop/resume | ✅ | Shared host kernel |
-| TTL and lifetime extension | ✅ | Expiration retains disk |
-| CPU/memory sizing and usage | ✅ | 1/2 CPUs, 1/2/4 GiB; shared-pool disk reporting |
-| Host capacity and limits | ✅ | `raft limits`; recommendations plus four saved boxes enforced |
-| Root terminal and command execution | ✅ | Host SSH transport |
-| Background jobs, logs and cancellation | ✅ | No process checkpoints |
-| File upload/download | ✅ | Individual files |
-| Snapshots and same-host forks | ✅ | Stopped source, checked under the lifecycle lock |
-| Deploy/delete named snapshots | ❌ | No snapshot deployment or deletion command |
-| Portable backup/recovery | ✅ | Manual archive storage |
-| Docker and development tools | ✅ | Native ARM64/AMD64; [image tests](docs/boot-performance.mdx) |
-| Private port forwarding | ✅ | Local SSH tunnel |
-| Desktop access | ✅ | noVNC; see verification limits |
-| Recursive SCP and reverse forwarding | ❌ | Not implemented |
-| Public workspace hosting and browser-only streaming | ❌ | Not implemented |
-| Resize on resume/fork | ❌ | Create-time sizing only |
-| Consistent JSON output | ❌ | Only list/info/usage/limits |
-| Snapshot file browsing/download | ❌ | Whole-box backup only |
-| Strict per-box disk quotas | ❌ | Shared 60 GiB Btrfs pool |
-| Separate-kernel VM isolation | ❌ | Container runtime |
-| Named environments and managed secrets | ❌ | Manual configuration |
-| Sharing, organizations and webhooks | ❌ | Not implemented |
-| Dashboard, remote API and SDK | ❌ | CLI only |
-| Managed agent conversations | ❌ | Not implemented |
-| Automatic deletion and CLI self-update | ❌ | Explicit commands |
+| Capability | Boat | Raft | Raft limits / differences |
+| --- | :---: | :---: | --- |
+| Self-hosting on operator hardware | ❌ | ✅ | Incus on your hosts |
+| Native ARM64 workspaces | ❌ | ✅ | Boat documents x86_64 machines only |
+| Create/list/inspect/delete | ✅ | ✅ | Single operator |
+| Persistent stop/resume | ✅ | ✅ | Shared host kernel |
+| TTL and lifetime extension | ✅ | ✅ | Expiration retains disk |
+| CPU/memory sizing and usage | ✅ | ✅ | 1/2 CPUs, 1/2/4 GiB; shared-pool disk reporting |
+| Host capacity recommendations | ❌ | ✅ | Raft budgets and four saved boxes; Boat reports hosted plan limits |
+| Root terminal and command execution | ✅ | ✅ | Host SSH transport |
+| Background jobs, logs and cancellation | ✅ | ✅ | No process checkpoints |
+| File upload/download | ✅ | ✅ | Individual files |
+| Snapshots and same-host forks | ✅ | ✅ | Stopped source, checked under the lifecycle lock |
+| Deploy/delete named snapshots | ✅ | ❌ | No snapshot deployment or deletion command |
+| Portable backup/recovery | ❓ | ✅ | Raft native archives; Boat whole-instance archive import is not established |
+| Docker and development tools | ✅ | ✅ | Native ARM64/AMD64; [image tests](docs/boot-performance.mdx) |
+| Private port forwarding | ✅ | ✅ | Local SSH tunnel |
+| Desktop access | ✅ | ✅ | noVNC; see verification limits |
+| Recursive SCP and reverse forwarding | ✅ | ❌ | Not implemented |
+| Public workspace hosting and browser-only streaming | ✅ | ❌ | Not implemented |
+| Resize on resume/fork | ✅ | ❌ | Create-time sizing only |
+| CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft only list/info/usage/limits |
+| Snapshot file browsing/download | ✅ | ❌ | Whole-box backup only |
+| Strict per-box disk quotas | ✅ | ❌ | Shared 60 GiB Btrfs pool |
+| Separate-kernel VM isolation | ✅ | ❌ | Container runtime |
+| Named environments and managed secrets | ✅ | ❌ | Manual configuration |
+| Organizations and webhooks | ✅ | ❌ | Raft is single-operator; no event API |
+| Dashboard, remote API and SDK | ✅ | ❌ | CLI only |
+| Managed agent conversations | ✅ | ❌ | Not implemented |
+| Automatic deletion and CLI self-update | ✅ | ❌ | Explicit commands |
 
 ## verification and development
 
