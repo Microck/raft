@@ -1,6 +1,6 @@
 import { createGetUrl } from 'fumadocs-core/source';
 
-export const basePath = '/raft';
+export const basePath = '';
 export const docsRoute = '/docs';
 export const docsContentRoute = '/llms.mdx/docs';
 const getContentUrl = createGetUrl(docsContentRoute);

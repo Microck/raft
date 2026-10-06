@@ -18,7 +18,7 @@ pnpm install --frozen-lockfile
 pnpm dev --hostname 127.0.0.1 --port 4300
 ```
 
-Open `http://127.0.0.1:4300/raft/docs/`. The site includes navigation, full-text search,
+Open `http://127.0.0.1:4300/docs/`. The site includes navigation, full-text search,
 code highlighting and a table of contents. It uses a fixed dark theme.
 
 ## Check and build
@@ -40,27 +40,31 @@ It does not contact workspace hosts. Set `RAFT_DOCS_TEST_PORT` if port 4391 is i
 
 ## Machine-readable documentation
 
-- `/raft/llms.txt` lists the Markdown files for every documentation page.
-- `/raft/llms-full.txt` exports the complete documentation.
-- `/raft/llms.mdx/docs/contract/content.md` exports the contract as Markdown.
+- `/llms.txt` lists the Markdown files for every documentation page.
+- `/llms-full.txt` exports the complete documentation.
+- `/llms.mdx/docs/contract/content.md` exports the contract as Markdown.
 
 GitHub Pages serves fixed files. Use the explicit Markdown URLs; documentation
 pages return HTML regardless of the `Accept` header.
 
 ## Hosting
 
-The public site is [microck.github.io/raft](https://microck.github.io/raft/).
-Next.js exports static files to `website/out/` with the `/raft` base path.
-Search downloads a build-time index and runs in the browser. There is no runtime
-server or account requirement.
+The public site is [raft.micr.dev](https://raft.micr.dev/). GitHub Pages serves
+`website/out/` at the domain root. Search runs in the browser using a build-time index.
 
-The documentation workflow builds and tests pull requests. On pushes to `main`,
-it uploads the verified export and deploys it through GitHub Pages Actions. The
-repository Pages publishing source must be **GitHub Actions**. Maintainers can
-also run the workflow manually. Other forks should set `basePath` in
-`website/lib/shared.ts` to their repository path and enable Pages.
+- Pull requests build and test the site. Pushes to `main` deploy the verified export.
+- Set the repository Pages publishing source to **GitHub Actions**.
+- For a fork, replace `website/public/CNAME` and the `metadataBase` URL in
+  `website/app/layout.tsx` with your domain, then configure Pages and DNS.
 
 For a local production preview, `pnpm start` serves the same export at
-`http://127.0.0.1:4300/raft/`. The generated files can also be served by any static
-HTTP host at that path. Publishing the documentation does not provide public
+`http://127.0.0.1:4300/`. Any static HTTP host can serve the exported files.
+Publishing the documentation does not provide public
 ingress to Raft workspaces.
+
+## Typography
+
+Space Grotesk is bundled locally in `website/public/fonts/`, with its SIL Open
+Font License in `OFL.txt`. Moji downloaded the regular, medium and bold WOFF2
+files from Fontsource. `next/font/local` loads them without a third-party font request.
+Code blocks keep the monospace font.

@@ -26,4 +26,4 @@ yarn-error.log*
 next-env.d.ts
 /public/docs/
 
-/.preview/
+/.preview

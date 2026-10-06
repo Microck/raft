@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { setTimeout } from 'node:timers/promises';
 import { staticClient } from 'fumadocs-core/search/client/orama-static';
 import config from '../next.config.mjs';
@@ -88,6 +89,16 @@ try {
   const headings = [...home.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)];
   assert.equal(headings.length, 1, 'Entry page must have one main heading');
   assert.match(headings[0][1], />Raft</, 'Entry page must display the Raft overview heading');
+
+  assert.equal(await (await get('/CNAME')).text(), await readFile(new URL('../public/CNAME', import.meta.url), 'utf8'));
+  assert.match(await (await get('/fonts/OFL.txt')).text(), /SIL OPEN FONT LICENSE/);
+  const fonts = new Set([...home.matchAll(/href="([^"]+\.woff2)"/g)].map((match) => match[1]));
+  assert.equal(fonts.size, 3, 'Entry page must preload all three local font weights');
+  for (const path of fonts) {
+    const response = await fetch(`${origin}${path}`, { headers: requestHeaders });
+    assert.equal(response.status, 200, `Missing local font: ${path}`);
+    assert.equal(Buffer.from(await response.arrayBuffer()).subarray(0, 4).toString(), 'wOF2', `Invalid WOFF2 font: ${path}`);
+  }
 
   const index = await get('/llms.txt');
   assert.match(index.headers.get('content-type') ?? '', /text\/plain/);
