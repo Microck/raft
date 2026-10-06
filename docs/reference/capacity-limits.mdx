@@ -35,9 +35,13 @@ Operating systems report less usable RAM than advertised hardware size. Near siz
 
 ### Column definitions and algorithms
 
-- **Total running**: Maximum recommended boxes on an empty host: `min(4, floor(CPU budget / box CPU), floor(Memory budget / box memory))`.
-- **More running**: Additional concurrent boxes that can run now, bounded by remaining CPU budget, remaining memory budget, current available memory (`MemAvailable - Memory reserve`), and remaining active slots (`4 - active boxes`). Active limits are not subtracted twice.
-- **New boxes**: Additional boxes that can be created now: `min(more running, max(0, 4 - saved boxes))`.
+| Column | Calculation |
+| --- | --- |
+| Total running | `min(4, floor(CPU budget / box CPU), floor(Memory budget / box memory))` |
+| More running | Bounded by remaining CPU, memory, available RAM, and active slots |
+| New boxes | `min(more running, max(0, 4 - saved boxes))` |
+
+**Total running** assumes an empty host. **More running** accounts for current allocations, `MemAvailable - Memory reserve`, and `4 - active boxes`. Active limits are not subtracted twice.
 
 ## Sizing profiles
 

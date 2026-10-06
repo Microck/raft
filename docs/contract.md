@@ -21,13 +21,15 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 
 ## Configuration and lifecycle defaults
 
-- **Host identification**: Configuration requires named SSH targets using letters, digits, underscores, or hyphens.
-- **Qualified handles**: Every handle includes location and instance name (`<location>:<name>`).
-- **Image pinning**: Workspace creation requires the immutable 64-hex image fingerprint, not an updating alias.
-- **Lifecycle defaults**: Defaults to first configured location, 1 CPU, 2 GiB RAM, and 600-second lifetime. Supported choices are 1 or 2 CPUs, 1/2/4 GiB RAM, and 60 to 2,592,000 seconds (30 days) TTL.
-- **Admission limit**: Hard ceiling of four saved boxes per host, including stopped boxes.
-- **TTL calculation**: Running TTL begins after launch completes, using the host clock. Cold image preparation does not consume TTL.
-- **Host locking**: Creation, lifecycle transitions, and expiry are serialized by host file lock (`/run/lock/raft-incus.lock`). Native Incus admin calls bypass CLI policy.
+| Setting | Behavior |
+| --- | --- |
+| Host identification | Configuration requires named SSH targets using letters, digits, underscores, or hyphens. |
+| Qualified handles | Every handle includes location and instance name (`<location>:<name>`). |
+| Image pinning | Workspace creation requires the immutable 64-hex image fingerprint, not an updating alias. |
+| Lifecycle defaults | Defaults to first configured location, 1 CPU, 2 GiB RAM, and 600-second lifetime. Supported choices are 1 or 2 CPUs, 1/2/4 GiB RAM, and 60 to 2,592,000 seconds (30 days) TTL. |
+| Admission limit | Hard ceiling of four saved boxes per host, including stopped boxes. |
+| TTL calculation | Running TTL begins after launch completes, using the host clock. Cold image preparation does not consume TTL. |
+| Host locking | Creation, lifecycle transitions, and expiry are serialized by host file lock (`/run/lock/raft-incus.lock`). Native Incus admin calls bypass CLI policy. |
 
 ## Capacity and admission inspection
 

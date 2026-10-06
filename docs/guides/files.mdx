@@ -69,15 +69,22 @@ raft download "$box" "/workspace/my documents/data file.csv" "./downloaded-data.
 
 ### Uploading a project directory
 
-```sh title="CONTROLLER: Archive and upload directory"
-# Create a local tar archive
+#### 1. Create a local tar archive
+
+```sh title="CONTROLLER"
 mkdir -p ./my-project && echo "package main" > ./my-project/main.go
 tar -czf ./project.tar.gz -C ./my-project .
+```
 
-# Upload archive to workspace
+#### 2. Upload archive to workspace
+
+```sh title="CONTROLLER"
 raft upload "$box" ./project.tar.gz /workspace/project.tar.gz
+```
 
-# Extract inside workspace
+#### 3. Extract inside workspace
+
+```sh title="CONTROLLER"
 raft exec "$box" -- bash -lc '
 mkdir -p /workspace/my-project
 tar -xzf /workspace/project.tar.gz -C /workspace/my-project
@@ -87,16 +94,23 @@ rm /workspace/project.tar.gz
 
 ### Downloading a directory
 
-```sh title="CONTROLLER: Archive inside workspace and download"
-# Create archive inside workspace
+#### 1. Create archive inside workspace
+
+```sh title="CONTROLLER"
 raft exec "$box" -- bash -lc '
 tar -czf /workspace/results.tar.gz -C /workspace/my-project .
 '
+```
 
-# Download archive to controller
+#### 2. Download archive to controller
+
+```sh title="CONTROLLER"
 raft download "$box" /workspace/results.tar.gz ./results.tar.gz
+```
 
-# Extract locally on controller
+#### 3. Extract locally on controller
+
+```sh title="CONTROLLER"
 mkdir -p ./results
 tar -xzf ./results.tar.gz -C ./results
 ```

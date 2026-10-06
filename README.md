@@ -16,7 +16,7 @@
 control, with command execution, Docker, file transfer, snapshots, forks and a
 private desktop. Raft is not affiliated with Boat.
 
-[setup](docs/operations.mdx) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.md) | [agent skill](skills/raft-cli/SKILL.md) | [docs site](https://raft.micr.dev/)
+[setup](docs/operations.mdx) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.mdx) | [agent skill](skills/raft-cli/SKILL.md) | [docs site](https://raft.micr.dev/)
 
 ## quickstart
 
@@ -50,7 +50,7 @@ the image builder starts from public Debian 13 and adds language runtimes,
 build tools, Docker, Chromium, FFmpeg and a noVNC desktop. build your own image
 and pin its fingerprint, or download a native image from
 [versioned releases](https://github.com/Microck/raft/releases). see
-[image builds and boot measurements](docs/boot-performance.md) for checks and timings.
+[image builds and boot measurements](docs/boot-performance.mdx) for checks and timings.
 
 see the task guides for [background jobs](docs/guides/background-jobs.mdx),
 [file transfer](docs/guides/files.mdx),
@@ -81,7 +81,7 @@ they exclude downloads and host reboots. a first image unpack can take much
 longer. different runner hardware means this is not proof that ARM64 is faster.
 
 both native images passed E2E and all 31 development-tool checks. see
-[measurements and methodology](docs/boot-performance.md) for raw samples,
+[measurements and methodology](docs/boot-performance.mdx) for raw samples,
 resume timings and the measured image-size and desktop-startup improvements.
 
 ## feature parity
@@ -103,7 +103,7 @@ records limits and test coverage.
 | Snapshots and same-host forks | ✅ | Stopped source, checked under the lifecycle lock |
 | Deploy/delete named snapshots | ❌ | No snapshot deployment or deletion command |
 | Portable backup/recovery | ✅ | Manual archive storage |
-| Docker and development tools | ✅ | Native ARM64/AMD64; [image tests](docs/boot-performance.md) |
+| Docker and development tools | ✅ | Native ARM64/AMD64; [image tests](docs/boot-performance.mdx) |
 | Private port forwarding | ✅ | Local SSH tunnel |
 | Desktop access | ✅ | noVNC; see verification limits |
 | Recursive SCP and reverse forwarding | ❌ | Not implemented |
@@ -122,7 +122,7 @@ records limits and test coverage.
 ## verification and development
 
 use `uv sync --locked`, `uv run raft --help` and the real-host E2E suites in
-[verification](docs/verification.md). tests allocate disposable boxes and remove
+[verification](docs/verification.mdx). tests allocate disposable boxes and remove
 only their own fixtures. the optional `--restart-incus` check restarts the host
 Incus daemon. run it on dedicated test infrastructure. there is no exhaustive Boat differential
 suite or security audit.

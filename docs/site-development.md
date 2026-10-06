@@ -31,12 +31,15 @@ pnpm test
 pnpm start
 ```
 
-The build prepares public benchmark and example-configuration files from `docs/`.
-Generated assets, dependencies and Next.js output are ignored by version control.
-The site is a separate package from the Python CLI.
-`pnpm test` serves the actual static export on controller loopback and checks
-pages, local links, client-side search, Markdown exports, downloads and 404s.
-It does not contact workspace hosts. Set `RAFT_DOCS_TEST_PORT` if port 4391 is in use.
+### Build output
+
+The build copies benchmark reports and example configuration from `docs/` into the static export. Generated assets and Next.js output stay outside version control. The site is a separate package from the Python CLI.
+
+### Site tests
+
+`pnpm test` checks the exported pages, links, search, Markdown downloads, and 404s over controller loopback. It does not contact workspace hosts.
+
+Set `RAFT_DOCS_TEST_PORT` if port 4391 is occupied.
 
 ## Machine-readable documentation
 
@@ -64,9 +67,14 @@ ingress to Raft workspaces.
 
 ## Typography
 
-The site follows boat.dev's typography: Funnel Display for page titles and Inter
-for body text. Both fonts are bundled in `website/public/fonts/`, with their SIL
-Open Font Licenses in `boat-fonts-license.txt`. The upright Latin WOFF2 files come
-from Fontsource. `next/font/local` serves them without third-party font requests.
-Code blocks keep the monospace font. The default palette uses Boat's white background and dark text, with thin borders
-and restrained typography. Dark mode remains available from the theme switch.
+| Element | Font |
+| --- | --- |
+| Page titles | Funnel Display |
+| Body text | Inter |
+| Code blocks | Monospace |
+
+The pairing follows boat.dev. Upright Latin WOFF2 files from Fontsource live in `website/public/fonts/`; their SIL Open Font Licenses are in `boat-fonts-license.txt`.
+
+`next/font/local` serves the bundled fonts without third-party requests.
+
+Light mode uses Boat's white background, dark text, and thin borders. The theme switch also offers dark mode.

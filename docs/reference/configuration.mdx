@@ -49,7 +49,9 @@ The configuration file maps location names to host definition objects:
 | `image` | `string` | For `raft new` only | Full 64-character hexadecimal SHA-256 fingerprint (`^[a-f0-9]{64}$`). An empty string `""` is allowed during initial host provisioning. |
 
 <Callout type="warn" title="Replace placeholder image fingerprint">
-The `image` field requires the full 64-character hash for `raft new`; aliases such as `raft-dev` are rejected. Replace the example hash with the actual imported image fingerprint for that host. ARM64 and AMD64 images produce different fingerprints; do not reuse an ARM64 hash on an AMD64 host.
+The `image` field requires the full 64-character hash for `raft new`; aliases such as `raft-dev` are rejected. Replace the example hash with the actual imported image fingerprint for that host.
+
+ARM64 and AMD64 images produce different fingerprints; do not reuse an ARM64 hash on an AMD64 host.
 </Callout>
 
 ## SSH configuration and connection behavior

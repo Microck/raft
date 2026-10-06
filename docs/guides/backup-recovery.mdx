@@ -55,7 +55,7 @@ echo "Recovered workspace: $recovered"
 - **Fresh network identity**: The container receives a new name in project `raft`, a new MAC address on `rfbr0`, and no inherited TTL deadline.
 - **Stopped initial state**: Recovered workspaces remain stopped until started with `raft resume "$recovered" --ttl <SECONDS>`.
 - **Enforced admission limit**: The destination location must hold fewer than four boxes.
-- **Crash recovery diagnostics**: `raft recover` prints the assigned handle to stderr and stages files at `/tmp/raft-recovery.XXXXXXXX`. After an interrupted recovery, inspect the reported handle with `raft list` and confirm container status before removing staging. Identify the exact owned staging path by owner and timestamp; avoid wildcard deletion (`rm /tmp/raft-recovery.*`).
+- **Interrupted recovery**: Follow [Host crash during recovery](./troubleshooting.mdx#host-crash-during-recovery). Inspect the reported handle and container state before deleting any staging file.
 
 Start and verify the recovered workspace:
 
@@ -68,22 +68,35 @@ raft exec "$recovered" -- ls -la /workspace
 
 Follow these steps to migrate a workspace to a second host:
 
-```sh title="CONTROLLER: Complete migration workflow"
-# 1. Select and stop source workspace
+### 1. Select and stop source workspace
+
+```sh title="CONTROLLER"
 raft list
 source_box="lab:rf-a1b2c3d4e5f60718"
 raft stop "$source_box"
+```
 
-# 2. Export archive to local controller storage
+### 2. Export archive to local controller storage
+
+```sh title="CONTROLLER"
 raft backup "$source_box" ./migration.tar.gz
+```
 
-# 3. Import archive onto destination host
+### 3. Import archive onto destination host
+
+```sh title="CONTROLLER"
 target_box=$(raft recover ./migration.tar.gz --location second-host)
+```
 
-# 4. Resume workspace on destination host
+### 4. Resume workspace on destination host
+
+```sh title="CONTROLLER"
 raft resume "$target_box" --ttl 1800
+```
 
-# 5. Verify application files and operations
+### 5. Verify application files and operations
+
+```sh title="CONTROLLER"
 raft exec "$target_box" -- ls -la /workspace
 ```
 

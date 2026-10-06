@@ -8,7 +8,7 @@ Raft is an independent open-source alternative to [boat.dev](https://boat.dev).
 - ✅ indicates an implemented Raft workflow (does not imply identical Boat behavior).
 - ❌ indicates an unsupported or out-of-scope feature.
 
-Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](./verification.md) for evidence.
+Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](./verification.mdx) for evidence.
 
 | Capability | Raft | Behavior and verification limits |
 | --- | --- | --- |

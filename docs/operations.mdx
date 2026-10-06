@@ -67,8 +67,9 @@ chmod 600 ~/.config/raft/incus.json
 
 Verify interactive SSH to establish known host keys:
 
-```sh title="CONTROLLER: Verify interactive SSH access"
+```sh title="CONTROLLER: Verify host SSH access"
 ssh user@host-address "echo Host SSH connected successfully"
+ssh -o BatchMode=yes user@host-address "echo Batch SSH functional"
 ```
 
 Edit `~/.config/raft/incus.json`. Set the `ssh` target. Leave `image` empty during initial setup:
@@ -82,11 +83,7 @@ Edit `~/.config/raft/incus.json`. Set the `ssh` target. Leave `image` empty duri
 }
 ```
 
-Location names use letters, digits, underscores, or hyphens. The first configured location is the default for `raft new`. Verify batch SSH access:
-
-```sh title="CONTROLLER: Test batch SSH access"
-ssh -o BatchMode=yes user@host-address "echo Batch SSH functional"
-```
+Location names use letters, digits, underscores, or hyphens. The first configured location is the default for `raft new`.
 
 </Step>
 
@@ -100,6 +97,9 @@ Run the automated host deployer from your controller:
 python3 deploy/deploy.py --location lab
 ```
 
+<details>
+<summary>Infrastructure created by the deployer</summary>
+
 The deployer runs over SSH and configures the host:
 1. Installs Incus 6.0 LTS and nftables packages.
 2. Creates the isolated `raft` Incus project.
@@ -107,6 +107,8 @@ The deployer runs over SSH and configures the host:
 4. Creates private bridge interface `rfbr0` (`10.232.0.1/24`) with NAT.
 5. Configures nftables bridge filters to block inter-workspace traffic and restrict host access.
 6. Installs and enables `raft-network.service` and `raft-expire.timer` units.
+
+</details>
 
 </Step>
 
@@ -211,12 +213,7 @@ Run `raft doctor` on your controller to inspect host readiness:
 raft doctor
 ```
 
-`raft doctor` connects to each configured host over SSH and prints:
-- Incus version running in project `raft`
-- Active status of host systemd services (`incus`, `raft-expire.timer`, `raft-network.service`)
-- Host root filesystem disk usage (`df -h /`)
-- Storage pool usage for `raft-data`
-- Count of existing saved containers
+Check that Incus, the network service, and the expiration timer are active. For the full report contents, see [Controller diagnostics](./guides/troubleshooting.mdx#controller-diagnostics).
 
 </Step>
 

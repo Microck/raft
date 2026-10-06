@@ -116,7 +116,12 @@ This is intended behavior. Raft configures nftables bridge filtering on `rfbr0` 
 If the controller crashes or SSH drops while `raft recover` is transferring an archive:
 1. Check the `Recovery handle: <location>:<name>` output printed to stderr when `raft recover` started.
 2. Inspect the reported handle with `raft list --location <location>` and confirm container status before removing staging.
-3. Inspect `/tmp` on the host to identify the exact owned staging file (`/tmp/raft-recovery.XXXXXXXX`) by owner and timestamp. Avoid wildcard deletion (`rm /tmp/raft-recovery.*`), which risks removing concurrent files. Remove only the confirmed owned staging file after verifying container status:
+3. Identify the exact staging file (`/tmp/raft-recovery.XXXXXXXX`) on the host by owner and timestamp.
+4. After confirming container status, remove only that owned file:
    ```sh title="HOST: Remove verified owned staging file"
    sudo -n rm -f -- /tmp/raft-recovery.XXXXXXXX
    ```
+
+<Callout type="warn" title="Do not delete by wildcard">
+Never run `rm /tmp/raft-recovery.*`. It can delete files from another recovery.
+</Callout>

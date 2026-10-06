@@ -6,25 +6,11 @@ title: Verification
 
 Raft is verified using real disposable Incus workspaces, guest processes, files, Docker builds, and network connections. Tests contain no mocked services and verify Raft behavior rather than conformance with the hosted Boat service.
 
-## Running verification suites
+## Verification boundaries
 
-Test commands require configured hosts and immutable image fingerprints. Suites destroy only the fixtures they create.
+Tests do not certify arbitrary long-running workloads, host loss, multi-tenant security boundaries, or exact Boat image/version parity. ARM64 host reboot and physical storage capacity are not certified by the AMD64 VM test. Containers share the host kernel and do not offer VM isolation.
 
-Allocation and archive inspection:
-- `python3 deploy/verify-limits.py`: Checks allocation policies without a host. Add `--location lab` to verify live create, stop, resume, and destroy reporting.
-- `python3 deploy/verify-image-tests.py`: Inspects archive structures, including symlinks, hardlinks, FIFOs, and credential detection.
-
-Live host suites:
-```sh
-python3 deploy/verify-live.py --location lab --extended
-# Optional daemon restart check on dedicated test host:
-python3 deploy/verify-live.py --location lab --restart-incus
-python3 deploy/verify-controls.py --source lab --target second-host --directory /path/to/archive-storage
-python3 deploy/verify-controls.py --source lab --target lab --directory /path/to/archive-storage
-python3 deploy/verify-controls.py --source lab --target second-host --directory /path/to/archive-storage --development-image
-```
-
-`verify-tools.py <qualified-box>` executes 31 tool checks as the unprivileged `developer` user inside a running workspace. It compiles and runs code across installed runtimes and package managers without external agent authentication.
+Storage accounting covers shared pools rather than per-box quotas. Large backup transfers hold the host lifecycle lock, which delays expiration checks.
 
 ## Coverage matrix
 
@@ -48,7 +34,67 @@ python3 deploy/verify-controls.py --source lab --target second-host --directory 
 | Deployment/firewall | Repeat deployment removes stale rules without restarting Incus; failed filtering blocks normal and socket startup; boot timestamps prove filtering precedes Incus |
 | Storage contract | Disposable oversized pool is rejected without automatic resizing |
 
+## Running verification suites
+
+Test commands require configured hosts and immutable image fingerprints. Suites destroy only the fixtures they create.
+
+Allocation and archive inspection:
+- `python3 deploy/verify-limits.py`: Checks allocation policies without a host. Add `--location lab` to verify live create, stop, resume, and destroy reporting.
+- `python3 deploy/verify-image-tests.py`: Inspects archive structures, including symlinks, hardlinks, FIFOs, and credential detection.
+
+Live host suites (expand the check you need):
+
+<details>
+<summary>Lifecycle</summary>
+
+```sh
+python3 deploy/verify-live.py --location lab --extended
+```
+
+</details>
+
+<details>
+<summary>Daemon restart on a dedicated test host</summary>
+
+```sh
+python3 deploy/verify-live.py --location lab --restart-incus
+```
+
+</details>
+
+<details>
+<summary>Cross-host recovery</summary>
+
+```sh
+python3 deploy/verify-controls.py --source lab --target second-host --directory /path/to/archive-storage
+```
+
+</details>
+
+<details>
+<summary>Same-host recovery</summary>
+
+```sh
+python3 deploy/verify-controls.py --source lab --target lab --directory /path/to/archive-storage
+```
+
+</details>
+
+<details>
+<summary>Full development-image recovery</summary>
+
+```sh
+python3 deploy/verify-controls.py --source lab --target second-host --directory /path/to/archive-storage --development-image
+```
+
+</details>
+
+`verify-tools.py <qualified-box>` executes 31 tool checks as the unprivileged `developer` user inside a running workspace. It compiles and runs code across installed runtimes and package managers without external agent authentication.
+
 ## Extended lifecycle results (2026-10-05)
+
+<details>
+<summary>Test evidence and run details</summary>
 
 The extended lifecycle suite and strengthened tool checks passed on two ARM64 Ubuntu hosts with Incus 6.0.6 on 2026-10-05.
 
@@ -56,7 +102,7 @@ Both hosts executed all six sizing combinations, all 31 developer tool checks, D
 
 Desktop testing validated keyboard input, exact clipboard synchronization, pointer coordinates, framebuffer updates, and secondary client connections. Headed Chromium testing passed with sandboxing enabled, confirming canvas rendering at 1280x720 over the noVNC interface.
 
-### Admission and backup runs
+**Admission and backup runs**
 
 The four-saved-box admission test passed, including rejection of a fifth create, fork, or recovery attempt. Full development-image recovery succeeded with a 5,254,224,965-byte archive, verifying inventories, tool checks, permissions, fresh MACs, and snapshot rollback.
 
@@ -69,13 +115,12 @@ Debian fixture backup and recovery passed across the following tests:
 
 All recovery fixtures were destroyed; existing operator hosts were not rebooted or reconfigured.
 
-### Verification boundaries
-
-Tests do not certify arbitrary long-running workloads, host loss, multi-tenant security boundaries, or exact Boat image/version parity. ARM64 host reboot and physical storage capacity are not certified by the AMD64 VM test. Containers share the host kernel and do not offer VM isolation.
-
-Storage accounting covers shared pools rather than per-box quotas. Large backup transfers hold the host lifecycle lock, which delays expiration checks.
+</details>
 
 ## Review-fix validation (2026-10-06)
+
+<details>
+<summary>Test evidence and run details</summary>
 
 On 2026-10-06, the extended suite passed on two configured ARM64 hosts after redeploying review fixes. Both ran all 31 tool checks, six sizing profiles, and deterministic race rejection when a source container started before obtaining the host lock. Cross-host recovery passed with a 385,265,470-byte archive.
 
@@ -85,7 +130,7 @@ The image inspector passed 15 test cases, including non-root SSH keys, symlinks,
 
 The [review-fix native run](https://github.com/Microck/raft/actions/runs/37496577945) passed all native steps on ARM64 and AMD64: development-image builds, extended lifecycle with daemon restarts, capacity transitions, and clean-image inspection. Recovery archives were 3,844,136,311 bytes on ARM64 and 3,985,872,081 bytes on AMD64.
 
-### Disposable KVM host tests
+**Disposable KVM host tests**
 
 Fresh provisioning on a disposable AMD64 KVM host confirmed:
 - Repeat deployment removed injected rules while leaving Incus daemon start timestamps unchanged.
@@ -95,13 +140,23 @@ Fresh provisioning on a disposable AMD64 KVM host confirmed:
 
 ARM64 host reboot and physical disk capacity remain outside this verification.
 
+</details>
+
 ## Native image validation (2026-10-06)
 
-On 2026-10-06, the [native CI run](https://github.com/Microck/raft/actions/runs/37447415532) built ARM64 and AMD64 images on Ubuntu 24 and passed extended lifecycle tests on both. Workspaces executed all six sizing combinations, 31 tool checks, sandboxed Chromium, noVNC desktop sessions, and peer isolation checks. Timings are recorded in [Boot performance](./boot-performance.md).
+<details>
+<summary>Test evidence and run details</summary>
+
+On 2026-10-06, the [native CI run](https://github.com/Microck/raft/actions/runs/37447415532) built ARM64 and AMD64 images on Ubuntu 24 and passed extended lifecycle tests on both. Workspaces executed all six sizing combinations, 31 tool checks, sandboxed Chromium, noVNC desktop sessions, and peer isolation checks. Timings are recorded in [Boot performance](./boot-performance.mdx).
 
 In the [release-validation run](https://github.com/Microck/raft/actions/runs/37469540182), native image jobs passed full development-image recovery on both architectures. Package inventories matched and all 31 tool checks passed. Archives measured 3,844,135,523 bytes on ARM64 and 3,985,894,517 bytes on AMD64.
 
+</details>
+
 ## Fresh-host and reboot validation
+
+<details>
+<summary>Test evidence and run details</summary>
 
 The [release run](https://github.com/Microck/raft/actions/runs/37469540182) validated fresh-host setup on a disposable AMD64 KVM instance running Ubuntu 24. The test verified canonical deployment, repeat deployment, image import, and lifecycle execution.
 
@@ -109,14 +164,27 @@ Following a VM reboot, changed kernel boot IDs and active services were verified
 
 It preserves the production deployer's 80 GiB free-disk check but does not prove physical storage capacity. ARM64 host reboot, host loss, and cross-architecture recovery remain unverified. The VM, SSH keys, and controller configuration were disposable; existing operator hosts were not rebooted or reconfigured.
 
+</details>
+
 ## Packaging and release checks
+
+<details>
+<summary>Test evidence and run details</summary>
 
 Package builds run via `uv build`. Source and wheel archives are inspected to exclude version-control files and local caches. Clean wheel installation is verified outside the worktree alongside Ruff, syntax checks, and secret scans.
 
 Packaging workflows passed on Python 3.11 and 3.14. Guidelines for visibility changes and repository hygiene are detailed in [Publishing](./publishing.md).
 
+</details>
+
 ## Capacity command validation (2026-10-06)
+
+<details>
+<summary>Test evidence and run details</summary>
 
 On 2026-10-06, `raft limits` passed read-only text and JSON inspection and live lifecycle tests on two ARM64 Ubuntu hosts. Tests verified allocation adjustments during create, stop, resume, and destroy cycles.
 
 Allocation fixtures validated mixed sizing budgets, frozen containers, low RAM and disk conditions, host reserves, and admission limits. The four-stopped-box admission test verified that creation, forking, and recovery reject a fifth container when slots are exhausted. These are conservative allocation checks, not workload saturation benchmarks.
+
+</details>
+
