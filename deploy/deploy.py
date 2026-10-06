@@ -109,6 +109,12 @@ def deploy(name):
         raise RuntimeError(
             "Incomplete Raft infrastructure; inspect the project, pool, bridge and profile before retrying"
         )
+    if pool["config"].get("size") != "60GiB":
+        raise RuntimeError(
+            "Raft pool must have configured size=60GiB; inspect raft-data and back up boxes "
+            "before explicit storage recovery. Deployment does not resize existing storage."
+        )
+
     devices = profile["devices"]
     if (
         devices.get("root", {}).get("pool") != "raft-data"
@@ -142,8 +148,17 @@ def deploy(name):
     for unit in ["raft-expire.service", "raft-expire.timer", "raft-network.service"]:
         copy(host, ROOT / "deploy" / unit, "/tmp/" + unit)
         remote(host, f"sudo -n install -m 644 /tmp/{unit} /etc/systemd/system/{unit}")
+    remote(host, "sudo -n mkdir -p /etc/systemd/system/incus.service.d")
+    copy(host, ROOT / "deploy/incus-network.conf", "/tmp/raft-incus-network.conf")
+    remote(
+        host,
+        "sudo -n install -m 644 /tmp/raft-incus-network.conf /etc/systemd/system/incus.service.d/raft-network.conf",
+    )
     remote(host, "sudo -n systemctl daemon-reload")
-    remote(host, "sudo -n systemctl enable --now raft-network.service raft-expire.timer")
+    remote(host, "sudo -n systemctl enable raft-network.service raft-expire.timer")
+    # Reload active filtering without stopping the Incus daemon that requires it.
+    remote(host, "sudo -n systemctl reload-or-restart raft-network.service")
+    remote(host, "sudo -n systemctl start raft-expire.timer")
     print(f"{name}: Incus, private bridge and host expiry timer ready", flush=True)
 
 

@@ -1,11 +1,12 @@
 [Unit]
 Description=Private Raft bridge firewall rules
-After=network-online.target docker.service incus.service
+After=network-online.target docker.service nftables.service
 Wants=network-online.target
-Before=raft-expire.service
+Before=incus.service incus-startup.service raft-expire.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/lib/raft/network
+ExecReload=/usr/local/lib/raft/network
 RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target

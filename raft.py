@@ -109,6 +109,11 @@ test "$count" -lt {SAVED_BOX_LIMIT} || {{ echo 'Location already holds four boxe
 """
 
 
+REQUIRE_STOPPED = """state=$(incus --project raft list "$1" --fast --format json | python3 -c 'import json,sys; print(next(x["status"] for x in json.load(sys.stdin) if x["name"] == sys.argv[1] and x["config"].get("user.raft") == "true"))' "$1")
+test "$state" = Stopped || { echo 'Stop the source box before snapshot, restore, fork or backup' >&2; exit 1; }
+"""
+
+
 HOST_RESOURCES = """import json, os, shutil, subprocess
 from pathlib import Path
 memory = dict(line.split()[:2] for line in Path('/proc/meminfo').read_text().splitlines())
@@ -266,6 +271,7 @@ def transaction(location, script, *arguments, stdout=None):
     )
     if response.returncode:
         raise RuntimeError(response.stderr.decode().strip())
+    return response.stdout.decode() if response.stdout is not None else ""
 
 
 def new(args):
@@ -344,11 +350,7 @@ def backup(args, location, name):
         # Check stopped state under the same lock as export, so resume cannot race it.
         transaction(
             location,
-            'test "$(incus --project raft list "$1" --fast --format json | '
-            'python3 -c \'import json,sys; print(next(x["status"] for x in json.load(sys.stdin) '
-            'if x["name"] == sys.argv[1]))\' "$1")" = Stopped '
-            '|| { echo "Stop the box before backing it up" >&2; exit 1; }; '
-            'exec incus --project raft export "$1" - --compression gzip',
+            REQUIRE_STOPPED + 'exec incus --project raft export "$1" - --compression gzip',
             name,
             stdout=archive,
         )
@@ -658,26 +660,32 @@ def dispatch(args):
     elif args.action == "snapshot":
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", args.name):
             raise ValueError("Invalid snapshot name")
-        if box["status"] != "Stopped":
-            raise ValueError("Stop the box before taking a consistent disk snapshot")
-        print(incus(location, "snapshot", "create", name, args.name, locked=True).strip())
+        print(
+            transaction(
+                location,
+                REQUIRE_STOPPED + 'incus --project raft snapshot create "$1" "$2"',
+                name,
+                args.name,
+            ).strip()
+        )
     elif args.action == "snapshots":
         print(incus(location, "info", name).strip())
     elif args.action == "restore":
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", args.name):
             raise ValueError("Invalid snapshot name")
-        if box["status"] != "Stopped":
-            raise ValueError("Stop the box before restoring its snapshot")
         # Imported/forked snapshots carry source configuration. Restore files,
         # keeping the destination's network identity and explicitly chosen limits.
-        incus(location, "snapshot", "restore", name, args.name, "--diskonly", locked=True)
+        transaction(
+            location,
+            REQUIRE_STOPPED + 'incus --project raft snapshot restore "$1" "$2" --diskonly',
+            name,
+            args.name,
+        )
     elif args.action == "fork":
-        if box["status"] != "Stopped":
-            raise ValueError("Stop the source before making a consistent fork")
         child = "rf-" + uuid.uuid4().hex[:16]
         transaction(
             location,
-            ADMISSION + 'incus --project raft copy "$1" "$2" --instance-only; '
+            REQUIRE_STOPPED + ADMISSION + 'incus --project raft copy "$1" "$2" --instance-only; '
             'incus --project raft start "$2"; '
             'incus --project raft config set "$2" user.raft.expires="$(( $(date +%s) + $3 ))"',
             name,

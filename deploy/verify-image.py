@@ -9,6 +9,16 @@ import re
 import tarfile
 
 
+def credential_path(path):
+    """Reject credential locations even when a tar entry is a link or special file."""
+    return (
+        ".ssh" in path.parts
+        or (path.parent.name == "ssh" and path.name.startswith("ssh_host_"))
+        or path.name in {".netrc", "incus.json"}
+        or (path.name == ".npmrc" and path.parts[:2] in {("rootfs", "root"), ("rootfs", "home")})
+    )
+
+
 def verify(archive, architecture, fingerprint):
     if archive.stat().st_size >= 2 * 1024**3:
         raise ValueError("Image exceeds GitHub's per-release-asset limit")
@@ -29,18 +39,17 @@ def verify(archive, architecture, fingerprint):
             if path.is_absolute() or ".." in path.parts:
                 raise ValueError("Unsafe image member: " + member.name)
             name = str(path)
-            if not member.isfile():
-                continue
-            if (
-                name.startswith(("rootfs/root/.ssh/", "rootfs/workspace/"))
-                or name.startswith("rootfs/etc/ssh/ssh_host_")
-                or path.name in {".netrc", "incus.json"}
+            if not member.isdir() and (
+                credential_path(path)
+                or path.parts[:2] == ("rootfs", "workspace")
                 or (
-                    path.name == ".npmrc"
-                    and path.parts[:2] in {("rootfs", "root"), ("rootfs", "home")}
+                    (member.issym() or member.islnk())
+                    and credential_path(PurePosixPath(member.linkname))
                 )
             ):
-                raise ValueError("Operator content or credential file in template: " + name)
+                raise ValueError("Operator content or credential entry in template: " + name)
+            if not member.isfile():
+                continue
             # npm itself ships a package-local .npmrc. Check all npm configs
             # for credentials rather than treating every package config as a secret.
             if path.name in {".npmrc", "npmrc"}:

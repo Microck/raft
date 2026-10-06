@@ -21,6 +21,7 @@ jobs:
       - run: uvx ruff format --check raft.py deploy/*.py
       - run: uv run python -m compileall -q raft.py deploy
       - run: uv run python deploy/verify-limits.py
+      - run: uv run python deploy/verify-image-tests.py
       - run: uv build
       - run: uv run python deploy/verify-release.py
       - run: uv run --no-project --with ./dist/raft-0.1.0-py3-none-any.whl raft --help

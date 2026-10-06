@@ -4,17 +4,7 @@ on:
     paths:
       - raft.py
       - images/incus/**
-      - deploy/build-image.py
-      - deploy/install-incus.sh
-      - deploy/raft-network.sh
-      - deploy/raft-network.service
-      - deploy/verify-live.py
-      - deploy/verify-tools.py
-      - deploy/verify-controls.py
-      - deploy/verify-limits.py
-      - deploy/verify-image.py
-      - deploy/verify-fresh-host.py
-      - deploy/benchmark-boot.py
+      - deploy/**
       - .github/workflows/images.yml
   workflow_dispatch:
     inputs:
@@ -75,8 +65,12 @@ jobs:
           printf '#!/bin/sh\nexec flock /run/lock/raft-incus.lock /usr/local/lib/raft/expire-worker\n' > "$RUNNER_TEMP/raft-expire"
           sudo install -m 755 "$RUNNER_TEMP/raft-expire" /usr/local/lib/raft/expire
           sudo install -m 644 deploy/raft-network.service deploy/raft-expire.service deploy/raft-expire.timer /etc/systemd/system/
+          sudo install -d /etc/systemd/system/incus.service.d
+          sudo install -m 644 deploy/incus-network.conf /etc/systemd/system/incus.service.d/raft-network.conf
           sudo systemctl daemon-reload
-          sudo systemctl enable --now raft-network.service raft-expire.timer
+          sudo systemctl enable raft-network.service raft-expire.timer
+          sudo systemctl reload-or-restart raft-network.service
+          sudo systemctl start raft-expire.timer
       - name: Build native development image
         run: |
           python3 deploy/build-image.py --location lab

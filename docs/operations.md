@@ -46,6 +46,18 @@ private destinations and host services. A native nftables bridge hook blocks
 peer frames on `rfbr0`, including IPv6, without changing host-wide bridge
 sysctls. The installer ensures the `nftables` host dependency is available.
 
+Incus requires `raft-network.service` to finish successfully before daemon startup,
+including socket activation. A failed firewall installation blocks startup.
+Deployment reloads the active firewall without restarting Incus and replaces its
+owned IPv4 chains transactionally, preserving unrelated host chains. Review the
+[systemd dependency rules](https://www.freedesktop.org/software/systemd/man/systemd.unit.html)
+when managing these units. Do not bypass the dependency or flush host firewall rules.
+
+Existing owned pools must have `size=60GiB`. Deployment rejects a different size
+without resizing storage. Back up boxes, inspect the pool and choose explicit
+storage recovery on a dedicated host before retrying. Do not shrink a live pool
+as an automatic repair.
+
 ```sh
 python3 deploy/deploy.py --location lab
 python3 deploy/build-image.py --location lab

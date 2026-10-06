@@ -7,7 +7,8 @@ workflows, packaging and agent skill. Two independent read-only reviews used
 standards. Findings below refer to this pinned snapshot, before documentation-site changes.
 
 This is a code review, not a claim that every runtime path passed a new E2E run.
-No host configuration changed during review. Findings remain open.
+No host configuration changed during the original review.
+The six distinct findings have since been fixed; see the follow-up verification below.
 
 ## Standards
 
@@ -131,3 +132,27 @@ scroll within their container rather than widening the mobile page.
 The simplification pass ran in the parent context across reuse, quality and
 efficiency. No behavior-preserving refactor was warranted. No runtime review
 finding above was fixed, and no workspace host was modified by site checks.
+
+## Runtime-fix follow-up
+
+All six distinct findings are addressed by the follow-up patch. Both review axes
+reported no additional actionable findings after inspecting the fixes and tests.
+
+| Finding | Fix | Verification |
+| --- | --- | --- |
+| Stopped-source race | Ownership and state are checked inside the same locked transaction as snapshot, restore, fork and backup | Real queued snapshot/restore/fork operations reject a source started first under the host lock on two ARM64 hosts |
+| Stale rules on redeploy | Reloadable firewall oneshot explicitly reapplies owned chains transactionally, preserving unrelated chains and the running Incus daemon | Isolated first/repeat application passed; fresh-host CI checks injected stale-rule removal, unrelated-chain retention and unchanged daemon start timestamp |
+| Guest autostart before filtering | Incus requires the firewall and starts after successful installation, including socket activation | Installed dependency verified on two hosts; fresh-host CI tests failed filtering and post-reboot start timestamps |
+| Missing native CI triggers | All `deploy/**` changes trigger the native workflow | Workflow path inspection; the fix push triggers both native architectures and the fresh-host job |
+| Non-root image credentials | Check credential paths and link targets before skipping nonregular entries | 15 real tar cases passed, including generated non-root private keys, symlinks, hardlinks, FIFO entries and clean controls |
+| Oversized owned storage | Reject an existing pool whose configured size differs from `60GiB`, with recovery guidance and no resize | Existing 60 GiB pools pass; fresh-host CI grows a disposable pool to 61 GiB and verifies rejection without resizing |
+
+The extended lifecycle suite passed on two configured ARM64 hosts. Each completed
+all 31 developer-tool checks, six sizing combinations, the deterministic race
+cases, Docker, files, jobs, snapshots, forks, restore, private tunnels, desktop,
+network restrictions and scheduled TTL stop/resume. Each removed its fixtures.
+Lint, formatting, compilation and release archive/privacy checks passed.
+
+Native ARM64/AMD64 rebuilds and fresh-host failure/reboot/storage checks run in CI.
+Their final result is recorded after the workflow completes; local ARM64 checks
+alone do not certify the disposable-host behavior.

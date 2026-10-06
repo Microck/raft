@@ -5,6 +5,7 @@ import json
 import os
 import pty
 import select
+import shlex
 from pathlib import Path
 import socket
 import subprocess
@@ -416,6 +417,117 @@ def verify_configuration():
             assert response.returncode == 1 and "Traceback" not in response.stderr
 
 
+def verify_stopped_race(location, box):
+    """Queue real disk operations behind the lock, then start their source first."""
+    name = box.split(":", 1)[1]
+    host = settings(location)["ssh"]
+    command = ["ssh", "-T", "-o", "BatchMode=yes", host]
+    holder_script = """import fcntl, os, subprocess, sys, time
+with open('/run/lock/raft-incus.lock', 'a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    info = os.fstat(lock.fileno())
+    print(f'{os.major(info.st_dev):02x}:{os.minor(info.st_dev):02x}:{info.st_ino}', flush=True)
+    if sys.stdin.readline().strip() == 'start':
+        subprocess.run(['incus', '--project', 'raft', 'start', sys.argv[1]], check=True)
+        subprocess.run(['incus', '--project', 'raft', 'config', 'set', sys.argv[1],
+                        f'user.raft.expires={int(time.time()) + 600}'], check=True)
+"""
+    queued_script = """from pathlib import Path
+import sys
+for line in Path('/proc/locks').read_text().splitlines():
+    if '->' in line and sys.argv[1] in line.split():
+        fields = line.split()
+        pid = fields[fields.index('WRITE') + 1]
+        try:
+            arguments = (Path('/proc') / pid / 'cmdline').read_bytes().split(bytes([0]))
+        except FileNotFoundError:
+            continue
+        if sys.argv[2].encode() in arguments:
+            print('queued')
+"""
+    raft("resume", box, "--ttl", "600")
+    wait_running(box)
+    execute(box, "sh", "-c", "echo guarded > /workspace/persistent")
+    raft("stop", box)
+    children = []
+    try:
+        for operation in [
+            ["snapshot", box, "blocked-race"],
+            ["restore", box, "prepared"],
+            ["fork", box, "--ttl", "600"],
+        ]:
+            with subprocess.Popen(
+                [*command, shlex.join(["sudo", "-n", "python3", "-c", holder_script, name])],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ) as holder:
+                contender = None
+                try:
+                    assert select.select([holder.stdout], [], [], 15)[0], (
+                        "Lock holder did not become ready"
+                    )
+                    lock_key = holder.stdout.readline().strip()
+                    assert lock_key.count(":") == 2, "Lock holder exited before acquiring the lock"
+                    contender = subprocess.Popen(
+                        [*CLI, *operation],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    deadline = time.monotonic() + 20
+                    while time.monotonic() < deadline:
+                        assert contender.poll() is None, (
+                            "Operation did not queue behind the lifecycle lock"
+                        )
+                        queued = subprocess.check_output(
+                            [
+                                *command,
+                                shlex.join(
+                                    ["sudo", "-n", "python3", "-c", queued_script, lock_key, name]
+                                ),
+                            ],
+                            text=True,
+                        )
+                        if "queued" in queued:
+                            break
+                        time.sleep(0.1)
+                    else:
+                        raise RuntimeError("No blocked lifecycle operation observed in /proc/locks")
+                    holder.stdin.write("start\n")
+                    holder.stdin.flush()
+                    holder.wait(timeout=40)
+                    assert holder.returncode == 0, holder.stderr.read()
+                    output, errors = contender.communicate(timeout=40)
+                    if operation[0] == "fork" and contender.returncode == 0:
+                        children.append(output.strip())
+                    assert contender.returncode != 0 and "Stop the source box" in errors, (
+                        operation[0],
+                        output,
+                        errors,
+                    )
+                    wait_running(box)
+                    assert execute(box, "cat", "/workspace/persistent") == "guarded"
+                    assert "blocked-race" not in raft("snapshots", box).stdout
+                    raft("stop", box)
+                finally:
+                    if holder.poll() is None:
+                        holder.stdin.close()
+                        holder.wait(timeout=15)
+                    if contender and contender.poll() is None:
+                        contender.terminate()
+                        contender.wait(timeout=15)
+        raft("restore", box, "prepared")
+        print(
+            f"{location}: snapshot, restore and fork rejected a source resumed while queued",
+            flush=True,
+        )
+    finally:
+        for child in children:
+            raft("destroy", child)
+
+
 def verify_reboot(location, box, child):
     """Reboot only an explicitly selected disposable host, then prove recovery."""
     host = settings(location)["ssh"]
@@ -442,6 +554,21 @@ def verify_reboot(location, box, child):
         time.sleep(2)
     else:
         raise RuntimeError("Host did not return with a new kernel boot ID")
+    timing = json.loads(
+        subprocess.check_output(
+            [
+                *command,
+                "python3 -c "
+                + shlex.quote(
+                    "import json,subprocess; print(json.dumps({unit: int(subprocess.check_output(['systemctl','show',unit,'-p',prop,'--value'])) for unit,prop in [('raft-network.service','ActiveEnterTimestampMonotonic'),('incus.service','ExecMainStartTimestampMonotonic')]}))"
+                ),
+            ],
+            text=True,
+        )
+    )
+    assert 0 < timing["raft-network.service"] < timing["incus.service"], (
+        "Incus started before firewall installation completed"
+    )
     assert json.loads(raft("info", child).stdout)["status"] == "Stopped"
     wait_running(box)
     assert execute(box, "cat", "/workspace/persistent") == "saved"
@@ -570,6 +697,7 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
         raft("stop", box)
         assert json.loads(raft("info", box).stdout)["status"] == "Stopped"
         raft("snapshot", box, "prepared")
+        verify_stopped_race(location, box)
         child = raft("fork", box, "--ttl", "1800").stdout.strip()
         fixtures.append(child)
         wait_running(child)

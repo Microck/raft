@@ -13,6 +13,8 @@ behavior, not complete conformance with the hosted Boat service.
 Run allocation-policy checks without a host with `python3 deploy/verify-limits.py`.
 Add `--location lab` to verify real create/stop/resume/destroy reporting with one
 disposable box. Native image CI runs this test on both architectures.
+`python3 deploy/verify-image-tests.py` checks clean and credential-bearing tar archives,
+including non-root SSH files, symlinks, hardlinks and special entries.
 
 Configure your own hosts and immutable image fingerprints first. Use dedicated
 test infrastructure with free workspace slots and sufficient archive storage.
@@ -48,12 +50,14 @@ It does not make coding-agent model calls or authenticate accounts.
 | Usage | Real cgroup counters and explicitly shared-pool disk scope |
 | File transfer | Binary content and paths containing spaces |
 | Docker | Real image build and container execution |
-| Snapshot/restore/fork | File rollback, independent copy and retained destination network identity |
+| Snapshot/restore/fork | File rollback, independent copy, retained network identity and deterministic concurrent-resume rejection under the real host lock |
 | Backup/recovery | Stopped source, no overwrite, snapshots, content, permissions and fresh MAC |
 | Private forwarding | Guest HTTP response through controller loopback tunnel |
 | Desktop | WebSocket/RFB negotiation, framebuffer, pointer, keyboard, clipboard and reconnect |
 | Network separation | Positive service control, negative IPv4/IPv6 peer, host and metadata probes |
-| Development image | Real developer-user tool checks and immutable image selection |
+| Development image | Real developer-user tool checks, immutable selection and credential-path archive rejection |
+| Deployment/firewall | Repeat deployment removes stale rules without restarting Incus; failed filtering blocks normal and socket startup; boot timestamps prove filtering precedes Incus |
+| Storage contract | Disposable oversized pool is rejected without automatic resizing |
 
 ## Results and limits
 

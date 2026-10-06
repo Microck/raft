@@ -24,6 +24,87 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+def verify_firewall(env):
+    """Disrupt only this harness's disposable VM to prove the startup dependency."""
+    ssh = ["ssh", "raft-fresh"]
+    requires = subprocess.check_output(
+        [*ssh, "systemctl show incus.service -p Requires -p After"], env=env, text=True
+    )
+    assert all(
+        "raft-network.service" in line.split("=", 1)[1].split() for line in requires.splitlines()
+    )
+    started = subprocess.check_output(
+        [*ssh, "systemctl show incus.service -p ExecMainStartTimestampMonotonic --value"],
+        env=env,
+        text=True,
+    )
+    # Deliberately inject an obsolete allowance with no boxes present, then redeploy.
+    run(
+        *ssh,
+        "sudo iptables -N RAFT-VERIFY-UNRELATED && "
+        "sudo iptables -A RAFT-VERIFY-UNRELATED -j RETURN && "
+        "sudo iptables -I RAFT-FORWARD 1 -d 169.254.0.0/16 -j ACCEPT",
+        env=env,
+    )
+    run(sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab", env=env)
+    run(
+        *ssh,
+        "sudo iptables -C RAFT-FORWARD -d 169.254.0.0/16 -j REJECT && "
+        "! sudo iptables -C RAFT-FORWARD -d 169.254.0.0/16 -j ACCEPT && "
+        "sudo iptables -C RAFT-VERIFY-UNRELATED -j RETURN && "
+        "sudo iptables -F RAFT-VERIFY-UNRELATED && sudo iptables -X RAFT-VERIFY-UNRELATED",
+        env=env,
+    )
+    unchanged = subprocess.check_output(
+        [*ssh, "systemctl show incus.service -p ExecMainStartTimestampMonotonic --value"],
+        env=env,
+        text=True,
+    )
+    assert started == unchanged, "Firewall reload restarted the Incus daemon"
+    run(*ssh, "sudo cp /usr/local/lib/raft/network /tmp/raft-network-proof", env=env)
+    try:
+        run(
+            *ssh,
+            "sudo systemctl stop raft-expire.timer incus-startup.service incus.socket incus.service raft-network.service",
+            env=env,
+        )
+        run(
+            *ssh,
+            "printf '#!/bin/sh\\nexit 1\\n' | sudo tee /usr/local/lib/raft/network >/dev/null",
+            env=env,
+        )
+        failed = subprocess.run(
+            [*ssh, "sudo systemctl start incus.service"], env=env, capture_output=True, text=True
+        )
+        assert failed.returncode != 0, "Incus started despite a failed firewall dependency"
+        active = subprocess.run(
+            [*ssh, "systemctl is-active incus.service"], env=env, capture_output=True, text=True
+        )
+        assert active.stdout.strip() != "active"
+        run(*ssh, "sudo systemctl start incus.socket", env=env)
+        failed = subprocess.run(
+            [*ssh, "sudo timeout 20 incus query /1.0"], env=env, capture_output=True, text=True
+        )
+        assert failed.returncode != 0, "Socket activation bypassed the firewall dependency"
+        active = subprocess.run(
+            [*ssh, "systemctl is-active incus.service"], env=env, capture_output=True, text=True
+        )
+        assert active.stdout.strip() != "active"
+    finally:
+        run(
+            *ssh,
+            "sudo cp /tmp/raft-network-proof /usr/local/lib/raft/network && sudo rm /tmp/raft-network-proof && "
+            "sudo systemctl reset-failed incus.service raft-network.service && "
+            "sudo systemctl reload-or-restart raft-network.service && "
+            "sudo systemctl start incus.socket incus.service incus-startup.service raft-expire.timer",
+            env=env,
+        )
+    print(
+        "Repeat deploy removed stale rules without restarting Incus; firewall failure blocked normal and socket startup",
+        flush=True,
+    )
+
+
 def verify(archive):
     # Fail rather than silently switching to software emulation.
     if not os.access("/dev/kvm", os.R_OK | os.W_OK):
@@ -150,8 +231,7 @@ def verify(archive):
                     raise RuntimeError("Fresh VM SSH did not become ready")
                 run("ssh", "raft-fresh", "sudo cloud-init status --wait --long", env=env)
                 run(sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab", env=env)
-                # A second deploy must preserve owned infrastructure and succeed.
-                run(sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab", env=env)
+                verify_firewall(env)
                 run("scp", str(archive), "raft-fresh:/tmp/raft-image.tar.gz", env=env)
                 run(
                     "ssh",
@@ -185,8 +265,23 @@ def verify(archive):
                     "--reboot-host",
                     env=env,
                 )
+                # Oversize only this disposable pool after all boxes have been removed.
+                run("ssh", "raft-fresh", "sudo incus storage set raft-data size=61GiB", env=env)
+                drift = subprocess.run(
+                    [sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab"],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                assert drift.returncode != 0 and "size=60GiB" in drift.stderr
+                size = subprocess.check_output(
+                    ["ssh", "raft-fresh", "sudo incus storage get raft-data size"],
+                    env=env,
+                    text=True,
+                )
+                assert size.strip() == "61GiB", "Deployment silently resized a drifting pool"
                 print(
-                    "Fresh Ubuntu provisioning, repeat deployment, image import and real host reboot passed",
+                    "Fresh provisioning, firewall failure gating, redeployment, oversize rejection and real host reboot passed",
                     flush=True,
                 )
             finally:

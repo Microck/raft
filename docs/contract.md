@@ -16,7 +16,10 @@ reboot check. The test VM uses KVM and a sparse 100 GiB virtual disk; it does
 not certify underlying physical storage capacity or ARM64 host reboot behavior.
 
 - Deployment refuses conflicting storage/network names and incomplete owned
-  infrastructure rather than silently overwriting or repairing it.
+  infrastructure rather than silently overwriting or repairing it. Existing owned
+  Btrfs pools must retain the configured 60 GiB size; drift is rejected without resizing.
+  Redeployment reapplies firewall rules. Incus startup requires successful firewall
+  installation before the daemon can start, including socket activation.
 - `new`, `list`, `info`, `exec`, `ssh`, `upload`, `download`, `stop`, `resume`,
   `destroy`, `snapshot`, `snapshots`, `restore`, `fork`, `forward`, `desktop`,
   `status`, `logs`, `cancel`, `usage`, `extend`, `backup`, `recover`, `limits`, `doctor`
@@ -71,7 +74,8 @@ not certify underlying physical storage capacity or ARM64 host reboot behavior.
   subvolumes can evade qgroup accounting. Native compressed image cache lives
   outside this pool, so `doctor` still reports host disk.
 - Snapshots, restores and forks require a stopped source for consistent disk
-  contents. Restore rolls back disk contents only, retaining the destination's
+  contents. Their source-state checks and disk operations share the host lifecycle
+  lock, so a concurrent resume cannot invalidate the check. Restore rolls back disk contents only, retaining the destination's
   instance configuration, resource limits and eth0 MAC address. Fork copies files
   including guest secrets
   but receives a fresh Incus runtime identity and network identity.
@@ -81,6 +85,8 @@ not certify underlying physical storage capacity or ARM64 host reboot behavior.
   has no login manager; clipboard exchange is available without a login-manager delay. Closing its tunnel does not
   stop the desktop service. It is full desktop access, not browser confinement.
 - The development image omits coding-agent packages and account credentials.
+  Release inspection rejects SSH content under root and non-root home directories,
+  guest SSH host keys and links to credential paths, including nonregular archive entries.
   Operators can install their preferred agent. Managed agent orchestration is
   not implemented. Guest SSH advertises a fresh Ed25519 host key.
 - `cancel` stops an ordinary detached command's systemd control group.
