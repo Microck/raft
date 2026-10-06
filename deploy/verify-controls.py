@@ -136,6 +136,9 @@ def verify(source, target, directory, development_image=False):
             > int(live.execute(box, "date", "+%s")) + 1100
         )
         assert "ActiveState=active" in live.raft("status", box, job).stdout
+        # Exercise journal retention without changing any host service or other box.
+        live.execute(box, "journalctl", "--rotate", "--vacuum-size=1")
+        assert "ActiveState=active" in live.raft("status", box, job).stdout
         live.raft("cancel", box, job)
         assert "ActiveState=inactive" in live.raft("status", box, job).stdout
         assert live.raft("logs", box, job).returncode == 0

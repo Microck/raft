@@ -110,6 +110,8 @@ Display active resource consumption for a running workspace: cgroup memory, CPU 
 
 `status`, `logs` and `cancel` require a job ID returned by `exec --detach` in the selected running workspace. Unknown jobs return an error.
 
+Cancelled jobs remain inspectable while their guest journal records exist. Rotating old logs does not prevent inspection of a live job.
+
 ### `status`
 
 Check the execution state of a detached background job.

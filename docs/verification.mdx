@@ -20,7 +20,7 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | Root terminal/exec | Real PTY, workspace directory, literal arguments and exit code |
 | Resource sizing | Effective CPU affinity and cgroup memory limit |
 | Host capacity | Mixed-size budgets, stopped/frozen boxes, low RAM/disk and four saved slots; live create/stop/resume/destroy changes in CPU/memory allocations |
-| Background jobs | Journal output, nonzero exit status, cancellation of child processes and rejection of unknown job IDs |
+| Background jobs | Journal output, nonzero exit status, cancellation of child processes, inspection after cancellation or log rotation, and rejection of unknown job IDs |
 | TTL/extend/resume | Host-enforced stop, manual `gc`, retained files, uninterrupted lifetime extension and 30-day resume |
 | Usage | Real cgroup counters and explicitly shared-pool disk scope |
 | File transfer | Binary content, paths containing spaces, stopped-workspace transfers and preservation of the destination after a failed download |
