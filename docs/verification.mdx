@@ -23,7 +23,7 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | Background jobs | Journal output, nonzero exit status, cancellation of child processes, inspection after cancellation or log rotation, and rejection of unknown job IDs |
 | TTL/extend/resume | Host-enforced stop, manual `gc`, retained files, uninterrupted lifetime extension and 30-day resume |
 | Usage | Real cgroup counters and explicitly shared-pool disk scope |
-| File transfer | Binary content, paths containing spaces, stopped-workspace transfers and preservation of the destination after a failed download |
+| File transfer | Binary content, paths containing spaces, stopped-workspace transfers, preservation of the destination after a failed download, and real controller write-error rejection |
 | Docker | Real image build and container execution |
 | Snapshot/restore/fork | File rollback, independent copy, retained network identity and deterministic concurrent-resume rejection under the real host lock |
 | Backup/recovery | Stopped source, no overwrite, snapshots, content, permissions and fresh MAC |

@@ -1,6 +1,7 @@
 """Real Raft lifecycle verification; each run destroys only its own fixtures."""
 
 import argparse
+import errno
 import json
 import os
 import pty
@@ -18,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CLI = [sys.executable, str(ROOT / "raft.py")]
 USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
 sys.path.insert(0, str(ROOT))
-from raft import configuration, incus, settings  # noqa: E402
+from raft import configuration, incus, remote, settings, transaction  # noqa: E402
 
 
 def raft(*arguments, check=True, env=None):
@@ -471,6 +472,24 @@ def verify_option_edges(location, box):
     print(
         f"{location}: global reports and invalid handles, paths, jobs and ports passed", flush=True
     )
+    # /dev/full rejects real writes with ENOSPC without filling the controller disk.
+    # OpenSSH alone returns zero here, so exercise both artifact receiving paths.
+    for operation in ["download", "backup"]:
+        with open("/dev/full", "wb", buffering=0) as destination:
+            try:
+                if operation == "download":
+                    remote(
+                        location,
+                        ["exec", box.split(":", 1)[1], "--", "printf", "stream-proof"],
+                        stdout=destination,
+                    )
+                else:
+                    transaction(location, 'printf "%s" "$1"', "stream-proof", stdout=destination)
+            except OSError as error:
+                assert error.errno == errno.ENOSPC
+            else:
+                raise AssertionError(f"{operation}: silently accepted a failed controller write")
+    print(f"{location}: download and backup streams rejected real ENOSPC writes", flush=True)
 
 
 def verify_stopped_race(location, box):

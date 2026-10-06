@@ -50,6 +50,7 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 - **Execution transport**: Incus exec and file APIs travel over authenticated host SSH without a public Incus listener or injected credentials. Interactive SSH runs a PTY over host SSH and Incus exec.
 - **State inspection and tunnels**: `raft list` and `raft info` read native metadata without guest process counters during shutdown; tunnels use the managed NIC.
 - **Resource reporting**: `raft usage` reports running cgroup memory, CPU microseconds, CPU affinity, and shared pool space. It does not provide per-box disk accounting or billing.
+- **File transfer failures**: Controller write errors return an error before replacing a download destination or publishing a backup archive.
 
 ## Security and network isolation
 

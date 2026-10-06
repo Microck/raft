@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -50,24 +51,44 @@ def settings(location):
     return inventory[location]
 
 
+def receive(command, destination, *, stdin=None):
+    """Write streamed bytes in Python: SSH can exit zero after a local write error."""
+    with tempfile.TemporaryFile() as errors:
+        with subprocess.Popen(
+            command, stdin=stdin, stdout=subprocess.PIPE, stderr=errors
+        ) as process:
+            try:
+                shutil.copyfileobj(process.stdout, destination)
+            except BaseException:
+                process.kill()
+                process.wait()
+                raise
+            returncode = process.wait()
+        errors.seek(0)
+        return subprocess.CompletedProcess(command, returncode, None, errors.read())
+
+
 def remote(location, argv, *, capture=True, stdin=None, stdout=None, tty=False, locked=False):
     command = ["sudo", "-n"]
     if locked:
         command += ["flock", "/run/lock/raft-incus.lock"]
     command += ["incus", "--project", PROJECT, *argv]
+    connection = [
+        "ssh",
+        *(["-tt"] if tty else ["-T"]),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        settings(location)["ssh"],
+        shlex.join(command),
+    ]
+    if stdout is not None:
+        return receive(connection, stdout, stdin=stdin)
     return subprocess.run(
-        [
-            "ssh",
-            *(["-tt"] if tty else ["-T"]),
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=10",
-            settings(location)["ssh"],
-            shlex.join(command),
-        ],
+        connection,
         stdin=stdin,
-        stdout=stdout if stdout is not None else (subprocess.PIPE if capture else None),
+        stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
         check=False,
     )
@@ -264,11 +285,18 @@ def transaction(location, script, *arguments, stdout=None):
         "raft",
         *arguments,
     ]
-    response = subprocess.run(
-        ["ssh", "-T", "-o", "BatchMode=yes", settings(location)["ssh"], shlex.join(command)],
-        stdout=stdout if stdout is not None else subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    connection = [
+        "ssh",
+        "-T",
+        "-o",
+        "BatchMode=yes",
+        settings(location)["ssh"],
+        shlex.join(command),
+    ]
+    if stdout is not None:
+        response = receive(connection, stdout)
+    else:
+        response = subprocess.run(connection, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if response.returncode:
         raise RuntimeError(response.stderr.decode().strip())
     return response.stdout.decode() if response.stdout is not None else ""
