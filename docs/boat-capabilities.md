@@ -1,9 +1,13 @@
+---
+title: Boat feature parity
+---
+
 # Boat capability coverage
 
 Raft is an independent open-source alternative to [boat.dev](https://boat.dev).
 ✅ means an implemented Raft workflow. It does not mean identical Boat behavior.
 ❌ means missing or intentionally outside the current scope. Tests verify Raft,
-not the hosted Boat service. See [verification](verification.md) for evidence.
+not the hosted Boat service. See [verification](./verification.md) for evidence.
 
 | Capability | Raft | Behavior and verification limits |
 | --- | --- | --- |

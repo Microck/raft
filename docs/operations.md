@@ -1,3 +1,7 @@
+---
+title: Installation and operations
+---
+
 # Installation and operations
 
 ## Requirements
@@ -58,7 +62,7 @@ ARM64 and AMD64 templates. Successful runs attach seven-day CI artifacts.
 Manual runs with a new release tag also publish permanent
 [image releases](https://github.com/Microck/raft/releases) after fresh-host
 validation; results are recorded in
-[boot performance](boot-performance.md).
+[boot performance](./boot-performance.md).
 
 A successful build removes its builder. Failed builds retain `raft-builder` for
 diagnosis. An existing `raft-dev` alias is rejected. Use `--alias raft-dev-next` to build
@@ -114,7 +118,7 @@ otherwise empty host. `More running` accounts for current active box limits and
 available RAM. `New boxes` also respects free saved-box slots. Stopped boxes use
 saved slots and disk; frozen boxes retain their resource allocation.
 
-The [capacity policy](contract.md) reserves one CPU and the larger of 2 GiB or
+The [capacity policy](./contract.md) reserves one CPU and the larger of 2 GiB or
 10% of host RAM. Counts assume each box may use its full configured limits and
 avoid CPU oversubscription. This is deliberately conservative for simultaneous
 builds. Mostly idle workloads can share more CPUs; recommendations do not block
@@ -244,6 +248,6 @@ may contain guest secrets. An unreachable host does not mean its boxes are gone.
 
 ## Tests and skill
 
-Follow [verification](verification.md) for real E2E suites and their side effects.
+Follow [verification](./verification.md) for real E2E suites and their side effects.
 Install the optional agent skill by linking `skills/raft-cli` into your agent's
 skills directory. The skill source is maintained in this repository.

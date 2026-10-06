@@ -1,0 +1,52 @@
+---
+title: Overview
+description: Persistent Linux workspaces on machines you control.
+---
+
+# Raft
+
+Raft is an independent, self-hosted open-source alternative to [boat.dev](https://boat.dev).
+Create persistent Linux boxes on your own ARM64 or AMD64 machines, with command execution,
+Docker, file transfer, snapshots, forks and a private desktop.
+
+The runtime uses unprivileged Incus system containers. Boxes share the host kernel.
+KVM virtual machines and complete Boat feature parity are not implemented.
+Raft is not affiliated with Boat.
+
+## Get started
+
+1. Check the [host requirements and installation steps](./operations.md).
+2. Provision a dedicated host, then build or import a native development image.
+3. Create a box and run a command:
+
+```sh
+box=$(raft new --location lab --ttl 600)
+raft exec "$box" -- node --version
+raft ssh "$box"
+raft stop "$box"
+```
+
+`stop` and expiration retain your files. `resume` starts the box again.
+`destroy` deletes the box and its snapshots.
+
+## Plan capacity
+
+```sh
+raft limits
+```
+
+Inspect CPU, memory and disk headroom before adding boxes.
+Recommendations depend on your workload. The enforced limit is four saved boxes per host.
+See [capacity planning](./operations.md).
+
+## Learn what is supported
+
+- [Feature parity](./boat-capabilities.md): implemented features, partial matches and gaps.
+- [Boot performance](./boot-performance.md): measured times, methodology and software-dependent results.
+- [Runtime contract](./contract.md): limits, isolation, lifecycle and recovery guarantees.
+- [Verification](./verification.md): reproducible checks and the limits of the evidence.
+
+## For maintainers
+
+Read the [design decisions](./boat-parity-design.md), [publishing guide](./publishing.md)
+and [documentation site guide](./site-development.md).

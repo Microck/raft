@@ -1,3 +1,7 @@
+---
+title: Publishing
+---
+
 # Publishing a clean source release
 
 The public source must contain only reusable code, examples and documentation.

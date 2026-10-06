@@ -1,3 +1,7 @@
+---
+title: Verification
+---
+
 # Verification
 
 Raft uses real disposable Incus workspaces, guest processes, files, Docker
@@ -101,7 +105,7 @@ checks, including sandboxed headless Chromium. Headed Chromium and the real
 noVNC client, IPv4/IPv6 peer isolation, host/metadata restrictions, Docker,
 files, jobs, snapshots, forks, restore and scheduled TTL stop/resume all passed.
 Five boot samples per architecture and clean image exports followed.
-[Boot performance](boot-performance.md) records timings and limits. This does
+[Boot performance](./boot-performance.md) records timings and limits. This does
 not certify production provisioning.
 
 The native image jobs in the [release-validation run](https://github.com/Microck/raft/actions/runs/37469540182)
@@ -140,13 +144,13 @@ and local caches. Verify a clean install from the wheel outside the worktree.
 Run Ruff, Python compilation, locked dependency sync and secret scans.
 
 A clean source tree does not clean old repository history. Follow
-[publishing](publishing.md) before changing visibility. Do not publish private
+[publishing](./publishing.md) before changing visibility. Do not publish private
 controller configuration, workspace archives or guest journals.
 
 Local packaging, Python 3.11/3.14 compilation, Ruff, shell syntax and skill
 validation passed. A clean wheel install and CLI execution were checked outside
 the worktree. The public package workflow passed on Python 3.11 and 3.14. Native image
-validation and startup measurements are recorded in [boot performance](boot-performance.md).
+validation and startup measurements are recorded in [boot performance](./boot-performance.md).
 
 ## Capacity command validation
 

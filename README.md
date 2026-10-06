@@ -20,7 +20,7 @@ the current runtime uses unprivileged native-architecture Incus system container
 the host kernel. KVM virtual machines and complete Boat feature parity are not
 implemented. the table below lists what is available.
 
-[setup](docs/operations.md) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.md) | [agent skill](skills/raft-cli/SKILL.md)
+[setup](docs/operations.md) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.md) | [agent skill](skills/raft-cli/SKILL.md) | [docs site](docs/site-development.md)
 
 ## quickstart
 

@@ -1,0 +1,17 @@
+{
+  "title": "Raft",
+  "pages": [
+    "index",
+    "---Getting started---",
+    "operations",
+    "---Reference---",
+    "boat-capabilities",
+    "boot-performance",
+    "contract",
+    "---Maintaining Raft---",
+    "verification",
+    "publishing",
+    "boat-parity-design",
+    "site-development"
+  ]
+}

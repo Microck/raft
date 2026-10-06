@@ -1,3 +1,7 @@
+---
+title: Runtime contract
+---
+
 # Raft contract
 
 Raft manages persistent unprivileged native-architecture Incus system containers on the

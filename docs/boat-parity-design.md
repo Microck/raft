@@ -1,3 +1,7 @@
+---
+title: Design decisions
+---
+
 # Architecture and references
 
 Raft is an independent open-source alternative to [boat.dev](https://boat.dev).
@@ -21,7 +25,7 @@ and the on-demand Xvfb/Openbox/noVNC desktop. A host timer enforces running TTL.
 Build a clean image from the public Incus Debian image using the checked-in
 builder. Pin the resulting immutable fingerprint in controller configuration.
 The native image workflow attaches short-lived clean ARM64 and AMD64 templates
-after its build and E2E checks pass. See [image validation and boot performance](boot-performance.md).
+after its build and E2E checks pass. See [image validation and boot performance](./boot-performance.md).
 Package versions are recorded inside each image; Debian package updates can
 change subsequent builds.
 
@@ -36,5 +40,5 @@ The reference projects separate installation, image construction and examples:
 - [Boat CLI reference](https://docs.boat.dev/cli-reference) provides the comparison
   surface. Raft tests verify Raft behavior, not Boat service conformance.
 
-See [the contract](contract.md), [capability table](boat-capabilities.md) and
-[verification](verification.md) for implemented behavior and limits.
+See [the contract](./contract.md), [capability table](./boat-capabilities.md) and
+[verification](./verification.md) for implemented behavior and limits.

@@ -1,3 +1,7 @@
+---
+title: Boot performance
+---
+
 # Native images and boot performance
 
 Raft builds Debian 13 system-container images for native ARM64 and AMD64 hosts.
@@ -14,7 +18,7 @@ publication, the builder initializes and deletes a private cache-preparation
 instance. This prepares Incus's optimized image volume before the builder
 reports readiness. Imported archives can still have a slow first unpack.
 
-The [native images workflow](../.github/workflows/images.yml) runs on GitHub's
+The [native images workflow](https://github.com/Microck/raft/blob/main/.github/workflows/images.yml) runs on GitHub's
 native `ubuntu-24.04` and `ubuntu-24.04-arm` VMs. It builds each image, runs the
 extended lifecycle suite and all 31 development-tool checks, measures startup
 and exports the clean template with SHA256 checksums. Successful runs attach
