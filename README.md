@@ -16,11 +16,11 @@
 control, with command execution, Docker, file transfer, snapshots, forks and a
 private desktop. Raft is not affiliated with Boat.
 
-[setup](docs/operations.md) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.md) | [agent skill](skills/raft-cli/SKILL.md) | [docs site](https://microck.github.io/raft/)
+[setup](docs/operations.mdx) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.md) | [agent skill](skills/raft-cli/SKILL.md) | [docs site](https://microck.github.io/raft/)
 
 ## quickstart
 
-start with the [setup guide](docs/operations.md). it covers installing the CLI,
+start with the [setup guide](docs/operations.mdx). it covers installing the CLI,
 configuring SSH, provisioning Incus and building your image.
 
 | requirement | minimum |
@@ -42,7 +42,7 @@ raft stop "$box"
 `destroy` deletes it and its snapshots. each host admits four saved boxes,
 including stopped boxes. `raft limits` reports recommended running counts for
 each size, current allocations and disk headroom. location names come from your
-configuration. see [host capacity](docs/operations.md#host-capacity).
+configuration. see [host capacity](docs/reference/capacity-limits.mdx).
 
 ## image and workspace control
 
@@ -52,10 +52,12 @@ and pin its fingerprint, or download a native image from
 [versioned releases](https://github.com/Microck/raft/releases). see
 [image builds and boot measurements](docs/boot-performance.md) for checks and timings.
 
-see the operations guide for [background jobs and files](docs/operations.md#jobs-and-files),
-[snapshots and forks](docs/operations.md#snapshots-and-forks),
-[private services and desktop access](docs/operations.md#private-services)
-and [backup and recovery](docs/operations.md#backups-and-troubleshooting).
+see the task guides for [background jobs](docs/guides/background-jobs.mdx),
+[file transfer](docs/guides/files.mdx),
+[snapshots and forks](docs/guides/snapshots-forks.mdx),
+[private services and desktop access](docs/guides/desktop-services.mdx),
+[backup and recovery](docs/guides/backup-recovery.mdx)
+and [Docker](docs/guides/docker.mdx).
 
 snapshots and forks require a stopped source. stop terminates jobs without
 saving process memory. backups include guest secrets; keep them private and

@@ -31,9 +31,27 @@ try {
   }
   assert.ok(serverLog.includes('Serving HTTP'), `Server did not become ready: ${serverLog}`);
   const paths = [
-    '/docs', '/docs/operations', '/docs/boat-capabilities', '/docs/boot-performance',
-    '/docs/contract', '/docs/verification', '/docs/publishing',
-    '/docs/boat-parity-design', '/docs/site-development',
+    '/docs',
+    '/docs/requirements',
+    '/docs/operations',
+    '/docs/first-box',
+    '/docs/guides/docker',
+    '/docs/guides/files',
+    '/docs/guides/background-jobs',
+    '/docs/guides/desktop-services',
+    '/docs/guides/snapshots-forks',
+    '/docs/guides/backup-recovery',
+    '/docs/guides/troubleshooting',
+    '/docs/reference/cli',
+    '/docs/reference/configuration',
+    '/docs/reference/capacity-limits',
+    '/docs/contract',
+    '/docs/boat-capabilities',
+    '/docs/boot-performance',
+    '/docs/boat-parity-design',
+    '/docs/verification',
+    '/docs/publishing',
+    '/docs/site-development',
   ];
   const targets = new Set();
   for (const path of paths) {
@@ -43,6 +61,14 @@ try {
     const html = await response.text();
     if (path === '/docs/boot-performance') {
       assert.ok(html.includes('href="https://github.com/Microck/raft/blob/main/.github/workflows/images.yml"'), 'Workflow source link must point to GitHub');
+    }
+    if (path === '/docs/operations') {
+      assert.ok(html.includes('role="tab"'), `${path}: must contain role="tab"`);
+      assert.ok(html.includes('class="fd-steps"'), `${path}: must contain class="fd-steps"`);
+      assert.equal([...html.matchAll(/<div class="fd-step">/g)].length, 7, `${path}: must contain exactly seven occurrences of <div class="fd-step">`);
+    }
+    if (path === '/docs/first-box') {
+      assert.ok(/<div[^>]*class="[^"]*raft-callout/.test(html), `${path}: must contain raft-callout`);
     }
     assert.equal([...html.matchAll(/<h1(?:\s|>)/g)].length, 1, `${path}: one main heading`);
     for (const [, href] of html.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g)) {
@@ -90,7 +116,7 @@ try {
   const client = staticClient({ from: `${base}/search.json` });
   const matches = await client.search('limits');
   assert.ok(matches.length > 0, 'Static search must find real page content');
-  assert.ok(matches.some((match) => match.url.startsWith('/docs/operations')), 'Capacity guide missing from search');
+  assert.ok(matches.some((match) => match.url.startsWith('/docs/reference/capacity-limits')), 'Capacity guide missing from search');
   for (const path of ['/docs/incus.example.json', '/docs/benchmarks/arm64-native-ci.json', '/docs/benchmarks/amd64-native-ci.json']) {
     const response = await get(path);
     assert.equal(response.status, 200, path);

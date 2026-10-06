@@ -1,0 +1,84 @@
+---
+title: Docker in workspaces
+description: Run Docker daemons and build container images inside unprivileged Raft workspaces.
+---
+
+# Docker in workspaces
+
+Every Raft development image includes a pre-installed Docker daemon and CLI client. Docker runs directly inside the unprivileged system container without mounting the host Docker socket.
+
+## Target workspace handle
+
+Commands in this guide target an existing running workspace. Review [First working box](../first-box.mdx) to launch a new workspace, or select an existing one with `raft list`:
+
+```sh title="CONTROLLER: Select running workspace"
+raft list
+box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
+```
+
+## Verifying Docker status
+
+Check that the guest Docker daemon is initialized and responsive:
+
+```sh title="CONTROLLER: Check Docker version and daemon status"
+raft exec "$box" -- docker version
+raft exec "$box" -- docker info
+```
+
+<Callout type="info" title="Daemon readiness verification">
+Running `docker version` or `docker info` queries the guest `dockerd` service directly. Running `docker --version` only inspects the client CLI binary without testing daemon health.
+</Callout>
+
+## Running containers
+
+You can run standard container images inside your workspace:
+
+```sh title="CONTROLLER: Run an Alpine container"
+raft exec "$box" -- docker run --rm alpine uname -a
+```
+
+To run a background service inside the workspace:
+
+```sh title="CONTROLLER: Start a background Redis container"
+raft exec "$box" -- docker run -d --name cache -p 6379:6379 redis:alpine
+raft exec "$box" -- docker ps
+```
+
+## Building container images
+
+You can build container images directly within the workspace:
+
+```sh title="CONTROLLER: Create Dockerfile and build image"
+raft exec "$box" -- bash -lc '
+mkdir -p /workspace/app
+cat << "EOF" > /workspace/app/Dockerfile
+FROM alpine:latest
+RUN echo "hello from workspace container" > /message.txt
+CMD ["cat", "/message.txt"]
+EOF
+cd /workspace/app
+docker build -t my-app .
+docker run --rm my-app
+'
+```
+
+## Managing disk space
+
+Nested container layers and volumes reside inside the container root filesystem, which is backed by the host's 60 GiB `raft-data` Btrfs storage pool.
+
+To clean up dangling images without deleting active container data:
+
+```sh title="CONTROLLER: Prune dangling images"
+raft exec "$box" -- docker image prune -f
+```
+
+<Callout type="warn" title="Data loss risk with system prune">
+Running `docker system prune -af --volumes` removes all stopped containers and unused volumes inside the workspace. Only run full pruning when you intend to discard local container state and caches.
+</Callout>
+
+## Isolation and runtime limits
+
+- **Guest daemon confinement**: The Docker daemon runs as a guest systemd unit communicating over the container's local `/var/run/docker.sock`. The host Docker daemon is never mounted into workspaces.
+- **Kernel features**: Workspaces share the host Linux kernel. This implementation does not expose host kernel modules or KVM devices to guests.
+- **Syscall interception and nesting**: Incus configures `security.nesting=true`, `security.syscalls.intercept.mknod=true`, and `security.syscalls.intercept.setxattr=true` on the workspace profile. Incus intercepts block device creation and extended attributes, allowing Docker to manage image layers safely within an unprivileged user namespace.
+- **Shutdown behavior**: Stopping a workspace with `raft stop` cleanly terminates the container init system, stopping running processes and nested containers.

@@ -1,0 +1,97 @@
+---
+title: Backup and recovery
+description: Export portable workspace archives and restore them across hosts.
+---
+
+# Backup and recovery
+
+Raft supports exporting full, portable workspace archives and restoring them onto any compatible host. This enables disaster recovery, host migration, and offline archiving.
+
+## Target workspace handle
+
+Commands in this guide require a stopped workspace handle `$box`. Select an existing workspace from `raft list` and stop it:
+
+```sh title="CONTROLLER: Select and stop target workspace"
+raft list
+box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
+raft stop "$box"
+```
+
+## Exporting a backup
+
+To export a workspace, specify a destination archive path on the controller:
+
+```sh title="CONTROLLER: Export stopped workspace to compressed archive"
+raft backup "$box" ./my-workspace-backup.tar.gz
+```
+
+`raft backup` exports the full Incus container metadata, root filesystem, and all existing snapshots into a gzip-compressed archive.
+
+### Security and storage requirements
+
+<Callout type="warn" title="Archives contain sensitive data">
+Backup archives contain the entire guest filesystem, including any credentials, SSH keys, shell history, and private files stored in the workspace. Native Incus archive configuration is not sanitized. Import only trusted archives created by Raft, and store backups on encrypted, private storage off the source host.
+</Callout>
+
+Raft enforces strict safeguards during export:
+- **Private permissions verified before export**: Destination privacy (mode `0600`) and POSIX permissions are checked before export begins. Raft verifies that group and world permissions are zero before writing any exported data.
+- **Atomic link publication**: Once export and fsync complete, Raft publishes the archive using `os.link(archive.name, destination)`. Hard links are required for final publication; if the underlying controller filesystem does not support hard links, publication fails at this final step rather than during an export preflight check.
+- **No overwriting**: The destination file must not already exist. Existing files are never replaced.
+- **Lifecycle lock**: The export operation holds the host-wide lifecycle lock (`/run/lock/raft-incus.lock`) for the duration of the export. Because compressing and transferring large workspaces can take substantial time, host expiry checks for other containers on the same host are delayed while the lock is held.
+
+## Recovering an archive
+
+Import the archive onto the target location:
+
+```sh title="CONTROLLER: Import workspace backup onto target host"
+recovered=$(raft recover ./my-workspace-backup.tar.gz --location lab)
+echo "Recovered workspace: $recovered"
+```
+
+### Recovery process details
+
+- **Architecture compatibility**: The target host must use the same native CPU architecture (ARM64 to ARM64, or AMD64 to AMD64). Cross-architecture recovery is not supported.
+- **Fresh network identity**: The container receives a new unique name in project `raft`, a new MAC address on `rfbr0`, and no inherited TTL deadline.
+- **Stopped initial state**: Recovered workspaces remain stopped until explicitly started with `raft resume "$recovered" --ttl <SECONDS>`.
+- **Enforced admission limit**: The destination location must hold fewer than four boxes. Raft enforces this limit during admission.
+- **Crash recovery diagnostics**: During import, `raft recover` prints only the assigned qualified handle (e.g. `Recovery handle: lab:rf-a1b2c3d4e5f60718`) to stderr. It does not print the temporary host staging path. The archive is staged on the host using `mktemp` with pattern `/tmp/raft-recovery.XXXXXXXX`. If a network interruption or controller crash occurs during import, check `raft list` for the reported handle and carefully identify the exact owned staging file (`/tmp/raft-recovery.XXXXXXXX`) by user and timestamp. Do not use wildcard deletion (`rm /tmp/raft-recovery.*`), which risks removing staging files owned by other operations; remove only the confirmed owned path after verifying container status.
+
+Start and verify the recovered workspace:
+
+```sh title="CONTROLLER: Start and verify recovered workspace"
+raft resume "$recovered" --ttl 600
+raft exec "$recovered" -- ls -la /workspace
+```
+
+## Cross-host migration workflow
+
+Follow these steps to migrate a workspace to a second host:
+
+```sh title="CONTROLLER: Complete migration workflow"
+# 1. Select and stop source workspace
+raft list
+source_box="lab:rf-a1b2c3d4e5f60718"
+raft stop "$source_box"
+
+# 2. Export archive to local controller storage
+raft backup "$source_box" ./migration.tar.gz
+
+# 3. Import archive onto destination host
+target_box=$(raft recover ./migration.tar.gz --location second-host)
+
+# 4. Resume workspace on destination host
+raft resume "$target_box" --ttl 1800
+
+# 5. Verify application files and operations
+raft exec "$target_box" -- ls -la /workspace
+```
+
+After verifying that the recovered workspace runs correctly on the destination host, you can optionally destroy the original container on the source host:
+
+```sh title="CONTROLLER: Optional: Destroy original container"
+raft destroy "$source_box"
+```
+
+<Callout type="warn" title="Preserve backup archives">
+Do not delete your local backup archive (`migration.tar.gz`) until you have independently confirmed that the destination workspace operates normally.
+</Callout>

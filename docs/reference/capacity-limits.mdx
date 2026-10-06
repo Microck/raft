@@ -1,0 +1,84 @@
+---
+title: Capacity limits and planning
+description: Host resource reserves, sizing profiles, advisory calculations, and admission limits.
+---
+
+# Capacity limits and planning
+
+Raft provides capacity inspection and allocation policies designed to keep dedicated hosts stable while running concurrent workspaces.
+
+## Inspecting capacity with `raft limits`
+
+Run `raft limits` to view host resources and workspace allocation calculations:
+
+```sh title="CONTROLLER: View host capacity report"
+raft limits
+
+# Output JSON for programmatic inspection
+raft limits --location lab --json
+```
+
+The output displays host CPU count, total memory, active configured limits, available memory, disk headroom, and advisory recommendations across all six supported sizing profiles:
+
+### Illustrative host sizing
+
+Illustrative totals for 1 CPU / 2 GiB boxes on an empty host, using exact usable RAM values:
+
+| Host CPUs | Host RAM | Recommended running | Enforced saved maximum |
+| ---: | ---: | ---: | ---: |
+| 2 | 8 GiB | 1 | 4 |
+| 4 | 8 GiB | 3 | 4 |
+| 4 | 16 GiB | 3 | 4 |
+| 8 | 32 GiB | 4 | 4 |
+
+The operating system reports less usable RAM than a machine's advertised hardware size. Near sizing boundaries, `raft limits` may therefore calculate fewer recommended boxes than shown above. Current available RAM and external host processes can further reduce running capacity. These values represent a point-in-time estimate, not a hardware reservation or benchmark.
+
+### Column definitions and algorithms
+
+- **Total running**: The maximum number of boxes of that size recommended on an empty host. Calculated as the minimum of the enforced 4-box location ceiling, floor(CPU budget / box CPU), and floor(Memory budget / box memory).
+- **More running**: How many additional boxes of that size can run concurrently right now. Bounded by:
+  - Remaining CPU budget: `max(0, CPU budget - CPU allocated)`
+  - Remaining memory: the lower of `Memory budget - Memory allocated` and `MemAvailable - Memory reserve`
+  - Remaining active slots: `4 - active boxes`
+  Active limits are not subtracted twice from available RAM.
+- **New boxes**: How many new boxes of that size can be created right now. Takes the lesser of remaining running capacity and remaining saved-box slots: `max(0, 4 - saved boxes)`.
+
+## Sizing profiles
+
+When launching workspaces with `raft new`, select CPU and memory limits from the supported set:
+
+- `--cpu`: `1` or `2` CPU count and affinity managed by Incus (default: `1`). These are shared host vCPU counts, not exclusive physical cores.
+- `--memory`: `1GiB`, `2GiB`, or `4GiB` cgroup memory limit (default: `2GiB`).
+
+Resizing existing containers or changing limits upon resume is not supported.
+
+## Host resource reserves and active states
+
+To protect the host operating system, Incus daemon, and background services, Raft calculates:
+- **CPU reserve**: 1 CPU core is reserved for the host OS.
+- **Memory reserve**: The larger of `2 GiB` or `10%` of total host RAM is reserved for the host.
+
+These reserves are advisory calculations used for capacity estimation, not hard host-level cgroup locks.
+
+Every container state other than `Stopped` (such as `Running` or `Frozen`) is treated as active by the capacity calculations and counts against active resource allocations. Stopped containers release active CPU and RAM allocations, but retain their saved slot and disk storage.
+
+## Enforced admission limits
+
+<Callout type="warn" title="Hard limit: four saved boxes per location">
+Raft enforces a hard limit of at most four saved boxes per location. Both running and stopped containers count against this limit because their filesystems occupy storage on the shared pool.
+</Callout>
+
+Attempting to run `raft new`, `raft fork`, or `raft recover` on a location that already holds four boxes fails with the admission error:
+```text
+Location already holds four boxes
+```
+Unused containers must be destroyed with `raft destroy <box>` before a new container can be admitted.
+
+Advisory CPU and memory calculations in `raft limits` do not block container creation or resumption. Raft allows operators to start or resume containers even when active allocations exceed advisory recommendations.
+
+## Storage capacity
+
+Every Raft host allocates a dedicated 60 GiB Btrfs storage pool named `raft-data`.
+- **Shared pool**: All containers, snapshots, and Docker layers share this 60 GiB pool.
+- **No strict per-box quotas**: Nested container subvolumes prevent enforcing rigid per-box quotas.
+- **Disk warnings**: `raft limits` emits warnings when free space on host disk or the `raft-data` pool falls below 5 GiB. These warnings are diagnostic; neither creation nor resumption is blocked by disk warnings. `raft doctor` prints storage pool usage but does not emit 5 GiB warnings.

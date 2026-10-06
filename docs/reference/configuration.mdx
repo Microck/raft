@@ -1,0 +1,75 @@
+---
+title: Configuration reference
+description: Schema, fields, and security requirements for controller configuration.
+---
+
+# Configuration reference
+
+The Raft controller CLI reads host inventory and image mappings from a JSON file located at `~/.config/raft/incus.json`.
+
+## File location and security
+
+```text
+~/.config/raft/incus.json
+```
+
+Because this file defines host targets and SSH destinations, ensure the file is readable and writable only by your user account:
+
+```sh title="CONTROLLER: Set strict file permissions"
+chmod 600 ~/.config/raft/incus.json
+```
+
+## Schema format
+
+The configuration file is a JSON object mapping location names to host definition dictionaries:
+
+```json title="Example ~/.config/raft/incus.json"
+{
+  "lab": {
+    "ssh": "ubuntu@192.0.2.10",
+    "image": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "remote-builder": {
+    "ssh": "builder.example.com",
+    "image": ""
+  }
+}
+```
+
+### Location keys
+
+- **Naming rules**: Location keys must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. They may contain ASCII letters, digits, underscores, and hyphens, and must begin with an alphanumeric character.
+- **Default location**: The first location listed in the JSON file serves as the default location for `raft new` when `--location` is omitted. Only `raft list` and `raft limits` support `--location` filtering. Diagnostic and maintenance commands (`raft doctor`, `raft gc`) operate across all configured hosts.
+
+### Host entry fields
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `ssh` | `string` | Yes | Non-empty SSH connection string. Can be an IP address, hostname with optional user (`user@host`), or an SSH host alias configured in `~/.ssh/config`. |
+| `image` | `string` | For `raft new` only | The full 64-character hexadecimal SHA-256 fingerprint of the imported Incus development image. Must match `^[a-f0-9]{64}$`. The 64-hex string shown in examples is a placeholder that must be replaced with the actual fingerprint. An empty string `""` is permitted during initial host deployment. |
+
+<Callout type="warn" title="Replace placeholder image fingerprint">
+The `image` field must contain the full 64-character hash when creating workspaces with `raft new`. Image aliases (such as `raft-dev`) are rejected. The 64-hex value shown above is an illustrative placeholder that must be replaced with your host's actual image fingerprint. Note that ARM64 and AMD64 images produce different fingerprints; do not reuse an ARM64 hash for an AMD64 host.
+</Callout>
+
+## SSH configuration and connection behavior
+
+Most primary remote invocations (including interactive `raft ssh`, file transfers with `raft upload` and `raft download`, and main control commands) invoke OpenSSH through `remote()` with `BatchMode=yes` and `-o ConnectTimeout=10` to fail fast when a host is unreachable. The `ConnectTimeout` option limits initial connection establishment, not session or transfer duration once connected.
+
+Other lifecycle operations, recovery routines, and port-forwarding tunnels rely on standard SSH configuration defaults without an explicit timeout flag. Raft does not promise a universal connection timeout across all commands.
+
+Configure your host connection in `~/.ssh/config` to allow batch authentication:
+
+```text title="~/.ssh/config"
+Host lab-host
+    HostName 192.0.2.10
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+```
+
+Test your SSH configuration before running Raft commands:
+
+```sh title="CONTROLLER: Verify passwordless batch connection"
+ssh -o BatchMode=yes lab-host "echo SSH connection verified"
+```

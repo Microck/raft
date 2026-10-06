@@ -1,0 +1,14 @@
+{
+  "title": "Guides",
+  "collapsible": true,
+  "defaultOpen": false,
+  "pages": [
+    "docker",
+    "files",
+    "background-jobs",
+    "desktop-services",
+    "snapshots-forks",
+    "backup-recovery",
+    "troubleshooting"
+  ]
+}

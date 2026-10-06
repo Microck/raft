@@ -1,0 +1,10 @@
+{
+  "title": "Reference",
+  "collapsible": true,
+  "defaultOpen": false,
+  "pages": [
+    "cli",
+    "configuration",
+    "capacity-limits"
+  ]
+}

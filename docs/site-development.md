@@ -4,9 +4,9 @@ title: Documentation site
 
 # Documentation site
 
-The Fumadocs site in `website/` compiles the top-level Markdown and MDX files in
+The Fumadocs site in `website/` compiles Markdown and MDX files in
 `docs/` directly. Edit those files to update both GitHub documentation and the site.
-`docs/meta.json` controls the sidebar order. Review reports stay outside the site navigation.
+`docs/meta.json` and directory `meta.json` files control sidebar order and groups. Review reports stay outside the site navigation.
 
 ## Run locally
 

@@ -7,11 +7,11 @@ import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
 const docs = defineDocs({
   dir: '../docs',
   docs: {
-    files: ['*.md', '*.mdx', '!reviews/**'],
+    files: ['**/*.md', '**/*.mdx', '!reviews/**'],
     schema: pageSchema,
     postprocess: { includeProcessedMarkdown: true },
   },
-  meta: { files: ['meta.json'], schema: metaSchema },
+  meta: { files: ['meta.json', '**/meta.json'], schema: metaSchema },
 });
 
 export const source = loader({ baseUrl: docsRoute, source: docs.toFumadocsSource() });

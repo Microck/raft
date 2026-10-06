@@ -1,0 +1,82 @@
+---
+title: First working box
+description: Launch, execute commands, connect interactively, and stop your first workspace.
+---
+
+# First working box
+
+Once your host is provisioned and its image fingerprint is pinned in your configuration (see [Installation and setup](./operations.mdx)), you can launch and manage your first workspace.
+
+## Step 1: Launch a workspace
+
+Create a new workspace using `raft new`:
+
+```sh title="CONTROLLER: Create a new workspace"
+box=$(raft new --location lab --ttl 600)
+echo "Created workspace: $box"
+```
+
+The command returns a location-qualified handle in the format `<location>:<instance-name>` (for example `lab:rf-a1b2c3d4e5f60718`).
+
+If you omit the `--location` flag, `raft new` targets the first location defined in `~/.config/raft/incus.json`. The `--ttl` argument sets the initial lifetime in seconds (default: 600).
+
+## Step 2: Verify command execution and Docker daemon
+
+Execute commands inside the container using `raft exec`:
+
+```sh title="CONTROLLER: Verify runtime tools and Docker daemon"
+raft exec "$box" -- node --version
+raft exec "$box" -- docker version
+raft exec "$box" -- docker info
+```
+
+<Callout type="info" title="Daemon readiness check">
+Running `docker version` or `docker info` communicates directly with the guest Docker daemon to verify that `dockerd` is initialized and ready to accept container workloads. Running `docker --version` only inspects the CLI client binary without checking daemon readiness.
+</Callout>
+
+Arguments following the `--` delimiter are passed directly to `execve` inside the container without shell expansion. For complex commands with pipes, redirects, or environment variables, wrap the command in `bash -lc '...'`.
+
+## Step 3: Open an interactive terminal
+
+Open a root shell session inside the container:
+
+```sh title="CONTROLLER: Open interactive root shell"
+raft ssh "$box"
+```
+
+Type `exit` or press `Ctrl+D` to disconnect.
+
+<Callout type="info" title="User namespace security">
+Inside the workspace container, commands run as root with working directory `/workspace`. On the host, the container runs in an unprivileged Linux user namespace where container root maps to an unprivileged high UID. Workspaces share the host Linux kernel.
+</Callout>
+
+## Step 4: Stop, resume, and destroy
+
+Manage the container lifecycle:
+
+```sh title="CONTROLLER: Stop, resume, and destroy workspace"
+# Stop running processes while preserving files and snapshots
+raft stop "$box"
+
+# Resume the stopped workspace with a renewed lifetime
+raft resume "$box" --ttl 600
+
+# Permanently destroy the workspace and release host capacity
+raft destroy "$box"
+```
+
+- **`raft stop`**: Terminates running container processes and releases active allocations while retaining files, installed packages, and snapshots on the host storage pool.
+- **`raft resume`**: Boots a stopped container and sets a new expiration deadline (`now + TTL`). Resuming starts the container afresh; it does not restore running process memory.
+- **`raft destroy`**: Permanently deletes the container, its filesystem, and all associated snapshots from the host storage pool.
+
+## Next steps
+
+Explore task guides for common workflows:
+
+- [Docker in workspaces](./guides/docker.mdx): Run nested containers and build images.
+- [File transfer](./guides/files.mdx): Upload and download files over SSH.
+- [Background jobs](./guides/background-jobs.mdx): Run detached commands under systemd.
+- [Desktop and private services](./guides/desktop-services.mdx): Forward guest network ports and access the noVNC desktop.
+- [Snapshots and forks](./guides/snapshots-forks.mdx): Capture disk states and create same-host clones.
+- [Backup and recovery](./guides/backup-recovery.mdx): Export portable archives and restore across hosts.
+- [Troubleshooting](./guides/troubleshooting.mdx): Diagnose common errors and inspect host services.

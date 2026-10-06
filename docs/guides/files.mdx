@@ -1,0 +1,110 @@
+---
+title: File transfer
+description: Transfer files between your controller machine and running Raft workspaces.
+---
+
+# File transfer
+
+Raft provides native commands to upload and download individual files between your local controller and running workspaces. Transfers travel over verified host SSH and Incus instance APIs without exposing guest network ports or SSH daemons.
+
+## Target workspace handle
+
+Commands in this guide target an existing running workspace. Review [First working box](../first-box.mdx) to launch a new workspace, or select an existing one with `raft list`:
+
+```sh title="CONTROLLER: Select running workspace"
+raft list
+box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
+```
+
+## Uploading files
+
+Create a local sample fixture on your controller, then use `raft upload` to transfer it to an absolute path inside the workspace:
+
+```sh title="CONTROLLER: Create fixture and upload to workspace"
+# Create local sample file on controller
+echo "Hello from controller" > ./local-file.txt
+
+# Upload to workspace
+raft upload "$box" ./local-file.txt /workspace/target-file.txt
+```
+
+If the destination file already exists, it is overwritten. If destination parent directories do not exist, create them inside the workspace before uploading:
+
+```sh title="CONTROLLER: Create parent directory and upload"
+echo '{"mode": "debug"}' > ./settings.json
+raft exec "$box" -- mkdir -p /workspace/configs
+raft upload "$box" ./settings.json /workspace/configs/settings.json
+```
+
+<Callout type="info" title="Absolute guest paths required">
+Guest file paths must be absolute paths beginning with `/`. Relative paths inside the container are rejected by the CLI parser.
+</Callout>
+
+## Downloading files
+
+Use `raft download` to retrieve a file from a workspace back to your controller machine:
+
+```sh title="CONTROLLER: Download a file from workspace"
+raft download "$box" /workspace/target-file.txt ./downloaded-file.txt
+```
+
+The destination path on the controller must specify the target filename.
+
+## Paths with spaces
+
+Source and destination paths support spaces. Create the destination directory inside the workspace first, then wrap paths in quotes:
+
+```sh title="CONTROLLER: Transfer files with spaces in paths"
+mkdir -p "./my documents"
+echo "col1,col2" > "./my documents/data file.csv"
+
+raft exec "$box" -- mkdir -p "/workspace/my documents"
+raft upload "$box" "./my documents/data file.csv" "/workspace/my documents/data file.csv"
+raft download "$box" "/workspace/my documents/data file.csv" "./downloaded-data.csv"
+```
+
+## Transferring directories
+
+`raft upload` and `raft download` operate on individual files. To transfer an entire directory or project tree, archive the directory with `tar`:
+
+### Uploading a project directory
+
+```sh title="CONTROLLER: Archive and upload directory"
+# Create a local tar archive
+mkdir -p ./my-project && echo "package main" > ./my-project/main.go
+tar -czf ./project.tar.gz -C ./my-project .
+
+# Upload archive to workspace
+raft upload "$box" ./project.tar.gz /workspace/project.tar.gz
+
+# Extract inside workspace
+raft exec "$box" -- bash -lc '
+mkdir -p /workspace/my-project
+tar -xzf /workspace/project.tar.gz -C /workspace/my-project
+rm /workspace/project.tar.gz
+'
+```
+
+### Downloading a directory
+
+```sh title="CONTROLLER: Archive inside workspace and download"
+# Create archive inside workspace
+raft exec "$box" -- bash -lc '
+tar -czf /workspace/results.tar.gz -C /workspace/my-project .
+'
+
+# Download archive to controller
+raft download "$box" /workspace/results.tar.gz ./results.tar.gz
+
+# Extract locally on controller
+mkdir -p ./results
+tar -xzf ./results.tar.gz -C ./results
+```
+
+## File ownership
+
+Files pushed to the container are owned by root inside the guest. To run tools under the non-root `developer` user, update ownership after upload:
+
+```sh title="CONTROLLER: Change file ownership inside container"
+raft exec "$box" -- chown -R developer:developer /workspace/my-project
+```
