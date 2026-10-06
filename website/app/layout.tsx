@@ -28,9 +28,9 @@ export const metadata: Metadata = {
 
 export default function Layout({ children }: LayoutProps<'/'>) {
   return (
-    <html lang="en" className={`dark ${inter.variable} ${funnelDisplay.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} ${funnelDisplay.variable}`} suppressHydrationWarning>
       <body className="flex flex-col min-h-screen">
-        <RootProvider search={{ SearchDialog: StaticSearch }} theme={{ forcedTheme: 'dark', enableSystem: false }}>{children}</RootProvider>
+        <RootProvider search={{ SearchDialog: StaticSearch }} theme={{ defaultTheme: 'light', enableSystem: false }}>{children}</RootProvider>
       </body>
     </html>
   );

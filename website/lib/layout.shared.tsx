@@ -4,6 +4,6 @@ export function baseOptions(): BaseLayoutProps {
   return {
     nav: { title: 'raft / docs' },
     githubUrl: 'https://github.com/Microck/raft',
-    themeSwitch: { enabled: false },
+    themeSwitch: { enabled: true },
   };
 }

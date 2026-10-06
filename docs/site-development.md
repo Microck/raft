@@ -19,7 +19,7 @@ pnpm dev --hostname 127.0.0.1 --port 4300
 ```
 
 Open `http://127.0.0.1:4300/docs/`. The site includes navigation, full-text search,
-code highlighting and a table of contents. It uses a fixed dark theme.
+code highlighting and a table of contents. Light mode is the default; the theme switch also offers dark mode.
 
 ## Check and build
 
@@ -68,5 +68,5 @@ The site follows boat.dev's typography: Funnel Display for page titles and Inter
 for body text. Both fonts are bundled in `website/public/fonts/`, with their SIL
 Open Font Licenses in `boat-fonts-license.txt`. The upright Latin WOFF2 files come
 from Fontsource. `next/font/local` serves them without third-party font requests.
-Code blocks keep the monospace font. The documentation keeps a black background
-and white text, adapting Boat's thin borders and restrained typography to dark mode.
+Code blocks keep the monospace font. The default palette uses Boat's white background and dark text, with thin borders
+and restrained typography. Dark mode remains available from the theme switch.

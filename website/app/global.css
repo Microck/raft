@@ -6,6 +6,23 @@
   --font-sans: var(--font-inter);
 }
 
+:root {
+  --color-fd-background: #fff;
+  --color-fd-foreground: #111;
+  --color-fd-card: #fff;
+  --color-fd-card-foreground: #111;
+  --color-fd-popover: #fff;
+  --color-fd-popover-foreground: #111;
+  --color-fd-secondary: #f5f5f5;
+  --color-fd-muted: #f5f5f5;
+  --color-fd-muted-foreground: #595959;
+  --color-fd-primary: #111;
+  --color-fd-primary-foreground: #fff;
+  --color-fd-accent: #f5f5f5;
+  --color-fd-accent-foreground: #111;
+  --color-fd-border: #e5e5e5;
+}
+
 .dark {
   --color-fd-background: #000;
   --color-fd-foreground: #fff;
@@ -29,30 +46,30 @@
 
 html {
   scrollbar-gutter: stable;
-  background-color: #000;
+  background-color: var(--color-fd-background);
 }
 
 body {
   font-family: var(--font-inter), sans-serif;
-  background-color: #000;
-  color: #fff;
+  background-color: var(--color-fd-background);
+  color: var(--color-fd-foreground);
 }
 
 .raft-callout {
   box-shadow: none !important;
   border-radius: 0 !important;
-  border: 1px solid #262626 !important;
-  background-color: #000 !important;
-  color: #fff !important;
+  border: 1px solid var(--color-fd-border) !important;
+  background-color: var(--color-fd-background) !important;
+  color: var(--color-fd-foreground) !important;
 }
 
 .prose {
-  --tw-prose-body: #fff;
-  --tw-prose-headings: #fff;
-  --tw-prose-links: #fff;
-  --tw-prose-bold: #fff;
-  --tw-prose-code: #fff;
-  --tw-prose-borders: #262626;
+  --tw-prose-body: var(--color-fd-foreground);
+  --tw-prose-headings: var(--color-fd-foreground);
+  --tw-prose-links: var(--color-fd-foreground);
+  --tw-prose-bold: var(--color-fd-foreground);
+  --tw-prose-code: var(--color-fd-foreground);
+  --tw-prose-borders: var(--color-fd-border);
 }
 
 .prose h1 {
@@ -61,7 +78,7 @@ body {
   font-weight: 400;
   line-height: 1.2;
   margin-bottom: 1.25rem;
-  color: #fff;
+  color: var(--color-fd-foreground);
 }
 
 .prose h2,
@@ -94,14 +111,14 @@ body {
 .prose th,
 .prose td {
   border: none;
-  border-bottom: 1px solid #262626;
+  border-bottom: 1px solid var(--color-fd-border);
   padding: 0.5rem 0.75rem;
   text-align: left;
 }
 
 .prose th {
-  border-bottom: 1px solid #404040;
-  color: #fff;
+  border-bottom: 1px solid var(--color-fd-border);
+  color: var(--color-fd-foreground);
   font-weight: 600;
   background-color: transparent;
 }
