@@ -138,6 +138,7 @@ def verify(source, target, directory, development_image=False):
         assert "ActiveState=active" in live.raft("status", box, job).stdout
         live.raft("cancel", box, job)
         assert "ActiveState=inactive" in live.raft("status", box, job).stdout
+        assert live.raft("logs", box, job).returncode == 0
         assert (
             live.raft("exec", box, "--", "test", "-e", "/proc/" + child, check=False).returncode
             != 0

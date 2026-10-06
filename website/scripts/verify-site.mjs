@@ -138,6 +138,7 @@ try {
   assert.match(negotiated.headers.get('content-type') ?? '', /text\/html/);
 
   const searchIndex = await get('/search.json');
+  await searchIndex.arrayBuffer();
   assert.equal(searchIndex.status, 200);
   const client = staticClient({ from: `${base}/search.json` });
   const matches = await client.search('limits');

@@ -696,13 +696,15 @@ def dispatch(args):
     elif args.action in ["logs", "status", "cancel"]:
         if not re.fullmatch(r"rfcmd-[a-f0-9]{32}", args.job):
             raise ValueError("Use the job ID returned by exec --detach")
-        loaded = execute(
+        # Cancellation unloads transient units. The journal records their identity
+        # for this guest session, including jobs that produced no stdout.
+        recorded = execute(
             location,
             name,
-            ["systemctl", "show", args.job, "-p", "LoadState", "--value"],
+            ["journalctl", "--no-pager", "--quiet", "-o", "json", "-n", "1", "-u", args.job],
             capture=True,
         )
-        if loaded.returncode or loaded.stdout.strip() != b"loaded":
+        if recorded.returncode or not recorded.stdout.strip():
             raise ValueError("Detached job not found in this running box")
         if args.action == "cancel":
             return execute(location, name, ["systemctl", "stop", args.job]).returncode
