@@ -15,4 +15,8 @@ if ! command -v incus >/dev/null; then
   sudo apt-get update -qq
   sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends incus btrfs-progs
 fi
+if ! command -v nft >/dev/null; then
+  sudo apt-get update -qq
+  sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends nftables
+fi
 sudo incus version

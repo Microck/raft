@@ -38,7 +38,9 @@ packages when Incus is absent, creates project `raft`, a 60 GiB Btrfs pool
 subnet do not conflict with existing infrastructure. The deployer rejects name
 conflicts and incomplete owned resources rather than replacing them. Network filters are scoped
 to the Raft bridge and allow public outbound traffic while blocking metadata,
-private destinations, host services and peer containers.
+private destinations and host services. A native nftables bridge hook blocks
+peer frames on `rfbr0`, including IPv6, without changing host-wide bridge
+sysctls. The installer ensures the `nftables` host dependency is available.
 
 ```sh
 python3 deploy/deploy.py --location lab
@@ -61,7 +63,11 @@ diagnosis. An existing `raft-dev` alias is rejected. Use `--alias raft-dev-next`
 a separate candidate without replacing a pinned image. Package inventories are in `/opt/raft/` inside guests.
 The build has no operator credentials. It omits coding-agent packages; install
 your preferred agent inside a workspace when needed. Guest SSH uses a fresh
-Ed25519 host key. Third-party tools retain their licenses.
+Ed25519 host key. The image includes Chromium's sandbox helper and a guest-local
+AppArmor rule for `/usr/lib/chromium/chromium` to create user namespaces. It
+retains Incus confinement and does not disable the host-wide namespace
+restriction. See Chromium's [upstream explanation](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
+Third-party tools retain their licenses.
 
 ```sh
 raft doctor

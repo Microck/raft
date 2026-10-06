@@ -5,6 +5,8 @@ on:
       - images/incus/**
       - deploy/build-image.py
       - deploy/install-incus.sh
+      - deploy/raft-network.sh
+      - deploy/raft-network.service
       - deploy/verify-live.py
       - deploy/verify-tools.py
       - deploy/benchmark-boot.py

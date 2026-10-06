@@ -1,5 +1,13 @@
 #!/bin/sh
 set -eu
+# Peer frames can bypass IP hooks when bridge-netfilter is absent. Filter them
+# at the bridge hook, scoped to Raft, without changing host-wide bridge sysctls.
+nft -f - <<'RULES'
+add table bridge raft
+add chain bridge raft peers { type filter hook forward priority -200; policy accept; }
+flush chain bridge raft peers
+add rule bridge raft peers meta ibrname "rfbr0" meta obrname "rfbr0" counter drop
+RULES
 iptables -N RAFT-INPUT 2>/dev/null || true
 iptables -F RAFT-INPUT
 iptables -A RAFT-INPUT -p udp --dport 67 -j ACCEPT

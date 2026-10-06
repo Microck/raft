@@ -38,7 +38,8 @@ Incus virtual machines require usable KVM and are not silently substituted.
   interception support guest Docker; the host Docker socket is never mounted.
 - The dedicated bridge allows DNS/DHCP and public outbound internet. Interface-
   scoped firewall rules reject guest access to host services, cloud metadata,
-  private address ranges and peer boxes. IPv6, including link-local peer traffic,
+  private address ranges. A native nftables bridge rule blocks all peer frames
+  on `rfbr0` without depending on bridge-netfilter sysctls. IPv6, including link-local peer traffic,
   is blocked on this bridge. Forwarding listeners bind controller
   loopback. Guest services must listen on the managed NIC, not guest loopback.
   The desktop is accessible through this private tunnel.
