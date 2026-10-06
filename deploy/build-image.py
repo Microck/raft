@@ -7,6 +7,7 @@ import re
 import shlex
 import sys
 import time
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from deploy import HOSTS, ROOT, copy, host_architecture, remote  # noqa: E402
@@ -73,6 +74,18 @@ def main():
     # Build failures intentionally retain their named builder for diagnostics.
     # A successful immutable publication no longer needs its writable builder.
     remote(host, prefix + " delete raft-builder")
+    published = json.loads(remote(host, prefix + " image list " + args.alias + " --format json"))
+    fingerprint = next(
+        image["fingerprint"]
+        for image in published
+        if any(alias["name"] == args.alias for alias in image["aliases"])
+    )
+    # Unpacking a full image can take a minute. Pay it during setup, before new
+    # reports a usable box; init prepares the native cache without booting a guest.
+    cache_probe = "raft-image-cache-" + uuid.uuid4().hex[:8]
+    print("Preparing optimized image cache with " + cache_probe, flush=True)
+    remote(host, prefix + " init " + fingerprint + " " + cache_probe)
+    remote(host, prefix + " delete " + cache_probe)
     print(
         f"Native {architecture} image built in {time.monotonic() - started:.1f} seconds", flush=True
     )
