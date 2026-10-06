@@ -82,9 +82,13 @@ try {
     }
   }
   for (const path of targets) {
-    assert.equal((await get(path)).status, 200, `Broken local link: ${path}`);
+    const response = await get(path);
+    await response.arrayBuffer();
+    assert.equal(response.status, 200, `Broken local link: ${path}`);
   }
-  assert.equal((await get('/docs/page-that-does-not-exist')).status, 404);
+  const missing = await get('/docs/page-that-does-not-exist');
+  await missing.arrayBuffer();
+  assert.equal(missing.status, 404);
   const home = await (await get('/')).text();
   const headings = [...home.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)];
   assert.equal(headings.length, 1, 'Entry page must have one main heading');
@@ -116,7 +120,9 @@ try {
     const slug = path === '/docs' ? '' : path.slice('/docs'.length);
     const file = `${config.basePath}/llms.mdx/docs${slug}/content.md`;
     assert.ok(indexLinks.includes(file), `Index omits Markdown for ${path}`);
-    assert.equal((await fetch(`${origin}${file}`, { headers: requestHeaders })).status, 200, file);
+    const response = await fetch(`${origin}${file}`, { headers: requestHeaders });
+    await response.arrayBuffer();
+    assert.equal(response.status, 200, file);
   }
   const full = await get('/llms-full.txt');
   const fullText = await full.text();
@@ -127,7 +133,9 @@ try {
   const markdown = await get('/llms.mdx/docs/contract/content.md');
   assert.equal(markdown.status, 200);
   assert.match(await markdown.text(), /# Raft contract/);
-  assert.match((await get('/docs/contract', 'text/markdown')).headers.get('content-type') ?? '', /text\/html/);
+  const negotiated = await get('/docs/contract', 'text/markdown');
+  await negotiated.arrayBuffer();
+  assert.match(negotiated.headers.get('content-type') ?? '', /text\/html/);
 
   const searchIndex = await get('/search.json');
   assert.equal(searchIndex.status, 200);
