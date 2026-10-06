@@ -87,6 +87,11 @@ jobs:
         run: |
           mkdir -p image-artifacts
           python3 deploy/benchmark-boot.py --location lab --samples 5 --desktop > image-artifacts/boot-${{ matrix.architecture }}.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: boot-results-${{ matrix.architecture }}
+          path: image-artifacts/boot-*.json
+          retention-days: 7
       - name: Export clean template
         run: |
           fingerprint=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".config/raft/incus.json").read_text())["lab"]["image"])')

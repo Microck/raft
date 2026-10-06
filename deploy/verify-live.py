@@ -363,6 +363,9 @@ def browser_session(box):
 """
     try:
         assert execute(box, "node", "-e", proof, USER_AGENT) == "developer-gui-and-novnc-ok"
+    except (RuntimeError, AssertionError):
+        print(raft("logs", box, job, check=False).stdout, file=sys.stderr, flush=True)
+        raise
     finally:
         raft("cancel", box, job)
 

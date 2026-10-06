@@ -9,7 +9,10 @@ architecture-independent root filesystem.
 
 Use the normal image builder on each native host. To keep an existing image,
 pass a fresh alias such as `--alias raft-dev-next`. Creating the candidate does
-not change the immutable fingerprint in your controller configuration.
+not change the immutable fingerprint in your controller configuration. After
+publication, the builder initializes and deletes a private cache-preparation
+instance. This prepares Incus's optimized image volume before the builder
+reports readiness. Imported archives can still have a slow first unpack.
 
 The [native images workflow](../.github/workflows/images.yml) runs on GitHub's
 native `ubuntu-24.04` and `ubuntu-24.04-arm` VMs. It builds each image, runs the
@@ -38,8 +41,9 @@ starts with its separate on-demand request and requires both noVNC HTTP and a
 real VNC protocol greeting. The report includes median, minimum, maximum and
 nearest-rank p95, SSH round-trip time, image size and systemd's boot critical chain.
 
-The image is already downloaded. A first use can still unpack Incus's optimized
-storage volume; newer reports record whether that volume exists at the start.
+The image is already downloaded. A first use after import or cache eviction can
+still unpack Incus's optimized storage volume; newer reports record whether
+that volume exists at the start. The builder explicitly prepares this volume.
 These numbers do not measure image download, a hard host reboot, process-memory
 restoration or remote browser rendering. Small samples are exploratory; p95
 from three or five samples is effectively their maximum.
@@ -73,8 +77,12 @@ is not a matched hardware benchmark. No hosted Boat speed comparison was run.
   baseline generated unused RSA and ECDSA keys too; host A's SSH unit took 1.898 s.
 - Desktop startup waits for a real X server response instead of sleeping for a
   fixed second. It still fails explicitly if Xvfb never becomes ready.
-- Coding-agent packages are omitted from new images. This should reduce image
-  transfer and first-unpack work; boot improvement must be measured separately.
+- Coding-agent packages are omitted from new images. The candidate ARM64 image
+  is 1,920,185,312 bytes, versus 2,626,705,196 bytes for the baseline. This is
+  about 27% smaller; steady-state boot improvement must be measured separately.
+- The builder prepares the optimized image volume. The candidate's first use
+  before this preparation took 82.1 s. Preparation pays that cost during setup,
+  while retaining the same immutable image and normal creation path.
 
 Native CI and the new image comparison are in progress. Do not infer AMD64 E2E
 coverage or a startup speedup from the image recipe alone.
