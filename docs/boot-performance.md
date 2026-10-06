@@ -71,7 +71,7 @@ Different transport latency dominates much of this difference. It is not an
 ARM64 versus AMD64 comparison. A host in a different network or a GitHub runner
 is not a matched hardware benchmark. No hosted Boat speed comparison was run.
 
-## Changes under validation
+## Measured changes on the same ARM64 host
 
 - Only the advertised Ed25519 SSH host key is generated on first boot. The
   baseline generated unused RSA and ECDSA keys too; host A's SSH unit took 1.898 s.
@@ -84,5 +84,25 @@ is not a matched hardware benchmark. No hosted Boat speed comparison was run.
   before this preparation took 82.1 s. Preparation pays that cost during setup,
   while retaining the same immutable image and normal creation path.
 
-Native CI and the new image comparison are in progress. Do not infer AMD64 E2E
-coverage or a startup speedup from the image recipe alone.
+Three samples per image on host A give the following comparison. The
+[candidate report](benchmarks/arm64-candidate-a.json) preserves all samples.
+
+| Measurement | Baseline | Candidate |
+| --- | ---: | ---: |
+| Compressed image | 2.45 GiB | 1.79 GiB |
+| SSH unit, first sample | 1.898 s | 0.202 s |
+| Create has Docker ready, median | 3.941 s | 4.302 s |
+| Resume has Docker ready, median | 3.917 s | 3.973 s |
+| Desktop startup inside guest, median | 1.431 s | 0.537 s |
+
+Warm Docker readiness remains about four seconds. These measurements do not
+show an overall boot speedup. SSH key generation and desktop startup improved.
+The desktop comparison measures three real stop/start cycles inside each guest,
+from `systemctl start` until HTTP 200 and an RFB greeting. It excludes SSH delay.
+Its [raw report](benchmarks/arm64-desktop-local.json) shows about 62% less startup
+time. Controller-visible desktop measurements include transport overhead and
+show a smaller change.
+
+The candidate passed the full lifecycle and headed-browser E2E suite on an
+Ubuntu 22 ARM64 host. Native Ubuntu 24 ARM64 and AMD64 CI is still under
+validation. Do not infer both architectures' E2E coverage from a build alone.

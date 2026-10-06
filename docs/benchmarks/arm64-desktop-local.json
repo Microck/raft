@@ -1,0 +1,22 @@
+{
+  "method": "Guest-local systemctl start to HTTP 200 and RFB greeting; excludes SSH overhead",
+  "guestCpus": 1,
+  "guestMemory": "2GiB",
+  "restartsPerImage": 3,
+  "baseline": {
+    "samplesSeconds": [
+      2.275,
+      1.423,
+      1.431
+    ],
+    "medianSeconds": 1.431
+  },
+  "candidate": {
+    "samplesSeconds": [
+      1.042,
+      0.525,
+      0.537
+    ],
+    "medianSeconds": 0.537
+  }
+}

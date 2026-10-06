@@ -8,7 +8,19 @@ case "$(dpkg --print-architecture)" in
 esac
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y --no-install-recommends ca-certificates curl git openssh-server rsync jq ripgrep file less sudo locales python3 python3-pip python3-venv pipx build-essential clang cmake ninja-build golang rustc cargo default-jdk maven gradle kotlin scala ruby ruby-bundler php-cli composer erlang-base elixir r-base docker.io docker-cli docker-buildx chromium chromium-sandbox ffmpeg unzip xz-utils tar x11vnc xvfb x11-utils novnc websockify openbox dbus-x11
+apt-get install -y --no-install-recommends apparmor ca-certificates curl git openssh-server rsync jq ripgrep file less sudo locales python3 python3-pip python3-venv pipx build-essential clang cmake ninja-build golang rustc cargo default-jdk maven gradle kotlin scala ruby ruby-bundler php-cli composer erlang-base elixir r-base docker.io docker-cli docker-buildx chromium chromium-sandbox ffmpeg unzip xz-utils tar x11vnc xvfb x11-utils novnc websockify openbox dbus-x11
+# Ubuntu hosts restrict unprofiled user namespaces. Load a guest-local rule
+# for Chromium's exact executable so its sandbox can create its namespaces.
+# Incus's outer confinement and the host-wide restriction remain in force.
+cat > /etc/apparmor.d/raft-chromium <<'PROFILE'
+abi <abi/4.0>,
+include <tunables/global>
+profile raft-chromium /usr/lib/chromium/chromium flags=(unconfined) {
+  userns,
+}
+PROFILE
+systemctl enable apparmor
+systemctl restart apparmor
 mkdir -p /workspace /opt/raft
 node_archive="node-v24.21.0-linux-${node_arch}.tar.xz"
 curl -fsSL -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' "https://nodejs.org/dist/v24.21.0/${node_archive}" -o /tmp/raft-node.tar.xz

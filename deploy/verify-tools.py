@@ -43,7 +43,7 @@ checks = {
  "rg": ["rg", "raft-tool-ok", "hello.c"],
  "jq": ["bash", "-ec", "printf '{\"ok\":true}' | jq -e .ok"],
  "ffmpeg": ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=16x16:d=0.1", "-f", "null", "-"],
- "chromium": ["chromium", "--headless", "--no-sandbox", "--disable-dev-shm-usage", "--dump-dom", "data:text/html,<h1>raft-tool-ok</h1>"],
+ "chromium": ["chromium", "--headless", "--disable-dev-shm-usage", "--dump-dom", "data:text/html,<h1>raft-tool-ok</h1>"],
 }
 sources = {
  "hello.go": 'package main\nimport "fmt"\nfunc main(){fmt.Println("raft-tool-ok")}\n',
