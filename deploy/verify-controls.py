@@ -9,7 +9,7 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from raft import ADMISSION, incus, inventory, transaction  # noqa: E402
+from raft import ADMISSION, address, incus, inventory, parse_handle, transaction  # noqa: E402
 import importlib.util  # noqa: E402
 
 spec = importlib.util.spec_from_file_location(
@@ -17,6 +17,19 @@ spec = importlib.util.spec_from_file_location(
 )
 live = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(live)
+
+
+def wait_address(box):
+    # Incus Running precedes DHCP readiness. Use the canonical managed-NIC
+    # lookup, not hostname -I, which can include guest Docker bridge addresses.
+    location, name = parse_handle(box)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            return address(location, name)
+        except ValueError:
+            time.sleep(0.2)
+    raise RuntimeError("Resumed workspace has no managed IPv4 address after 30 seconds")
 
 
 def verify_admission(location, directory):
@@ -183,8 +196,8 @@ def verify(source, target, directory, development_image=False):
             assert restored_config["volatile.eth0.hwaddr"] != source_config["volatile.eth0.hwaddr"]
             if source == target:
                 live.raft("resume", box, "--ttl", "600")
-                original_ip = live.execute(box, "hostname", "-I").split()[0]
-                recovered_ip = live.execute(restored, "hostname", "-I").split()[0]
+                original_ip = wait_address(box)
+                recovered_ip = wait_address(restored)
                 assert original_ip != recovered_ip
                 assert live.execute(box, "cat", "/workspace/proof") == "raft-backup-proof"
             print(

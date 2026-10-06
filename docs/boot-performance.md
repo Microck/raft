@@ -20,8 +20,11 @@ extended lifecycle suite and all 31 development-tool checks, measures startup
 and exports the clean template with SHA256 checksums. Successful runs attach
 seven-day artifacts named `raft-dev-amd64` and `raft-dev-arm64`. Small
 `boot-results-amd64` and `boot-results-arm64` artifacts contain just the reports. GitHub artifact
-downloads require a GitHub login. These are CI artifacts, not a stable release
-channel. Each archive must be imported into a host of the same architecture.
+downloads require a GitHub login. Versioned public images are published under
+[releases](https://github.com/Microck/raft/releases) after recovery and fresh-host
+validation, with checksums, manifests and inventories. Release assets do not
+expire on the CI artifact schedule. Each archive must be imported into a host
+of the same architecture.
 
 The CI fixture uses a sparse Btrfs pool on an ephemeral VM. It does not certify
 the production deployer's 80 GiB free-space preflight or fresh-host provisioning.

@@ -429,16 +429,19 @@ def verify_reboot(location, box, child):
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         probe = subprocess.run(
-            [*command, "cat /proc/sys/kernel/random/boot_id"], capture_output=True, text=True
+            [
+                *command,
+                "systemctl is-active incus raft-network.service raft-expire.timer >/dev/null "
+                "&& cat /proc/sys/kernel/random/boot_id",
+            ],
+            capture_output=True,
+            text=True,
         )
         if probe.returncode == 0 and probe.stdout.strip() != boot_id:
             break
         time.sleep(2)
     else:
         raise RuntimeError("Host did not return with a new kernel boot ID")
-    subprocess.run(
-        [*command, "systemctl is-active incus raft-network.service raft-expire.timer"], check=True
-    )
     assert json.loads(raft("info", child).stdout)["status"] == "Stopped"
     wait_running(box)
     assert execute(box, "cat", "/workspace/persistent") == "saved"

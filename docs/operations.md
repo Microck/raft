@@ -55,7 +55,8 @@ The builder selects the host's native architecture automatically. ARM64 uses
 Node's `arm64` archive; AMD64 uses `x64`. Cross-architecture emulation is not
 supported. Build each host's image separately. Native image CI builds both
 ARM64 and AMD64 templates. Successful runs attach
-seven-day image artifacts and boot reports; validation status is recorded in
+versioned [image releases](https://github.com/Microck/raft/releases) and
+seven-day CI artifacts; validation status is recorded in
 [boot performance](boot-performance.md).
 
 A successful build removes its builder. Failed builds retain `raft-builder` for
@@ -77,15 +78,21 @@ raft exec "$box" -- docker info
 raft destroy "$box"
 ```
 
-To use a successful native CI artifact instead of rebuilding, download the
-artifact matching your host, unzip it and check its `SHA256SUMS`. Copy the image
+To use a versioned image instead of rebuilding, download the archive matching
+your host from [releases](https://github.com/Microck/raft/releases), plus
+`SHA256SUMS` and `manifest-<architecture>.json`. Verify the downloaded archive
+before copying it to the host. Release downloads are public and do not expire
+on the CI artifact schedule. Copy the image
 archive to the host and import it into the Raft project:
 
 ```sh
-sha256sum -c SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
 sudo incus --project raft image import ./raft-dev-arm64.tar.gz --alias raft-dev
 ```
 
+The checksum command must report `OK` for your downloaded archive; missing
+checksums or a nonzero exit are failures. CI artifact downloads instead contain
+`SHA256SUMS-arm64` or `SHA256SUMS-amd64`, and require a GitHub login.
 Use the AMD64 archive filename on an AMD64 host. Set the resulting immutable
 fingerprint in controller configuration. Import refuses an existing alias;
 choose a fresh candidate alias if another image already uses `raft-dev`.

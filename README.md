@@ -50,8 +50,9 @@ including stopped boxes. location names come from your configuration.
 
 the image builder starts from public Debian 13 and adds language runtimes,
 build tools, Docker, Chromium, FFmpeg and a noVNC desktop. build your own image
-and pin its fingerprint, or use a verified native CI artifact from
-[image builds and boot measurements](docs/boot-performance.md).
+and pin its fingerprint, or download a native image from
+[versioned releases](https://github.com/Microck/raft/releases). see
+[image builds and boot measurements](docs/boot-performance.md) for checks and timings.
 
 see the operations guide for [background jobs and files](docs/operations.md#jobs-and-files),
 [snapshots and forks](docs/operations.md#snapshots-and-forks),

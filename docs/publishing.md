@@ -3,7 +3,14 @@
 The public source must contain only reusable code, examples and documentation.
 Keep controller configuration, SSH keys, instance archives, journals and private
 reports outside the repository. `docs/incus.example.json` contains placeholders.
-No prebuilt image is distributed; build from the public base image instead.
+Native image releases are built from clean public Debian bases. Publish through
+`native images` with a new semantic `release_tag`, such as `v0.1.0`. The workflow
+requires both native lifecycle/full-image recovery jobs and a fresh AMD64 KVM
+host setup/reboot test. It refuses existing tags and never overwrites assets.
+Release archives include SHA256SUMS, architecture-specific manifests, package
+inventories and boot reports. Manifests identify the exact source commit,
+build run and Incus fingerprint. This is recorded provenance, not a signed
+supply-chain attestation.
 
 Before changing an existing repository's visibility, scan **all Git history**
 and every branch and tag. A clean working tree does not remove private details
