@@ -5,12 +5,13 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "start": "next start",
+    "start": "python3 -m http.server 4300 --bind 127.0.0.1 --directory .preview",
     "types:check": "next typegen && tsc --noEmit",
     "lint": "oxlint",
     "predev": "node scripts/prepare-assets.mjs",
     "prebuild": "node scripts/prepare-assets.mjs",
-    "test": "node scripts/verify-site.mjs"
+    "test": "node scripts/verify-site.mjs",
+    "postbuild": "node scripts/prepare-assets.mjs --preview"
   },
   "dependencies": {
     "fumadocs-core": "16.16.2",

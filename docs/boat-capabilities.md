@@ -22,17 +22,19 @@ not the hosted Boat service. See [verification](./verification.md) for evidence.
 | Synchronous exec | ✅ | Literal argv and preserved exit code. Shell syntax requires an explicit shell |
 | Detached exec | ✅ | Guest systemd unit, status, logs, cancellation. No process checkpoint or restart after stop |
 | File transfer | ✅ | Binary file upload/download. No recursive SCP interface |
-| Named snapshots | ✅ | Create/list/restore with stopped source. No running snapshot consistency guarantee |
+| Named snapshots | ✅ | Create/list/restore with stopped source, checked inside the lifecycle lock. No running snapshot consistency guarantee |
+| Deploy/delete named snapshots | ❌ | No `new --from` or snapshot deletion command; destroy removes the box and its snapshots |
 | Fork | ✅ | Same-host stopped filesystem copy. Copies filesystem secrets; no cross-host fork command |
 | Portable recovery | ✅ | Stopped native export including snapshots; fresh stopped import. Manual backup storage; no scheduled off-host destination |
 | Docker | ✅ | Guest daemon with real image builds. Container nesting uses host kernel |
+| Native development images | ✅ | Published ARM64/AMD64 bases, pinned fingerprints and clean-archive inspection; native builds and full-image recovery passed on both |
 | Development tools | ✅ | 31 real developer-user checks. Debian/Chromium, not identical Ubuntu/Chrome versions; VS Code, Ghostty and GitHub CLI are not bundled; version-manager coverage differs |
 | Private forward | ✅ | Foreground authenticated SSH tunnel to controller loopback. Guest service must listen on its managed NIC; no reverse forwarding |
-| Public hosting | ❌ | Missing. Deferred; requires a defined ingress and access policy |
+| Public workspace hosting | ❌ | Missing. Deferred; requires a defined ingress and access policy |
 | Desktop | ✅ | On-demand noVNC, framebuffer, pointer and browser transport checks. See verification for desktop interaction coverage |
 | Browser-only streaming | ❌ | Missing. Full desktop only; browser confinement deferred |
-| Network separation | ✅ | Host/private/metadata and IPv4/IPv6 peer restrictions. Not a substitute for a VM kernel boundary |
-| Bounded host storage pool | ✅ | Shared 60 GiB Btrfs pool per host |
+| Network separation | ✅ | Host/private/metadata and IPv4/IPv6 peer restrictions; filtering must succeed before Incus starts, including socket startup. Not a VM kernel boundary |
+| Bounded host storage pool | ✅ | Shared 60 GiB Btrfs pool per host; deployment rejects configured size drift without resizing |
 | Strict per-box disk allocation | ❌ | Nested subvolumes prevent claiming strict quotas; no independent Boat-sized disks |
 | VM kernel isolation | ❌ | VM deployment not implemented |
 | Nested KVM / Android emulator acceleration | ❌ | No guest KVM device or VM mode; Boat documents KVM on its standard hosts |
@@ -54,7 +56,10 @@ Checked on 2026-10-06 against Boat's [CLI reference](https://docs.boat.dev/cli-r
 [machine capabilities](https://docs.boat.dev/machines),
 [SSH/file access](https://docs.boat.dev/ssh-access) and
 [limits](https://docs.boat.dev/pricing), plus Raft's command parser and verification
-suites. This checks documented capabilities; it is not a live differential test
+suites at runtime commit `27b08c1`. Both native architectures and disposable
+AMD64 host failure/reboot/storage tests passed in the
+[fix verification run](https://github.com/Microck/raft/actions/runs/37496577945).
+This checks documented capabilities; it is not a live differential test
 against a Boat account. Coding-agent packages and managed agent workflows remain
 outside the requested scope.
 

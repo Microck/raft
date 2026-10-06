@@ -1,3 +1,4 @@
+import { docsRoute } from './shared';
 import { llms, loader } from 'fumadocs-core/source';
 import { defineDocs } from 'fumadocs-mdx/macro';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
@@ -13,7 +14,7 @@ const docs = defineDocs({
   meta: { files: ['meta.json'], schema: metaSchema },
 });
 
-export const source = loader({ baseUrl: '/docs', source: docs.toFumadocsSource() });
+export const source = loader({ baseUrl: docsRoute, source: docs.toFumadocsSource() });
 export const docsLlms = llms(source, {
   renderPage: async (page) => page.data.getText('processed'),
 });

@@ -16,7 +16,7 @@
 control, with command execution, Docker, file transfer, snapshots, forks and a
 private desktop. Raft is not affiliated with Boat.
 
-[setup](docs/operations.md) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.md) | [agent skill](skills/raft-cli/SKILL.md) | [docs site](docs/site-development.md)
+[setup](docs/operations.md) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.md) | [agent skill](skills/raft-cli/SKILL.md) | [docs site](https://microck.github.io/raft/)
 
 ## quickstart
 
@@ -98,13 +98,17 @@ records limits and test coverage.
 | Root terminal and command execution | ✅ | Host SSH transport |
 | Background jobs, logs and cancellation | ✅ | No process checkpoints |
 | File upload/download | ✅ | Individual files |
-| Snapshots and same-host forks | ✅ | Stopped source |
+| Snapshots and same-host forks | ✅ | Stopped source, checked under the lifecycle lock |
+| Deploy/delete named snapshots | ❌ | No snapshot deployment or deletion command |
 | Portable backup/recovery | ✅ | Manual archive storage |
 | Docker and development tools | ✅ | Native ARM64/AMD64; [image tests](docs/boot-performance.md) |
 | Private port forwarding | ✅ | Local SSH tunnel |
 | Desktop access | ✅ | noVNC; see verification limits |
 | Recursive SCP and reverse forwarding | ❌ | Not implemented |
-| Public hosting and browser-only streaming | ❌ | Not implemented |
+| Public workspace hosting and browser-only streaming | ❌ | Not implemented |
+| Resize on resume/fork | ❌ | Create-time sizing only |
+| Consistent JSON output | ❌ | Only list/info/usage/limits |
+| Snapshot file browsing/download | ❌ | Whole-box backup only |
 | Strict per-box disk quotas | ❌ | Shared 60 GiB Btrfs pool |
 | Separate-kernel VM isolation | ❌ | Container runtime |
 | Named environments and managed secrets | ❌ | Manual configuration |
