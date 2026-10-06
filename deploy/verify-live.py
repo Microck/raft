@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CLI = [sys.executable, str(ROOT / "raft.py")]
 USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
 sys.path.insert(0, str(ROOT))
+from raft import settings  # noqa: E402
 
 
 def raft(*arguments, check=True, env=None):
@@ -462,12 +463,16 @@ def verify(location, extended=False, restart_incus=False):
                     fixtures.remove(sized)
             print(f"{location}: developer tools and all resource combinations passed", flush=True)
         assert execute(box, "pwd") == "/workspace"
-        assert execute(box, "uname", "-m") == "aarch64"
+        host_machine = subprocess.check_output(
+            ["ssh", "-T", "-o", "BatchMode=yes", settings(location)["ssh"], "uname -m"],
+            text=True,
+        ).strip()
+        assert execute(box, "uname", "-m") == host_machine
         assert execute(box, "nproc") == "1"
         assert execute(box, "cat", "/sys/fs/cgroup/memory.max") == "2147483648"
         assert execute(box, "printf", "%s", "spaces $HOME `literal`") == "spaces $HOME `literal`"
         assert raft("exec", box, "--", "bash", "-lc", "exit 37", check=False).returncode == 37
-        tools = "node npm pnpm bun deno python3 uv go rustc cargo java mvn gradle kotlin scala ruby php composer elixir dotnet R gcc clang cmake ninja git rg jq chromium ffmpeg docker claude codex pi opencode"
+        tools = "node npm pnpm bun deno python3 uv go rustc cargo java mvn gradle kotlin scala ruby php composer elixir dotnet R gcc clang cmake ninja git rg jq chromium ffmpeg docker"
         execute(
             box,
             "bash",

@@ -8,7 +8,7 @@ not affiliated with Boat and does not redistribute Boat software or credentials.
 
 [Incus](https://github.com/lxc/incus) manages unprivileged system containers,
 images, snapshots, copies and file transfer. Containers share the host kernel.
-The supported deployment uses ARM64 Ubuntu hosts and Debian 13 guest images.
+The supported deployment uses native ARM64 or AMD64 Ubuntu hosts and Debian 13 guest images.
 KVM is unnecessary for these containers. Incus supports virtual machines, but
 Raft's current deployment does not implement a VM workflow.
 
@@ -20,8 +20,10 @@ and the on-demand Xvfb/Openbox/noVNC desktop. A host timer enforces running TTL.
 
 Build a clean image from the public Incus Debian image using the checked-in
 builder. Pin the resulting immutable fingerprint in controller configuration.
-No prebuilt Raft image is currently distributed. Package versions are recorded
-inside each image; Debian package updates can change subsequent builds.
+The native image workflow attaches short-lived clean ARM64 and AMD64 templates
+after its build and E2E checks pass. See [image validation and boot performance](boot-performance.md).
+Package versions are recorded inside each image; Debian package updates can
+change subsequent builds.
 
 The reference projects separate installation, image construction and examples:
 

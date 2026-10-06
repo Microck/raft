@@ -51,7 +51,8 @@ resulting image fingerprints. Put the full resulting fingerprint into the
 location's `image` field. Do not use an alias in the controller configuration.
 The builder selects the host's native architecture automatically. ARM64 uses
 Node's `arm64` archive; AMD64 uses `x64`. Cross-architecture emulation is not
-supported. Build each host's image separately. Native image CI builds both ARM64 and AMD64 templates. Successful runs attach
+supported. Build each host's image separately. Native image CI builds both
+ARM64 and AMD64 templates. Successful runs attach
 seven-day image artifacts and boot reports; validation status is recorded in
 [boot performance](boot-performance.md).
 
@@ -69,6 +70,19 @@ box=$(raft new --location lab --ttl 600)
 raft exec "$box" -- docker info
 raft destroy "$box"
 ```
+
+To use a successful native CI artifact instead of rebuilding, download the
+artifact matching your host, unzip it and check its `SHA256SUMS`. Copy the image
+archive to the host and import it into the Raft project:
+
+```sh
+sha256sum -c SHA256SUMS
+sudo incus --project raft image import ./raft-dev-arm64.tar.gz --alias raft-dev
+```
+
+Use the AMD64 archive filename on an AMD64 host. Set the resulting immutable
+fingerprint in controller configuration. Import refuses an existing alias;
+choose a fresh candidate alias if another image already uses `raft-dev`.
 
 ## Ownership and persistence
 

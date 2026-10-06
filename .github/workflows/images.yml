@@ -5,6 +5,9 @@ on:
       - images/incus/**
       - deploy/build-image.py
       - deploy/install-incus.sh
+      - deploy/verify-live.py
+      - deploy/verify-tools.py
+      - deploy/benchmark-boot.py
       - .github/workflows/images.yml
   workflow_dispatch:
 permissions:

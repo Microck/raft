@@ -50,7 +50,8 @@ including stopped boxes. location names come from your configuration.
 
 the image builder starts from public Debian 13 and adds language runtimes,
 build tools, Docker, Chromium, FFmpeg and a noVNC desktop. build your own image
-and pin its fingerprint. no prebuilt Raft image is distributed.
+and pin its fingerprint, or use a verified native CI artifact from
+[image builds and boot measurements](docs/boot-performance.md).
 
 see the operations guide for [background jobs and files](docs/operations.md#jobs-and-files),
 [snapshots and forks](docs/operations.md#snapshots-and-forks),
@@ -78,7 +79,7 @@ records limits and test coverage.
 | File upload/download | ✅ | Individual files |
 | Snapshots and same-host forks | ✅ | Stopped source |
 | Portable backup/recovery | ✅ | Manual archive storage |
-| Docker and development tools | ✅ | Native ARM64/AMD64 recipes; see image verification |
+| Docker and development tools | ✅ | Native ARM64/AMD64; [image tests](docs/boot-performance.md) |
 | Private port forwarding | ✅ | Local SSH tunnel |
 | Desktop access | ✅ | noVNC; see verification limits |
 | Recursive SCP and reverse forwarding | ❌ | Not implemented |
