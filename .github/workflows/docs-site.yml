@@ -3,11 +3,13 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - .github/assets/raft-logo.png
       - website/**
       - docs/**
       - .github/workflows/docs-site.yml
   pull_request:
     paths:
+      - .github/assets/raft-logo.png
       - website/**
       - docs/**
       - .github/workflows/docs-site.yml

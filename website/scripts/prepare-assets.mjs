@@ -1,5 +1,8 @@
 import { cp, mkdir, rm, symlink } from 'node:fs/promises';
 
+// Keep docs branding identical to the README's canonical artwork.
+await cp(new URL('../../.github/assets/raft-logo.png', import.meta.url), new URL('../public/raft-logo.png', import.meta.url));
+
 // Copy downloadable reference artifacts from their canonical sources.
 const publicDocs = new URL('../public/docs/', import.meta.url);
 await mkdir(publicDocs, { recursive: true });

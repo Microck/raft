@@ -90,6 +90,13 @@ try {
   assert.equal(headings.length, 1, 'Entry page must have one main heading');
   assert.match(headings[0][1], />Raft</, 'Entry page must display the Raft overview heading');
 
+  assert.match(home, /<img\b[^>]*src="\/raft-logo\.png"/, 'Navigation must display the Raft logo');
+  assert.match(home, /<link\b[^>]*rel="icon"[^>]*href="\/raft-logo\.png"/, 'Browser must receive the Raft favicon');
+  const logo = await get('/raft-logo.png', 'image/png');
+  assert.equal(logo.status, 200, 'Logo and favicon must be served');
+  assert.match(logo.headers.get('content-type') ?? '', /image\/png/);
+  assert.deepEqual(Buffer.from(await logo.arrayBuffer()), await readFile(new URL('../../.github/assets/raft-logo.png', import.meta.url)), 'Published branding must match the canonical artwork');
+
   assert.equal(await (await get('/CNAME')).text(), await readFile(new URL('../public/CNAME', import.meta.url), 'utf8'));
   assert.match(await (await get('/fonts/boat-fonts-license.txt')).text(), /SIL OPEN FONT LICENSE/);
   const fonts = new Set([...home.matchAll(/href="([^"]+\.woff2)"/g)].map((match) => match[1]));

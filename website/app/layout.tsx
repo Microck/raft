@@ -24,6 +24,7 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://raft.micr.dev'),
   title: { default: 'Raft documentation', template: '%s | Raft' },
   description: 'Self-hosted persistent Linux workspaces with Incus. An independent open-source alternative to boat.dev.',
+  icons: { icon: { url: '/raft-logo.png', type: 'image/png' } },
 };
 
 export default function Layout({ children }: LayoutProps<'/'>) {
