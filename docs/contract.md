@@ -5,6 +5,12 @@ configured ARM64 or AMD64 Linux hosts. Images must match the host architecture;
 foreign-architecture emulation is not supported. Containers share the host kernel.
 Incus virtual machines require usable KVM and are not silently substituted.
 
+Versioned image releases contain clean native ARM64 and AMD64 templates,
+SHA256 checksums, package inventories and build provenance. Publication requires
+native lifecycle/recovery checks and a clean AMD64 Ubuntu VM provisioning and
+reboot check. The test VM uses KVM and a sparse 100 GiB virtual disk; it does
+not certify underlying physical storage capacity or ARM64 host reboot behavior.
+
 - Deployment refuses conflicting storage/network names and incomplete owned
   infrastructure rather than silently overwriting or repairing it.
 - `new`, `list`, `info`, `exec`, `ssh`, `upload`, `download`, `stop`, `resume`,

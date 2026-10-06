@@ -9,9 +9,17 @@ on:
       - deploy/raft-network.service
       - deploy/verify-live.py
       - deploy/verify-tools.py
+      - deploy/verify-controls.py
+      - deploy/verify-image.py
+      - deploy/verify-fresh-host.py
       - deploy/benchmark-boot.py
       - .github/workflows/images.yml
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish a verified release, e.g. v0.1.0; leave empty for validation only'
+        required: false
+        type: string
 permissions:
   contents: read
 jobs:
@@ -32,6 +40,9 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+          # Free only preinstalled toolchains on this disposable CI VM.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          df -h /
           test "$(dpkg --print-architecture)" = '${{ matrix.architecture }}'
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends btrfs-progs curl gnupg iptables openssh-server python3
@@ -84,7 +95,9 @@ jobs:
           sudo journalctl -u incus --no-pager -n 80
           df -h /
       - name: Verify lifecycle, desktop and all development tools
-        run: python3 deploy/verify-live.py --location lab --extended
+        run: python3 deploy/verify-live.py --location lab --extended --restart-incus
+      - name: Verify full development-image backup and recovery
+        run: python3 deploy/verify-controls.py --source lab --target lab --development-image --directory "$RUNNER_TEMP"
       - name: Measure cached-image startup
         run: |
           mkdir -p image-artifacts
@@ -99,11 +112,81 @@ jobs:
           fingerprint=$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".config/raft/incus.json").read_text())["lab"]["image"])')
           sudo incus --project raft image export "$fingerprint" "image-artifacts/raft-dev-${{ matrix.architecture }}"
           sudo chown -R "$(id -u):$(id -g)" image-artifacts
+          python3 deploy/verify-image.py "image-artifacts/raft-dev-${{ matrix.architecture }}.tar.gz" --architecture '${{ matrix.architecture }}' --fingerprint "$fingerprint"
           cd image-artifacts
-          sha256sum raft-dev-* > SHA256SUMS
+          sha256sum raft-dev-* > SHA256SUMS-${{ matrix.architecture }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: raft-dev-${{ matrix.architecture }}
           path: image-artifacts/
           retention-days: 7
           compression-level: 0
+
+  fresh-host:
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: raft-dev-amd64
+          path: image-artifacts
+      - name: Prepare disposable KVM host test
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils curl openssh-client python3
+          sudo chmod a+rw /dev/kvm
+          cd image-artifacts
+          sha256sum -c SHA256SUMS-amd64
+      - name: Verify fresh provisioning, import and host reboot
+        run: python3 deploy/verify-fresh-host.py image-artifacts/raft-dev-amd64.tar.gz
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    needs: [image, fresh-host]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: raft-dev-*
+          merge-multiple: true
+          path: release-assets
+      - name: Publish verified native images
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo 'Release tag already exists; published versions are never overwritten' >&2
+            exit 1
+          fi
+          cd release-assets
+          sha256sum -c SHA256SUMS-arm64
+          sha256sum -c SHA256SUMS-amd64
+          sha256sum raft-dev-*.tar.gz manifest-*.json packages-*.tsv npm-packages-*.json boot-*.json > SHA256SUMS
+          cd ..
+          cat > release-notes.md <<'NOTES'
+          Native ARM64 and AMD64 Debian 13 development images for persistent, self-hosted Linux workspaces.
+
+          Both images passed lifecycle, desktop, network isolation, 31 development-tool checks and full-image backup/recovery. A clean AMD64 Ubuntu 24 KVM host passed provisioning, image import and real host reboot verification.
+
+          Download the archive matching your host and SHA256SUMS. Verify the checksum, then import into the Raft Incus project and pin the fingerprint recorded in manifest-<architecture>.json. Package inventories and startup reports are included.
+
+          These are unprivileged system containers sharing the host kernel. Raft is an independent open-source alternative to boat.dev. Third-party tools retain their own licenses. Fresh-host verification uses a sparse 100 GiB VM disk; physical capacity, ARM64 host reboot and cross-architecture recovery are not certified.
+          NOTES
+          git config user.name "$GITHUB_ACTOR"
+          actor_id=$(gh api "users/$GITHUB_ACTOR" --jq .id)
+          git config user.email "$(printf '%s+%s@%s' "$actor_id" "$GITHUB_ACTOR" users.noreply.github.com)"
+          git tag -a "$RELEASE_TAG" "$GITHUB_SHA" -F release-notes.md
+          git push origin "refs/tags/$RELEASE_TAG"
+          gh release create "$RELEASE_TAG" release-assets/raft-dev-*.tar.gz release-assets/SHA256SUMS release-assets/manifest-*.json release-assets/packages-*.tsv release-assets/npm-packages-*.json release-assets/boot-*.json --verify-tag --title "Raft $RELEASE_TAG" --notes-file release-notes.md --latest

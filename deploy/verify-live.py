@@ -416,7 +416,45 @@ def verify_configuration():
             assert response.returncode == 1 and "Traceback" not in response.stderr
 
 
-def verify(location, extended=False, restart_incus=False):
+def verify_reboot(location, box, child):
+    """Reboot only an explicitly selected disposable host, then prove recovery."""
+    host = settings(location)["ssh"]
+    command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", host]
+    boot_id = subprocess.check_output(
+        [*command, "cat /proc/sys/kernel/random/boot_id"], text=True
+    ).strip()
+    raft("stop", child)
+    raft("extend", box, "--ttl", "600")
+    subprocess.run([*command, "sudo systemctl reboot"], capture_output=True)
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        probe = subprocess.run(
+            [*command, "cat /proc/sys/kernel/random/boot_id"], capture_output=True, text=True
+        )
+        if probe.returncode == 0 and probe.stdout.strip() != boot_id:
+            break
+        time.sleep(2)
+    else:
+        raise RuntimeError("Host did not return with a new kernel boot ID")
+    subprocess.run(
+        [*command, "systemctl is-active incus raft-network.service raft-expire.timer"], check=True
+    )
+    assert json.loads(raft("info", child).stdout)["status"] == "Stopped"
+    wait_running(box)
+    assert execute(box, "cat", "/workspace/persistent") == "saved"
+    assert "prepared" in raft("snapshots", box).stdout
+    assert execute(box, "docker", "run", "--rm", "raft-verify") == "raft-docker-ok"
+    raft("resume", child, "--ttl", "300")
+    wait_running(child)
+    verify_peers(box, child)
+    assert execute(child, "cat", "/workspace/persistent") == "saved"
+    print(
+        f"{location}: real host reboot retained files, snapshots, state, Docker and peer isolation",
+        flush=True,
+    )
+
+
+def verify(location, extended=False, restart_incus=False, reboot_host=False):
     verify_configuration()
     fixtures = []
     print(f"{location}: allocation", flush=True)
@@ -602,6 +640,8 @@ def verify(location, extended=False, restart_incus=False):
         raft("resume", child, "--ttl", "300")
         assert execute(child, "cat", "/workspace/persistent") == "saved"
         print(f"{location}: scheduled TTL stop retained disk and resumed successfully", flush=True)
+        if reboot_host:
+            verify_reboot(location, box, child)
     finally:
         for box in reversed(fixtures):
             raft("destroy", box)
@@ -621,5 +661,10 @@ if __name__ == "__main__":
         action="store_true",
         help="Restart the host Incus daemon; use only on dedicated test hosts",
     )
+    parser.add_argument(
+        "--reboot-host",
+        action="store_true",
+        help="Reboot the selected host; use only on a disposable host with independent controller",
+    )
     args = parser.parse_args()
-    verify(args.location, args.extended, args.restart_incus)
+    verify(args.location, args.extended, args.restart_incus, args.reboot_host)
