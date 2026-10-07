@@ -121,7 +121,7 @@ records differences, sources and test coverage.
 | Reverse forwarding | ✅ | ❌ | Not implemented |
 | Public workspace hosting and browser-only streaming | ✅ | ❌ | Not implemented |
 | Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides within supported sizes |
-| CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft only list/info/usage/limits |
+| CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft list/info/usage/limits plus prune JSONL |
 | Snapshot file browsing/download | ✅ | ❌ | Whole-box backup only |
 | Strict per-box disk quotas | ✅ | ❌ | Shared 60 GiB Btrfs pool |
 | Separate-kernel VM isolation | ✅ | ❌ | Container runtime |

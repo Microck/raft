@@ -50,15 +50,15 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Automatic deletion/retention | ✅ | ✅ | Disposable delete-on-stop/expiry; opt-in stopped-box retention cleanup with preview |
 | Dashboard | ✅ | ❌ | Missing. CLI and private desktop cover current workflow |
 | SDK/API keys | ✅ | ❌ | Host SSH authentication. No remote Raft service API |
-| CLI-wide JSON mode | ✅ | ❌ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides JSON for list/info/usage/limits only |
+| CLI-wide JSON mode | ✅ | ❌ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides JSON for list/info/usage/limits and JSONL for prune |
 | Snapshot file browsing/download | ✅ | ❌ | Full native archives only; no Raft snapshot tree or selected-file interface |
 | CLI self-update/completions | ✅ | ❌ | Standard Python package installation/help. No update channel or dynamic shell completions |
 | Managed agents | ✅ | ❌ | Not implemented. No prompt/events/steer/interrupt/conversation API |
 
 ## Reference check
 
-Checked on 2026-10-06 against Boat's [CLI reference](https://docs.boat.dev/cli-reference), [machine capabilities](https://docs.boat.dev/machines), [SSH/file access](https://docs.boat.dev/ssh-access), [snapshots](https://docs.boat.dev/box/snapshots), and [billing and limits](https://docs.boat.dev/billing).
+Checked on 2026-10-07 against Boat's [CLI reference](https://docs.boat.dev/cli-reference), [machine capabilities](https://docs.boat.dev/machines), [SSH/file access](https://docs.boat.dev/ssh-access), [snapshots](https://docs.boat.dev/snapshots), [data retention](https://docs.boat.dev/data-retention), and [billing and limits](https://docs.boat.dev/billing).
 
-Raft command parser and test suites were verified at commit `27b08c1`. Both native architectures and disposable AMD64 host tests passed in [run 37496577945](https://github.com/Microck/raft/actions/runs/37496577945). This audit compares documented features, not a live differential test against Boat. Managed agent workflows remain out of scope.
+The new workspace-control suite passed on ARM64 and AMD64 at runtime commit `ada3d2f4` in [run 37598475716](https://github.com/Microck/raft/actions/runs/37598475716). The baseline native architecture and disposable AMD64 host tests passed in [run 37496577945](https://github.com/Microck/raft/actions/runs/37496577945). This audit compares documented features, not a live differential test against Boat. Managed agent workflows remain out of scope.
 
 Recursive transfers, resume/fork sizing, snapshot templates/deletion and disposable lifecycle are implemented. Directory transfers require a running box; templates stay on the source host. Public hosting, VM isolation, organization sharing, and remote APIs require additional infrastructure. noVNC tests do not establish parity for Boat frame rate, browser confinement or application set.

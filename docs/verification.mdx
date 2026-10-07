@@ -61,6 +61,19 @@ The [final runtime validation](https://github.com/Microck/raft/actions/runs/3754
 
 For an older deployment whose services should stay unchanged, `--isolated-worker` stages the current worker under a private temporary path. This checks worker logic without installing it; automatic timer integration is verified on disposable CI hosts. Current deployments use the normal verification mode; the isolated mode rejects them before allocation.
 
+## Workspace controls validation (2026-10-07)
+
+<details>
+<summary>Native feature tests and transfer regressions</summary>
+
+At runtime commit `ada3d2f4`, ARM64 and AMD64 passed the new workspace-control suite in [native CI](https://github.com/Microck/raft/actions/runs/37598475716). It verifies installed-timer deletion, retention preview and exclusions, live-source snapshot templates, snapshot deletion, and effective CPU/RAM limits after resume and fork.
+
+Directory tests cover binary files, permissions, relative symlinks, hardlinks, empty directories and existing destinations. Unix sockets and unsafe archive entries are rejected. A real Incus transfer truncated between complete archive entries fails without publishing a partial directory.
+
+The ARM64 job also passed full development-image recovery and clean-template inspection. Two configured ARM64 hosts passed feature tests with a staged worker, without changing installed services. Local fixtures and staged files were removed.
+
+</details>
+
 ## Running verification suites
 
 Test commands require configured hosts and immutable image fingerprints. Suites destroy only the fixtures they create.
