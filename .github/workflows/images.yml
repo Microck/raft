@@ -206,7 +206,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm whoami
-          npm publish dist/microck-raft-*.tgz --access public --provenance
+          npm publish ./dist/microck-raft-*.tgz --access public --provenance
       - name: Publish GitHub release
         shell: bash
         run: |
