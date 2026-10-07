@@ -424,7 +424,7 @@ def verify_configuration():
 
 def verify_arguments():
     # Invoke actual CLI processes: help and argument errors must not access a host.
-    commands = "new list limits doctor gc recover info stop resume extend destroy ssh exec upload download snapshot snapshots restore fork forward desktop logs status cancel backup usage".split()
+    commands = "new list limits doctor gc prune recover info stop resume extend destroy ssh exec upload download snapshot snapshots snapshot-delete restore fork forward desktop logs status cancel backup usage".split()
     assert raft("--help").returncode == 0
     for command in commands:
         assert raft(command, "--help").returncode == 0

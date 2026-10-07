@@ -10,7 +10,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
 import uuid
+
+import raft_files
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 PROJECT = "raft"
@@ -131,8 +134,20 @@ test "$count" -lt {SAVED_BOX_LIMIT} || {{ echo 'Location already holds four boxe
 
 
 REQUIRE_STOPPED = """state=$(incus --project raft list "$1" --fast --format json | python3 -c 'import json,sys; print(next(x["status"] for x in json.load(sys.stdin) if x["name"] == sys.argv[1] and x["config"].get("user.raft") == "true"))' "$1")
-test "$state" = Stopped || { echo 'Stop the source box before snapshot, restore, fork or backup' >&2; exit 1; }
+test "$state" = Stopped || { echo 'Stop the source box before resume, snapshot, restore, fork or backup' >&2; exit 1; }
 """
+
+
+CHECK_WORKER = (
+    "python3 -c "
+    + shlex.quote(
+        "import runpy; "
+        "worker = runpy.run_path('/usr/local/lib/raft/expire-worker'); "
+        "\nif worker.get('PROTOCOL') != 1:\n"
+        " raise SystemExit('Host expiry worker differs from this CLI; deploy the current Raft checkout first')"
+    )
+    + "\n"
+)
 
 
 HOST_RESOURCES = """import json, os, shutil, subprocess
@@ -302,19 +317,50 @@ def transaction(location, script, *arguments, stdout=None):
     return response.stdout.decode() if response.stdout is not None else ""
 
 
+def snapshot_name(value):
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", value):
+        raise ValueError("Invalid snapshot name")
+    return value
+
+
+def sizing(args):
+    values = []
+    for field in ["cpu", "memory"]:
+        value = getattr(args, field, None)
+        if value is not None:
+            values += ["-c", f"limits.{field}={value}"]
+    return values
+
+
 def new(args):
+    source = None
+    if args.template:
+        handle, separator, snapshot = args.template.partition("/")
+        if not separator:
+            raise ValueError("Use --from LOCATION:BOX/SNAPSHOT")
+        location, original = parse_handle(handle)
+        snapshot_name(snapshot)
+        if args.location is not None and args.location != location:
+            raise ValueError("Snapshot templates must stay on their source host")
+        args.location = location
+        instance(location, original)
+        source = original + "/" + snapshot
     if args.location is None:
-        locations = configuration()
-        args.location = next(iter(locations))
-    image = settings(args.location).get("image", "")
-    if not isinstance(image, str) or not re.fullmatch(r"[a-f0-9]{64}", image):
-        raise ValueError(
-            "Build an image and configure its full immutable fingerprint before creating boxes"
-        )
+        args.location = next(iter(configuration()))
+    if source is None:
+        source = settings(args.location).get("image", "")
+        if not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{64}", source):
+            raise ValueError(
+                "Build an image and configure its full immutable fingerprint before creating boxes"
+            )
     name = "rf-" + uuid.uuid4().hex[:16]
+    # Initialize before starting, so a failed start still has its intended policy.
     transaction(
         args.location,
-        ADMISSION + 'lifetime="$1"; name="$2"; shift 2; "$@"; '
+        (CHECK_WORKER if args.disposable else "")
+        + ADMISSION
+        + 'lifetime="$1"; name="$2"; shift 2; "$@"; '
+        'incus --project raft start "$name"; '
         'incus --project raft config set "$name" '
         'user.raft.expires="$(( $(date +%s) + lifetime ))"',
         str(args.ttl),
@@ -322,15 +368,20 @@ def new(args):
         "incus",
         "--project",
         PROJECT,
-        "launch",
-        image,
+        "copy" if args.template else "init",
+        source,
         name,
         "-c",
         "user.raft=true",
         "-c",
-        f"limits.cpu={args.cpu}",
+        "user.raft.expires=",
         "-c",
-        f"limits.memory={args.memory}",
+        "user.raft.stopped-at=",
+        "-c",
+        f"user.raft.disposable={'true' if args.disposable else 'false'}",
+        "-c",
+        "volatile.eth0.hwaddr=",
+        *sizing(args),
     )
     print(f"{args.location}:{name}")
 
@@ -339,7 +390,34 @@ def execute(location, name, command, *, capture=False):
     return remote(location, ["exec", name, "--cwd", "/workspace", "--", *command], capture=capture)
 
 
+def transfer_tree(args, location, name):
+    worker = Path(raft_files.__file__).read_text()
+    with tempfile.TemporaryFile() as archive:
+        if args.action == "upload":
+            raft_files.pack_directory(args.source, archive)
+            archive.seek(0)
+            response = remote(
+                location,
+                ["exec", name, "--", "python3", "-c", worker, "unpack", args.destination],
+                stdin=archive,
+            )
+        else:
+            response = remote(
+                location,
+                ["exec", name, "--", "python3", "-c", worker, "pack", args.source],
+                stdout=archive,
+            )
+            if response.returncode == 0:
+                archive.seek(0)
+                raft_files.unpack_directory(archive, args.destination)
+        if response.returncode:
+            raise RuntimeError(response.stderr.decode(errors="replace").strip())
+    return 0
+
+
 def transfer(args, location, name):
+    if args.recursive:
+        return transfer_tree(args, location, name)
     # Stream file descriptors rather than buffering large artifacts in memory.
     if args.action == "upload":
         with Path(args.source).open("rb") as source:
@@ -419,7 +497,7 @@ def recover(args):
         transaction(
             args.location,
             ADMISSION + 'incus --project raft import "$1" "$2" --storage raft-data '
-            "-c user.raft=true -c user.raft.expires= -c volatile.eth0.hwaddr=",
+            "-c user.raft=true -c user.raft.expires= -c user.raft.disposable=false -c user.raft.stopped-at= -c volatile.eth0.hwaddr=",
             staged,
             name,
         )
@@ -488,13 +566,20 @@ def parser():
     create.add_argument("--ttl", type=ttl, default=600)
     create.add_argument("--cpu", type=int, choices=[1, 2], default=1)
     create.add_argument("--memory", choices=["1GiB", "2GiB", "4GiB"], default="2GiB")
+    create.add_argument("--disposable", action="store_true", help="Delete on stop or expiry")
+    create.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
     listing = commands.add_parser("list")
     listing.add_argument("--location")
     limits = commands.add_parser("limits", help="Inspect host capacity and recommended box counts")
     limits.add_argument("--location")
     limits.add_argument("--json", action="store_true")
     commands.add_parser("doctor")
-    commands.add_parser("gc", help="Run host expiry workers; expired boxes stop, not delete")
+    gc = commands.add_parser("gc", help="Enforce deadlines, including disposable deletion")
+    gc.add_argument("--location")
+    prune = commands.add_parser("prune", help="Preview deletion of old stopped boxes")
+    prune.add_argument("--location")
+    prune.add_argument("--older-than", type=int, required=True, metavar="DAYS")
+    prune.add_argument("--yes", action="store_true", help="Delete the matching boxes")
     recovery = commands.add_parser("recover", help="Import a portable backup as a new stopped box")
     recovery.add_argument("source")
     recovery.add_argument("--location", required=True)
@@ -510,6 +595,7 @@ def parser():
         "download",
         "snapshot",
         "snapshots",
+        "snapshot-delete",
         "restore",
         "fork",
         "forward",
@@ -524,13 +610,19 @@ def parser():
         command.add_argument("box")
         if action in ["resume", "fork", "extend"]:
             command.add_argument("--ttl", type=ttl, required=True)
+        if action in ["resume", "fork"]:
+            command.add_argument("--cpu", type=int, choices=[1, 2])
+            command.add_argument("--memory", choices=["1GiB", "2GiB", "4GiB"])
+        if action == "fork":
+            command.add_argument("--disposable", action="store_true")
         if action == "exec":
             command.add_argument("--detach", action="store_true")
             command.add_argument("command", nargs="+")
         if action in ["upload", "download"]:
             command.add_argument("source")
             command.add_argument("destination")
-        if action in ["snapshot", "restore"]:
+            command.add_argument("--recursive", action="store_true")
+        if action in ["snapshot", "restore", "snapshot-delete"]:
             command.add_argument("name")
         if action in ["logs", "status", "cancel"]:
             command.add_argument("job")
@@ -551,7 +643,9 @@ def dispatch(args):
     if args.action == "new":
         new(args)
         return 0
-    if args.action in ["list", "limits", "doctor", "gc"]:
+    if args.action in ["list", "limits", "doctor", "gc", "prune"]:
+        if args.action == "prune" and args.older_than < 1:
+            raise ValueError("Retention must be at least one day")
         locations = configuration()
         if getattr(args, "location", None):
             locations = [args.location]
@@ -562,16 +656,41 @@ def dispatch(args):
                     print(json.dumps(report))
                 else:
                     print_limits(report)
-            elif args.action == "gc":
-                subprocess.run(
-                    [
-                        "ssh",
-                        "-T",
-                        settings(location)["ssh"],
-                        "sudo -n /usr/local/lib/raft/expire",
-                    ],
-                    check=True,
-                )
+            elif args.action in ["gc", "prune"]:
+                worker = ["sudo", "-n", "/usr/local/lib/raft/expire"]
+                if args.action == "prune":
+                    worker += ["--prune-days", str(args.older_than)]
+                    if args.yes:
+                        worker += ["--yes"]
+                if args.action == "prune":
+                    output = transaction(
+                        location,
+                        CHECK_WORKER + 'exec /usr/local/lib/raft/expire-worker "$@"',
+                        *worker[3:],
+                    )
+                else:
+                    response = subprocess.run(
+                        [
+                            "ssh",
+                            "-T",
+                            "-o",
+                            "BatchMode=yes",
+                            settings(location)["ssh"],
+                            shlex.join(worker),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if response.returncode:
+                        raise RuntimeError(response.stderr.strip())
+                    output = response.stdout
+                if args.action == "prune":
+                    for line in output.splitlines():
+                        record = json.loads(line)
+                        record["box"] = location + ":" + record["box"]
+                        print(json.dumps(record))
+                else:
+                    print(output, end="")
             elif args.action == "doctor":
                 print(location + ": " + incus(location, "version").strip())
                 response = subprocess.run(
@@ -622,19 +741,29 @@ def dispatch(args):
     elif args.action == "stop":
         transaction(
             location,
-            'incus --project raft stop "$1" --timeout 30; '
-            'incus --project raft config unset "$1" user.raft.expires',
+            'disposable=$(incus --project raft config get "$1" user.raft.disposable); '
+            'if [ "$disposable" = true ]; then incus --project raft delete "$1" --force; '
+            'else incus --project raft stop "$1" --timeout 30; '
+            'incus --project raft config unset "$1" user.raft.expires; '
+            'incus --project raft config set "$1" user.raft.stopped-at="$(date +%s)"; fi',
             name,
         )
     elif args.action == "resume":
-        if box["status"] != "Stopped":
-            raise ValueError("Resume requires a stopped box")
+        overrides = []
+        for field in ["cpu", "memory"]:
+            value = getattr(args, field)
+            if value is not None:
+                overrides.append(f"limits.{field}={value}")
         transaction(
             location,
-            'incus --project raft start "$1"; '
-            'incus --project raft config set "$1" user.raft.expires="$(( $(date +%s) + $2 ))"',
+            REQUIRE_STOPPED + 'name="$1"; lifetime="$2"; shift 2; '
+            'if [ "$#" -gt 0 ]; then incus --project raft config set "$name" "$@"; fi; '
+            'incus --project raft start "$name"; '
+            'incus --project raft config set "$name" user.raft.stopped-at=; '
+            'incus --project raft config set "$name" user.raft.expires="$(( $(date +%s) + lifetime ))"',
             name,
             str(args.ttl),
+            *overrides,
         )
     elif args.action == "extend":
         transaction(
@@ -686,8 +815,7 @@ def dispatch(args):
             raise ValueError("Guest file path must be absolute")
         return transfer(args, location, name)
     elif args.action == "snapshot":
-        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", args.name):
-            raise ValueError("Invalid snapshot name")
+        snapshot_name(args.name)
         print(
             transaction(
                 location,
@@ -696,11 +824,13 @@ def dispatch(args):
                 args.name,
             ).strip()
         )
+    elif args.action == "snapshot-delete":
+        snapshot_name(args.name)
+        incus(location, "snapshot", "delete", name, args.name, locked=True)
     elif args.action == "snapshots":
         print(incus(location, "info", name).strip())
     elif args.action == "restore":
-        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", args.name):
-            raise ValueError("Invalid snapshot name")
+        snapshot_name(args.name)
         # Imported/forked snapshots carry source configuration. Restore files,
         # keeping the destination's network identity and explicitly chosen limits.
         transaction(
@@ -713,12 +843,25 @@ def dispatch(args):
         child = "rf-" + uuid.uuid4().hex[:16]
         transaction(
             location,
-            REQUIRE_STOPPED + ADMISSION + 'incus --project raft copy "$1" "$2" --instance-only; '
-            'incus --project raft start "$2"; '
-            'incus --project raft config set "$2" user.raft.expires="$(( $(date +%s) + $3 ))"',
+            (CHECK_WORKER if args.disposable else "")
+            + REQUIRE_STOPPED
+            + ADMISSION
+            + 'name="$2"; lifetime="$3"; '
+            'source="$1"; shift 3; incus --project raft copy "$source" "$name" --instance-only "$@"; '
+            'incus --project raft start "$name"; '
+            'incus --project raft config set "$name" user.raft.expires="$(( $(date +%s) + lifetime ))"',
             name,
             child,
             str(args.ttl),
+            "-c",
+            "user.raft.expires=",
+            "-c",
+            "user.raft.stopped-at=",
+            "-c",
+            f"user.raft.disposable={'true' if args.disposable else 'false'}",
+            "-c",
+            "volatile.eth0.hwaddr=",
+            *sizing(args),
         )
         print(location + ":" + child)
     elif args.action in ["logs", "status", "cancel"]:
@@ -775,7 +918,13 @@ def main():
     os.umask(0o077)
     try:
         return dispatch(parser().parse_args())
-    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        tarfile.TarError,
+        subprocess.CalledProcessError,
+    ) as error:
         print(f"raft: {error}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

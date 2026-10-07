@@ -18,17 +18,17 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Create/list/inspect/delete | ✅ | ✅ | Qualified handles, explicit locations, native Incus metadata. Single operator; no organization/account API |
 | Stop/resume | ✅ | ✅ | Stops processes, retains disk; resume requires TTL. Shared-kernel containers, not Boat VMs |
 | Running lifetime | ✅ | ✅ | Host-enforced TTL; extend resets deadline without restart. Long locked transactions delay expiry checks |
-| Sizing | ✅ | ✅ | Create-time 1/2 CPUs and 1/2/4 GiB choices. No resizing on resume/fork; Boat offers larger sizes |
+| Sizing | ✅ | ✅ | 1/2 CPUs and 1/2/4 GiB choices. Resume/fork support sizing overrides; Boat offers larger sizes |
 | Host capacity recommendations | ❌ | ✅ | Raft reports host CPU/RAM budgets, active allocations, saved slots and disk headroom. Boat limits describe hosted plan credits and concurrency, not operator-host sizing. Raft enforces four saved boxes per host |
 | Hosted credit and start-rate limits | ✅ | ❌ | Boat reports plan credits, concurrency and start rates. Raft has no billing service |
-| Resize on resume/fork | ✅ | ❌ | Native admin configuration is outside the Raft CLI contract |
+| Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides, retaining omitted limits |
 | Usage | ✅ | ✅ | Cgroup memory, CPU counters, shared pool space. No billing meter or per-box disk accounting |
 | Root terminal | ✅ | ✅ | PTY over host SSH and native Incus exec. No directly exposed guest SSH endpoint |
 | Synchronous exec | ✅ | ✅ | Literal argv and preserved exit code. Shell syntax requires an explicit shell |
 | Detached exec | ✅ | ✅ | Guest systemd unit, status, logs, cancellation. No process checkpoint or restart after stop |
-| File transfer | ✅ | ✅ | Binary file upload/download. No recursive SCP interface |
+| File transfer | ✅ | ✅ | Binary file upload/download. Recursive tree transfer for running boxes; no directory merges |
 | Named snapshots | ✅ | ✅ | Create/list/restore with stopped source, checked inside the lifecycle lock. No running snapshot consistency guarantee |
-| Deploy/delete named snapshots | ✅ | ❌ | No `new --from` or snapshot deletion command; destroy removes the box and its snapshots |
+| Deploy/delete named snapshots | ✅ | ✅ | `new --from LOCATION:BOX/SNAPSHOT` and `snapshot-delete`; templates stay on their source host |
 | Fork | ✅ | ✅ | Same-host stopped filesystem copy. Copies filesystem secrets; no cross-host fork command |
 | Portable recovery | ❓ | ✅ | Raft exports/imports whole native instances including snapshots. Boat documents snapshot file downloads; importing a portable whole-instance archive is not established. Raft backup storage is manual; no scheduled off-host uploads |
 | Docker | ✅ | ✅ | Guest daemon with real image builds. Container nesting uses host kernel |
@@ -47,7 +47,7 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Named environments and secrets | ✅ | ❌ | Files/configuration can be prepared explicitly. No environment registry or secret-injection service |
 | Organizations | ✅ | ❌ | Boat shares billing and plan limits; resources stay with their creator. Raft is single-operator |
 | Lifecycle webhooks | ✅ | ❌ | Missing. Deferred until an external consumer needs them |
-| Automatic deletion/retention | ✅ | ❌ | Explicit destroy; expiry retains disk. No delete-on-stop mode |
+| Automatic deletion/retention | ✅ | ✅ | Disposable delete-on-stop/expiry; opt-in stopped-box retention cleanup with preview |
 | Dashboard | ✅ | ❌ | Missing. CLI and private desktop cover current workflow |
 | SDK/API keys | ✅ | ❌ | Host SSH authentication. No remote Raft service API |
 | CLI-wide JSON mode | ✅ | ❌ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides JSON for list/info/usage/limits only |
@@ -61,4 +61,4 @@ Checked on 2026-10-06 against Boat's [CLI reference](https://docs.boat.dev/cli-r
 
 Raft command parser and test suites were verified at commit `27b08c1`. Both native architectures and disposable AMD64 host tests passed in [run 37496577945](https://github.com/Microck/raft/actions/runs/37496577945). This audit compares documented features, not a live differential test against Boat. Managed agent workflows remain out of scope.
 
-Key workflow gaps are recursive file transfers and resizing on resume/fork. Public hosting, VM isolation, organization sharing, and remote APIs require additional infrastructure. noVNC tests do not establish parity for Boat frame rate, browser confinement or application set.
+Recursive transfers, resume/fork sizing, snapshot templates/deletion and disposable lifecycle are implemented. Directory transfers require a running box; templates stay on the source host. Public hosting, VM isolation, organization sharing, and remote APIs require additional infrastructure. noVNC tests do not establish parity for Boat frame rate, browser confinement or application set.

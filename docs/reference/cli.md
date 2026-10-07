@@ -20,10 +20,10 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Execution and inspection | [`exec`](#exec), [`ssh`](#ssh), [`info`](#info), [`usage`](#usage) |
 | Background job | [`status`](#status), [`logs`](#logs), [`cancel`](#cancel) |
 | File transfer | [`upload`](#upload), [`download`](#download) |
-| Snapshots and cloning | [`snapshot`](#snapshot), [`snapshots`](#snapshots), [`restore`](#restore), [`fork`](#fork) |
+| Snapshots and cloning | [`snapshot`](#snapshot), [`snapshots`](#snapshots), [`restore`](#restore), [`snapshot-delete`](#snapshot-delete), [`fork`](#fork) |
 | Port forwarding and desktop | [`forward`](#forward), [`desktop`](#desktop) |
 | Backup and recovery | [`backup`](#backup), [`recover`](#recover) |
-| Host inspection and maintenance | [`limits`](#limits), [`doctor`](#doctor), [`list`](#list), [`gc`](#gc) |
+| Host inspection and maintenance | [`limits`](#limits), [`doctor`](#doctor), [`list`](#list), [`gc`](#gc), [`prune`](#prune) |
 
 ## Workspace lifecycle commands
 
@@ -38,6 +38,9 @@ Create and launch a new workspace container.
 - `--cpu {1,2}`: CPU core count managed by Incus. Default: `1`.
 - `--memory {1GiB,2GiB,4GiB}`: Memory limit. Default: `2GiB`.
 
+- `--disposable`: Delete the box and snapshots on stop or expiry. Off by default.
+- `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. Normal creation sizing applies; the source can be running. Cannot target a different location.
+
 Returns the qualified workspace handle.
 
 ### `stop`
@@ -46,13 +49,13 @@ Stop a running workspace.
 
 `raft stop <box>`
 
-Terminates guest processes and stops the container. Filesystem contents, packages, and snapshots are preserved on disk.
+Terminates guest processes and stops the container. Persistent boxes retain filesystem contents, packages and snapshots. Disposable boxes are deleted, including their snapshots.
 
 ### `resume`
 
 Start a stopped workspace with a renewed lifetime deadline.
 
-`raft resume <box> --ttl TTL`
+`raft resume <box> --ttl TTL [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB}]`
 
 - `--ttl TTL`: Lifetime in seconds from resumption (`60` to `2592000`). Required.
 
@@ -71,6 +74,8 @@ Permanently delete a workspace container and its snapshots.
 `raft destroy <box>`
 
 Stops the container if running, removes all associated Btrfs snapshots, and releases host storage.
+
+CPU/RAM overrides on resume apply before startup. Omitted values stay unchanged. A running box is rejected before changing its limits.
 
 ## Execution and inspection commands
 
@@ -138,7 +143,7 @@ Terminate a running detached background job using `systemctl stop <job>`.
 
 Transfer a local file from the controller to an absolute path inside the workspace.
 
-`raft upload <box> <source> <destination>`
+`raft upload <box> <source> <destination> [--recursive]`
 
 - `<source>`: Path to local file on controller.
 - `<destination>`: Target absolute path inside container.
@@ -147,10 +152,12 @@ Transfer a local file from the controller to an absolute path inside the workspa
 
 Transfer a file from an absolute path inside the workspace to the local controller.
 
-`raft download <box> <source> <destination>`
+`raft download <box> <source> <destination> [--recursive]`
 
 - `<source>`: Absolute path to file inside container.
 - `<destination>`: Local file destination path on controller.
+
+`--recursive` transfers a directory tree into a new destination directory. It requires a running workspace and Python 3.11.8+ in the guest. Parent directories must exist. Existing destinations are rejected, including empty directories and symlinks. Internal relative links, hardlinks, executable files and empty directories are supported; escaping links and special files are rejected. Archives use temporary controller disk space. Single-file transfers still work on stopped boxes.
 
 ## Snapshots and cloning commands
 
@@ -166,6 +173,12 @@ List existing snapshots and creation timestamps for a workspace.
 
 `raft snapshots <box>`
 
+### `snapshot-delete`
+
+Delete one named snapshot without deleting the workspace. The box can be running.
+
+`raft snapshot-delete <box> <name>`
+
 ### `restore`
 
 Roll back a stopped workspace filesystem to a named snapshot using `--diskonly`, preserving container configuration and MAC address.
@@ -176,9 +189,11 @@ Roll back a stopped workspace filesystem to a named snapshot using `--diskonly`,
 
 Clone a stopped workspace into an independent container on the same host and start it.
 
-`raft fork <box> --ttl TTL`
+`raft fork <box> --ttl TTL [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB}] [--disposable]`
 
 - `--ttl TTL`: Lifetime in seconds for the clone. Required.
+
+Omitted CPU/RAM values inherit the source limits. The clone is persistent unless `--disposable` is supplied, regardless of the source policy.
 
 Returns the qualified handle of the clone.
 
@@ -249,6 +264,16 @@ List existing workspace containers across configured hosts.
 
 ### `gc`
 
-Trigger the host expiration worker across all configured hosts immediately to stop expired containers.
+Enforce deadlines immediately. Persistent boxes stop; disposable boxes are deleted.
 
-`raft gc`
+`raft gc [--location LOCATION]`
+
+### `prune`
+
+Preview deletion of persistent stopped boxes older than the selected number of days.
+
+`raft prune --older-than DAYS [--location LOCATION] [--yes]`
+
+Days must be at least one. Without `--yes`, this only prints JSONL candidates. With `--yes`, it deletes matching boxes and their snapshots under the host lock. Running boxes and boxes without a recorded stop time are excluded. Stop timestamps come from Raft stop/expiry, not box creation. No automatic retention policy is enabled.
+
+Disposable creation/fork and prune require the current expiry worker installed through the deployer. A mismatch fails with deployment guidance; the CLI does not install or adapt an older worker.

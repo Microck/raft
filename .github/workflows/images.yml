@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - raft.py
+      - raft_files.py
       - images/incus/**
       - deploy/**
       - .github/workflows/images.yml
@@ -62,7 +63,7 @@ jobs:
           sudo install -d /usr/local/lib/raft
           sudo install -m 755 deploy/raft-network.sh /usr/local/lib/raft/network
           sudo install -m 755 deploy/raft-expire.py /usr/local/lib/raft/expire-worker
-          printf '#!/bin/sh\nexec flock /run/lock/raft-incus.lock /usr/local/lib/raft/expire-worker\n' > "$RUNNER_TEMP/raft-expire"
+          printf '#!/bin/sh\nexec flock /run/lock/raft-incus.lock /usr/local/lib/raft/expire-worker "$@"\n' > "$RUNNER_TEMP/raft-expire"
           sudo install -m 755 "$RUNNER_TEMP/raft-expire" /usr/local/lib/raft/expire
           sudo install -m 644 deploy/raft-network.service deploy/raft-expire.service deploy/raft-expire.timer /etc/systemd/system/
           sudo install -d /etc/systemd/system/incus.service.d
@@ -94,6 +95,8 @@ jobs:
         run: python3 deploy/verify-live.py --location lab --extended --restart-incus
       - name: Verify host capacity and real box transitions
         run: python3 deploy/verify-limits.py --location lab
+      - name: Verify disposable lifecycle, templates, resizing and recursive transfers
+        run: python3 deploy/verify-features.py --location lab
       - name: Verify full development-image backup and recovery
         run: python3 deploy/verify-controls.py --source lab --target lab --development-image --directory "$RUNNER_TEMP"
       - name: Measure cached-image startup

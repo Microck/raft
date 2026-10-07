@@ -78,3 +78,5 @@ raft destroy "$box"
 - [Snapshots and forks](./guides/snapshots-forks.mdx): Capture disk states and create same-host clones.
 - [Backup and recovery](./guides/backup-recovery.mdx): Export portable archives and restore across hosts.
 - [Troubleshooting](./guides/troubleshooting.mdx): Diagnose common errors and inspect host services.
+
+For temporary work, create with `--disposable`. Stopping or expiry then deletes the box and its snapshots. For persistent boxes, `raft prune --older-than 7` previews old stopped workspaces; add `--yes` only after reviewing the candidates.
