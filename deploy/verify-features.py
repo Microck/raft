@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import socket
 import subprocess
 import sys
 import tarfile
@@ -21,7 +22,7 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from raft import incus, inventory, parse_handle, settings, transaction  # noqa: E402
-from raft_files import publish, unpack_directory  # noqa: E402
+from raft_files import pack_directory, publish, unpack_directory  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("live", Path(__file__).with_name("verify-live.py"))
 live = importlib.util.module_from_spec(spec)
@@ -64,6 +65,16 @@ def verify_archives():
         else:
             raise AssertionError("Atomic publication replaced an existing empty directory")
         assert staged.exists() and existing.exists()
+        socket_source = root / "socket-source"
+        socket_source.mkdir()
+        with socket.socket(socket.AF_UNIX) as endpoint:
+            endpoint.bind(str(socket_source / "socket"))
+            try:
+                pack_directory(socket_source, io.BytesIO())
+            except ValueError as error:
+                assert "special files" in str(error)
+            else:
+                raise AssertionError("Source socket was silently omitted")
         outside = root / "outside"
         outside.mkdir()
         link = root / "destination"
@@ -179,6 +190,11 @@ def verify(location, isolated_worker=False):
         assert resized["expanded_config"]["limits.cpu"] == "2"
         assert resized["expanded_config"]["limits.memory"] == "4GiB"
         assert not resized["config"].get("user.raft.stopped-at")
+        assert live.execute(box, "cat", "/sys/fs/cgroup/memory.max") == str(4 * 1024**3)
+        assert (
+            live.execute(box, "python3", "-c", "import os; print(len(os.sched_getaffinity(0)))")
+            == "2"
+        )
         assert live.execute(box, "cat", "/workspace/proof") == "original"
         assert live.raft("resume", box, "--ttl", "600", "--cpu", "1", check=False).returncode
         assert metadata(box)["expanded_config"]["limits.cpu"] == "2"
@@ -192,8 +208,9 @@ def verify(location, isolated_worker=False):
         )
         assert metadata(template)["config"]["user.raft.disposable"] == "false"
         assert metadata(template)["expanded_config"]["limits.cpu"] == "1"
-        live.raft("destroy", template)
         live.raft("snapshot-delete", box, "prepared")
+        assert live.execute(template, "cat", "/workspace/proof") == "original"
+        live.raft("destroy", template)
         assert "prepared" not in live.raft("snapshots", box).stdout
         assert live.raft("new", "--from", box + "/prepared", check=False).returncode
         assert live.raft("snapshot-delete", box, "missing", check=False).returncode

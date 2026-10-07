@@ -37,13 +37,25 @@ def pack_directory(source, stream):
     if not source.is_dir():
         raise ValueError("Recursive transfer source must be a directory")
 
-    # Validate links while creating the archive too, before an upload reaches a guest.
-    def validate(member):
-        safe_member(member, source)
-        return member
-
     with tarfile.open(fileobj=stream, mode="w|") as archive:
-        archive.add(source, arcname=".", filter=validate)
+
+        def add(path, name):
+            # TarFile.add silently skips sockets before invoking its filter.
+            # Inspect each entry in this one traversal instead of losing files.
+            member = archive.gettarinfo(path, arcname=name)
+            if member is None:
+                raise ValueError("Directory transfers reject special files: " + str(path))
+            safe_member(member, source)
+            if member.isfile():
+                with path.open("rb") as content:
+                    archive.addfile(member, content)
+            else:
+                archive.addfile(member)
+            if member.isdir():
+                for child in sorted(path.iterdir()):
+                    add(child, name + "/" + child.name)
+
+        add(source, ".")
 
 
 def unpack_directory(stream, destination):
