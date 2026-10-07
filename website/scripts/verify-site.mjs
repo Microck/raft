@@ -53,6 +53,7 @@ try {
     '/docs/verification',
     '/docs/publishing',
     '/docs/site-development',
+    '/docs/releases/0.2.0',
   ];
   const targets = new Set();
   for (const path of paths) {

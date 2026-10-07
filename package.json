@@ -1,0 +1,48 @@
+{
+  "name": "@microck/raft",
+  "version": "0.2.0",
+  "description": "Self-hosted Linux workspaces powered by Incus, an open-source alternative to boat.dev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Microck/raft.git"
+  },
+  "homepage": "https://raft.micr.dev",
+  "bugs": {
+    "url": "https://github.com/Microck/raft/issues"
+  },
+  "bin": {
+    "raft": "raft.py"
+  },
+  "os": [
+    "linux"
+  ],
+  "files": [
+    "raft.py",
+    "raft_files.py",
+    "deploy/*.py",
+    "deploy/*.sh",
+    "deploy/*.conf",
+    "deploy/*.service",
+    "deploy/*.timer",
+    "docs/**/*.md",
+    "docs/**/*.mdx",
+    "docs/**/*.json",
+    "images/incus/*.sh",
+    "images/incus/*.service",
+    "skills/raft-cli/SKILL.md",
+    ".github/assets/raft-logo.png"
+  ],
+  "keywords": [
+    "raft",
+    "sandbox",
+    "incus",
+    "self-hosted",
+    "linux",
+    "cli"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

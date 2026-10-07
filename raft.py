@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Self-hosted persistent Linux workspaces powered by Incus."""
 
 import argparse
@@ -14,6 +15,8 @@ import tarfile
 import uuid
 
 import raft_files
+
+__version__ = "0.2.0"
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 PROJECT = "raft"
@@ -573,6 +576,7 @@ def ttl(value):
 
 def parser():
     cli = argparse.ArgumentParser(description=__doc__)
+    cli.add_argument("--version", action="version", version=__version__)
     commands = cli.add_subparsers(dest="action", required=True)
     create = commands.add_parser("new")
     create.add_argument("--location", default=None)
@@ -928,6 +932,9 @@ def dispatch(args):
 
 
 def main():
+    if sys.version_info < (3, 11, 8):
+        print("raft: Python 3.11.8 or newer is required", file=sys.stderr)
+        return 1
     os.umask(0o077)
     try:
         return dispatch(parser().parse_args())

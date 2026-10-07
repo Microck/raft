@@ -8,7 +8,13 @@ Public releases must contain only reusable code, examples, and documentation. Ke
 
 ## Release assets and image publishing
 
-Native image releases build from clean upstream Debian bases via the `native images` workflow with a semantic `release_tag` (such as `v0.1.0`).
+Release `main` through the `native images` workflow with a semantic `release_tag`, such as `v0.2.0`. The tag must match both Python and npm versions. Clean upstream Debian bases provide the images.
+
+The workflow builds and inspects Python and npm packages, tests their installed executables outside the checkout, and publishes `@microck/raft` using the repository's `NPM_TOKEN` secret with npm provenance. Only then does it create the GitHub release with the wheel, source archive, npm tarball and verified image assets. Published versions are immutable; after partial publication, fix the failure and use a new patch version.
+
+```sh
+gh workflow run images.yml --ref main -f release_tag=v0.2.0
+```
 
 - **Validation gating**: Publication requires native lifecycle and full-image recovery jobs alongside fresh AMD64 KVM provisioning and reboot verification.
 - **Asset immutability**: The workflow refuses existing tags and never overwrites release assets.

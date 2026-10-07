@@ -149,6 +149,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.release_tag }}
@@ -156,38 +157,62 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Verify release version and build CLI packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$RELEASE_TAG" = "v$(python3 raft.py --version)"
+          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo 'Release tag already exists; published versions are never overwritten' >&2
+            exit 1
+          fi
+          uv sync --locked
+          uv build
+          uv run python deploy/verify-release.py
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: raft-dev-*
           merge-multiple: true
           path: release-assets
-      - name: Publish verified native images
+      - name: Verify assets and prepare release notes
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
-            echo 'Release tag already exists; published versions are never overwritten' >&2
-            exit 1
-          fi
+          cp dist/* release-assets/
           cd release-assets
           sha256sum -c SHA256SUMS-arm64
           sha256sum -c SHA256SUMS-amd64
-          sha256sum raft-dev-*.tar.gz manifest-*.json packages-*.tsv npm-packages-*.json boot-*.json > SHA256SUMS
+          sha256sum raft-*.whl raft-*.tar.gz microck-raft-*.tgz manifest-*.json packages-*.tsv npm-packages-*.json boot-*.json > SHA256SUMS
           cd ..
-          cat > release-notes.md <<'NOTES'
-          Native ARM64 and AMD64 Debian 13 development images for persistent, self-hosted Linux workspaces.
-
-          Both images passed lifecycle, desktop, network isolation, 31 development-tool checks and full-image backup/recovery. A clean AMD64 Ubuntu 24 KVM host passed provisioning, image import and real host reboot verification.
-
-          Download the archive matching your host and SHA256SUMS. Verify the checksum, then import into the Raft Incus project and pin the fingerprint recorded in manifest-<architecture>.json. Package inventories and startup reports are included.
-
-          These are unprivileged system containers sharing the host kernel. Raft is an independent open-source alternative to boat.dev. Third-party tools retain their own licenses. Fresh-host verification uses a sparse 100 GiB VM disk; physical capacity, ARM64 host reboot and cross-architecture recovery are not certified.
-          NOTES
-          git config user.name "$GITHUB_ACTOR"
-          actor_id=$(gh api "users/$GITHUB_ACTOR" --jq .id)
-          git config user.email "$(printf '%s+%s@%s' "$actor_id" "$GITHUB_ACTOR" users.noreply.github.com)"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          version = os.environ['RELEASE_TAG'].removeprefix('v')
+          notes = Path(f'docs/releases/{version}.md').read_text().split('---', 2)[2].lstrip()
+          Path('release-notes.md').write_text(notes)
+          PY
+      - name: Publish verified npm package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm whoami
+          npm publish dist/microck-raft-*.tgz --access public --provenance
+      - name: Publish GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name Microck
+          git config user.email contact@micr.dev
           git tag -a "$RELEASE_TAG" "$GITHUB_SHA" -F release-notes.md
           git push origin "refs/tags/$RELEASE_TAG"
-          gh release create "$RELEASE_TAG" release-assets/raft-dev-*.tar.gz release-assets/SHA256SUMS release-assets/manifest-*.json release-assets/packages-*.tsv release-assets/npm-packages-*.json release-assets/boot-*.json --verify-tag --title "Raft $RELEASE_TAG" --notes-file release-notes.md --latest
+          gh release create "$RELEASE_TAG" release-assets/raft-*.whl release-assets/raft-*.tar.gz release-assets/microck-raft-*.tgz release-assets/SHA256SUMS release-assets/manifest-*.json release-assets/packages-*.tsv release-assets/npm-packages-*.json release-assets/boot-*.json --verify-tag --title "Raft $RELEASE_TAG" --notes-file release-notes.md --latest

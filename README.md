@@ -23,11 +23,22 @@ private desktop. Raft is not affiliated with Boat.
 follow the [setup guide](docs/operations.mdx) to install the CLI, configure SSH,
 set up Incus and download or build an image.
 
+install the CLI on Linux with Python 3.11.8+:
+
+```sh
+npm install -g @microck/raft
+raft --version
+```
+
+Python wheels and source archives are also available in
+[releases](https://github.com/Microck/raft/releases). npm installation does not set
+up hosts or download workspace images.
+
 | requirement | minimum |
 | --- | --- |
 | host | dedicated ARM64 or AMD64 Ubuntu host, 2 CPUs, 8 GiB RAM, 80 GiB free disk |
 | host access | SSH and passwordless sudo |
-| controller | Linux, Python 3.11.8+, uv, SSH and SCP |
+| controller | Linux, Python 3.11.8+, SSH and SCP; npm or uv for installation |
 
 once your host and image are configured, run the commands below. replace `lab`
 with a location from your configuration:
@@ -130,7 +141,7 @@ records differences, sources and test coverage.
 | Dashboard, remote API and SDK | ✅ | ❌ | CLI only |
 | Managed agent conversations | ✅ | ❌ | Not implemented |
 | Automatic deletion and retention | ✅ | ✅ | Disposable deletion; opt-in age-based prune with preview |
-| CLI self-update | ✅ | ❌ | Standard Python package installation |
+| CLI self-update | ✅ | ❌ | Standard npm or Python package installation |
 
 ## verification and development
 

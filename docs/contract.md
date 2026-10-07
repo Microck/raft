@@ -12,6 +12,12 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 - Publication requires native lifecycle checks, recovery verification, and fresh AMD64 Ubuntu VM provisioning and reboot checks.
 - Disposable AMD64 KVM verification uses a sparse 100 GiB disk and does not certify physical storage capacity or ARM64 host reboot behavior.
 
+## CLI distribution
+
+- npm publishes `@microck/raft` with the same Python sources as the wheel and source archive. Its executable is `raft`; Linux and Python 3.11.8+ are required. Installation runs no scripts and downloads no workspace images.
+- `raft --version` reports the release version without reading host configuration. The Python package, npm metadata and release tag must agree before publication.
+- Releases include Python wheels, source archives, npm tarballs and both native images with checksums. The release workflow verifies installation outside the checkout and publishes npm with provenance before creating the GitHub release.
+
 ## Infrastructure and deployment
 
 - **Strict infrastructure validation**: Deployment refuses conflicting storage or network names and incomplete infrastructure rather than overwriting or repairing state.
