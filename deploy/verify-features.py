@@ -121,6 +121,7 @@ def verify_archives():
 
         writer = threading.Thread(target=replace_entries)
         writer.start()
+        verified_files = 0
         try:
             for _ in range(100):
                 packed = io.BytesIO()
@@ -133,9 +134,12 @@ def verify_archives():
                     for member in archive:
                         if member.isfile():
                             assert archive.extractfile(member).read() == b"inside"
+                            verified_files += 1
         finally:
             finished.set()
             writer.join()
+        assert verified_files, "Source replacement test verified no file contents"
+        print(f"Source replacement test verified {verified_files} regular-file members", flush=True)
         outside = root / "outside"
         outside.mkdir()
         link = root / "destination"
