@@ -21,12 +21,23 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from raft import incus, inventory, parse_handle, settings, transaction  # noqa: E402
+from raft import incus, inventory, parse_handle, remote, settings, transaction  # noqa: E402
+import raft_files  # noqa: E402
 from raft_files import pack_directory, publish, unpack_directory  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("live", Path(__file__).with_name("verify-live.py"))
 live = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(live)
+
+
+def two_file_archive():
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        for name in ["first", "second"]:
+            member = tarfile.TarInfo(name)
+            member.size = 1
+            archive.addfile(member, io.BytesIO(b"x"))
+    return stream.getvalue()
 
 
 def verify_archives():
@@ -47,13 +58,21 @@ def verify_archives():
                 archive.addfile(member)
             stream.seek(0)
             try:
-                unpack_directory(stream, root / "output")
+                unpack_directory(stream, root / "output", len(stream.getvalue()))
             except (ValueError, tarfile.FilterError):
                 pass
             else:
                 raise AssertionError("Unsafe archive accepted: " + name)
             assert not (root / "output").exists()
             assert not list(root.glob(".raft-tree-*"))
+        complete = two_file_archive()
+        try:
+            unpack_directory(io.BytesIO(complete[:1024]), root / "truncated", len(complete))
+        except ValueError as error:
+            assert "size mismatch" in str(error)
+        else:
+            raise AssertionError("Truncated archive published a partial tree")
+        assert not (root / "truncated").exists() and not list(root.glob(".raft-tree-*"))
         staged = root / "staged"
         staged.mkdir()
         existing = root / "existing"
@@ -80,14 +99,14 @@ def verify_archives():
         link = root / "destination"
         link.symlink_to(outside, target_is_directory=True)
         try:
-            unpack_directory(io.BytesIO(), link)
+            unpack_directory(io.BytesIO(), link, 0)
         except FileExistsError:
             pass
         else:
             raise AssertionError("Destination symlink was followed")
         assert link.is_symlink() and not list(outside.iterdir())
     print(
-        "Archive traversal, links, special files and destination symlink rejection passed",
+        "Archive safety, socket rejection, complete streams and no-overwrite checks passed",
         flush=True,
     )
 
@@ -209,6 +228,28 @@ def verify(location, isolated_worker=False):
             ).returncode
             assert not (root / "rejected").exists()
             live.execute(box, "rm", guest + "/unsafe")
+            complete = two_file_archive()
+            interrupted = root / "interrupted.tar"
+            interrupted.write_bytes(complete[:1024])
+            with interrupted.open("rb") as truncated:
+                rejected = remote(
+                    location,
+                    [
+                        "exec",
+                        name,
+                        "--",
+                        "python3",
+                        "-c",
+                        Path(raft_files.__file__).read_text(),
+                        "unpack",
+                        "/workspace/truncated",
+                        "--size",
+                        str(len(complete)),
+                    ],
+                    stdin=truncated,
+                )
+            assert rejected.returncode and b"size mismatch" in rejected.stderr
+            live.execute(box, "test", "!", "-e", "/workspace/truncated")
             assert not live.execute(
                 box, "find", "/workspace", "-maxdepth", "1", "-name", ".raft-tree-*"
             )

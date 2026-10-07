@@ -55,6 +55,7 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 - **State inspection and tunnels**: `raft list` and `raft info` read native metadata without guest process counters during shutdown; tunnels use the managed NIC.
 - **Resource reporting**: `raft usage` reports running cgroup memory, CPU microseconds, CPU affinity, and shared pool space. It does not provide per-box disk accounting or billing.
 - **Recursive transfers**: `upload/download --recursive` require a running workspace and Python 3.11.8+ in the guest. They stream a tar archive and publish a new destination directory atomically without overwriting or merging. Relative links contained within the tree, regular files, directories and internal hardlinks are supported; escaping paths/links and special files are rejected. Failed transfers leave existing destinations unchanged.
+- **Directory transfer completion**: The receiver verifies the sender's exact archive byte count before publication. A truncated stream, including one ending between complete entries, is rejected without publishing a partial tree.
 - **File transfer failures**: Controller write errors return an error before replacing a download destination or publishing a backup archive.
 
 ## Security and network isolation

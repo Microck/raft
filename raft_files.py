@@ -58,7 +58,20 @@ def pack_directory(source, stream):
         add(source, ".")
 
 
-def unpack_directory(stream, destination):
+class TransferReader:
+    """Count physical bytes, including tar's read-ahead and trailing padding."""
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.bytes_read = 0
+
+    def read(self, size=-1):
+        chunk = self.stream.read(size)
+        self.bytes_read += len(chunk)
+        return chunk
+
+
+def unpack_directory(stream, destination, expected_size):
     # Resolve the parent, never the final component: existing destination symlinks
     # must be rejected, not followed to a different publication path.
     destination = Path(destination).absolute()
@@ -67,8 +80,15 @@ def unpack_directory(stream, destination):
         raise FileExistsError("Recursive destination already exists: " + str(destination))
     staged = Path(tempfile.mkdtemp(dir=destination.parent, prefix=".raft-tree-"))
     try:
-        with tarfile.open(fileobj=stream, mode="r|") as archive:
+        reader = TransferReader(stream)
+        with tarfile.open(fileobj=reader, mode="r|") as archive:
             archive.extractall(staged, filter=safe_member)
+        # Tar accepts EOF between entries without a proper end marker. Drain the
+        # stream and check the sender's size before making any tree visible.
+        while reader.read(1024 * 1024):
+            pass
+        if reader.bytes_read != expected_size:
+            raise ValueError("Directory archive size mismatch; transfer did not complete")
         publish(staged, destination)
     finally:
         if staged.exists():
@@ -79,11 +99,14 @@ def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("operation", choices=["pack", "unpack"])
     cli.add_argument("path")
+    cli.add_argument("--size", type=int)
     args = cli.parse_args()
     if args.operation == "pack":
         pack_directory(args.path, sys.stdout.buffer)
     else:
-        unpack_directory(sys.stdin.buffer, args.path)
+        if args.size is None or args.size < 0:
+            cli.error("Unpacking requires --size with the sender's archive byte count")
+        unpack_directory(sys.stdin.buffer, args.path, args.size)
 
 
 if __name__ == "__main__":

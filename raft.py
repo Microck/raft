@@ -395,10 +395,22 @@ def transfer_tree(args, location, name):
     with tempfile.TemporaryFile() as archive:
         if args.action == "upload":
             raft_files.pack_directory(args.source, archive)
+            size = archive.tell()
             archive.seek(0)
             response = remote(
                 location,
-                ["exec", name, "--", "python3", "-c", worker, "unpack", args.destination],
+                [
+                    "exec",
+                    name,
+                    "--",
+                    "python3",
+                    "-c",
+                    worker,
+                    "unpack",
+                    args.destination,
+                    "--size",
+                    str(size),
+                ],
                 stdin=archive,
             )
         else:
@@ -408,8 +420,9 @@ def transfer_tree(args, location, name):
                 stdout=archive,
             )
             if response.returncode == 0:
+                size = archive.tell()
                 archive.seek(0)
-                raft_files.unpack_directory(archive, args.destination)
+                raft_files.unpack_directory(archive, args.destination, size)
         if response.returncode:
             raise RuntimeError(response.stderr.decode(errors="replace").strip())
     return 0
