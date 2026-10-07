@@ -212,7 +212,7 @@ jobs:
         run: |
           set -euo pipefail
           git config user.name Microck
-          git config user.email contact@micr.dev
+          git config user.email "$(git show -s --format=%ae "$GITHUB_SHA")"
           git tag -a "$RELEASE_TAG" "$GITHUB_SHA" -F release-notes.md
           git push origin "refs/tags/$RELEASE_TAG"
           gh release create "$RELEASE_TAG" release-assets/raft-*.whl release-assets/raft-*.tar.gz release-assets/microck-raft-*.tgz release-assets/SHA256SUMS release-assets/manifest-*.json release-assets/packages-*.tsv release-assets/npm-packages-*.json release-assets/boot-*.json --verify-tag --title "Raft $RELEASE_TAG" --notes-file release-notes.md --latest
