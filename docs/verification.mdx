@@ -66,11 +66,13 @@ For an older deployment whose services should stay unchanged, `--isolated-worker
 <details>
 <summary>Native feature tests and transfer regressions</summary>
 
-At runtime commit `ada3d2f4`, ARM64 and AMD64 passed the new workspace-control suite in [native CI](https://github.com/Microck/raft/actions/runs/37598475716). It verifies installed-timer deletion, retention preview and exclusions, live-source snapshot templates, snapshot deletion, and effective CPU/RAM limits after resume and fork.
+At runtime commit `a7fef1f5`, ARM64 and AMD64 passed the new workspace-control suite in [native CI](https://github.com/Microck/raft/actions/runs/37603576786). It verifies installed-timer deletion, retention preview and exclusions, live-source snapshot templates, snapshot deletion, and effective CPU/RAM limits after resume and fork.
 
 Directory tests cover binary files, permissions, relative symlinks, hardlinks, empty directories and existing destinations. Unix sockets and unsafe archive entries are rejected. A real Incus transfer truncated between complete archive entries fails without publishing a partial directory.
 
-The ARM64 job also passed full development-image recovery and clean-template inspection. Two configured ARM64 hosts passed feature tests with a staged worker, without changing installed services. Local fixtures and staged files were removed.
+Both architectures passed extended lifecycle tests, full development-image recovery, startup measurements and clean-template inspection. Fresh provisioning, image import, firewall ordering and reboot passed on a disposable AMD64 KVM host.
+
+The source-race fix also passed a real concurrent writer test that swaps files and directories for external symlinks. Accepted archives retain only the selected files. Two configured ARM64 hosts passed the final feature suite with a staged worker, without changing installed services. Local fixtures and staged files were removed.
 
 </details>
 
