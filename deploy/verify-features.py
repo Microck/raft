@@ -97,10 +97,45 @@ def verify(location, isolated_worker=False):
         raise RuntimeError(
             "Retention verification requires an empty Raft host; existing boxes are untouched"
         )
+    if not isolated_worker:
+        rejected = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "--location",
+                location,
+                "--isolated-worker",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert rejected.returncode and "targets older deployments" in rejected.stderr
+        assert not inventory(location), "Rejected verification mode allocated a box"
     fixtures = []
     worker = None
     host = settings(location)["ssh"]
     if isolated_worker:
+        protocol = subprocess.check_output(
+            [
+                "ssh",
+                "-T",
+                host,
+                shlex.join(
+                    [
+                        "sudo",
+                        "-n",
+                        "python3",
+                        "-c",
+                        "import runpy; print(runpy.run_path('/usr/local/lib/raft/expire-worker').get('PROTOCOL'))",
+                    ]
+                ),
+            ],
+            text=True,
+        ).strip()
+        if protocol == "1":
+            raise RuntimeError(
+                "--isolated-worker targets older deployments; use normal verification on a current host"
+            )
         worker = subprocess.check_output(
             ["ssh", "-T", host, "mktemp /tmp/raft-feature-worker.XXXXXXXX"], text=True
         ).strip()

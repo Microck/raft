@@ -42,6 +42,8 @@ raft stop "$box"
 `raft stop` and expiration keep persistent boxes on disk. `new --disposable`
 deletes a temporary box when it stops or expires. `raft resume` starts
 the box with a new lifetime. `raft destroy` deletes the box and its snapshots.
+disposable creation and retention cleanup require the current host worker;
+redeploy from the current checkout before using them.
 
 each host allows four saved boxes, including stopped ones. `raft limits` reports
 current allocations, free disk space and recommended running counts for each

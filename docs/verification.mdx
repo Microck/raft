@@ -59,7 +59,7 @@ The [final runtime validation](https://github.com/Microck/raft/actions/runs/3754
 
 `python3 deploy/verify-features.py --location lab` verifies recursive trees and unsafe-archive rejection, templates from a running source, snapshot deletion, CPU/RAM overrides, disposable timer deletion, and retention preview/apply. It uses only its own fixtures. Run the archive checks without `--location` to avoid allocating boxes.
 
-For an existing host whose services should stay unchanged, `--isolated-worker` stages the current worker under a private temporary path. This checks worker logic without installing it; automatic timer integration is verified on disposable CI hosts.
+For an older deployment whose services should stay unchanged, `--isolated-worker` stages the current worker under a private temporary path. This checks worker logic without installing it; automatic timer integration is verified on disposable CI hosts. Current deployments use the normal verification mode; the isolated mode rejects them before allocation.
 
 ## Running verification suites
 
