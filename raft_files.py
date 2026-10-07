@@ -9,9 +9,11 @@ import ctypes
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import stat
 import sys
 import tarfile
 import tempfile
+from types import SimpleNamespace
 
 
 def publish(source, destination):
@@ -39,23 +41,42 @@ def pack_directory(source, stream):
 
     with tarfile.open(fileobj=stream, mode="w|") as archive:
 
-        def add(path, name):
-            # TarFile.add silently skips sockets before invoking its filter.
-            # Inspect each entry in this one traversal instead of losing files.
-            member = archive.gettarinfo(path, arcname=name)
-            if member is None:
-                raise ValueError("Directory transfers reject special files: " + str(path))
-            safe_member(member, source)
-            if member.isfile():
-                with path.open("rb") as content:
-                    archive.addfile(member, content)
-            else:
-                archive.addfile(member)
-            if member.isdir():
-                for child in sorted(path.iterdir()):
-                    add(child, name + "/" + child.name)
+        def add(parent, entry, name):
+            # O_PATH pins the entry without opening a device or following a link.
+            # All metadata, reads and descent then use that held object.
+            descriptor = os.open(entry, os.O_PATH | os.O_NOFOLLOW, dir_fd=parent)
+            try:
+                metadata = os.fstat(descriptor)
+                if stat.S_ISLNK(metadata.st_mode):
+                    member = tarfile.TarInfo(name)
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = os.readlink("", dir_fd=descriptor)
+                    safe_member(member, source)
+                    archive.addfile(member)
+                elif stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode):
+                    opened = SimpleNamespace(name=name, fileno=lambda: descriptor)
+                    member = archive.gettarinfo(arcname=name, fileobj=opened)
+                    safe_member(member, source)
+                    if member.isfile():
+                        # Reopening the pinned descriptor cannot follow a replacement
+                        # pathname. Linux /proc is part of the guest/controller contract.
+                        with open(f"/proc/self/fd/{descriptor}", "rb") as content:
+                            archive.addfile(member, content)
+                    else:
+                        archive.addfile(member)
+                    if member.isdir():
+                        directory = os.open(".", os.O_RDONLY | os.O_DIRECTORY, dir_fd=descriptor)
+                        try:
+                            for child in sorted(os.listdir(directory)):
+                                add(directory, child, name + "/" + child)
+                        finally:
+                            os.close(directory)
+                else:
+                    raise ValueError("Directory transfers reject special files: " + name)
+            finally:
+                os.close(descriptor)
 
-        add(source, ".")
+        add(None, source, ".")
 
 
 class TransferReader:

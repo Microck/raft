@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -94,6 +95,47 @@ def verify_archives():
                 assert "special files" in str(error)
             else:
                 raise AssertionError("Source socket was silently omitted")
+        # A real writer replaces both a file and a directory with external links.
+        # No function interception: accepted archives must never contain the secret.
+        race_source = root / "race-source"
+        race_source.mkdir()
+        secret = root / "secret"
+        secret.write_bytes(b"raft-outside-secret")
+        foreign = root / "foreign"
+        foreign.mkdir()
+        (foreign / "secret").write_bytes(secret.read_bytes())
+        (race_source / "file").write_bytes(b"inside")
+        (race_source / "directory").mkdir()
+        (race_source / "directory" / "file").write_bytes(b"inside")
+        finished = threading.Event()
+
+        def replace_entries():
+            while not finished.is_set():
+                for name, target in [("file", secret), ("directory", foreign)]:
+                    entry = race_source / name
+                    held = root / (name + "-held")
+                    entry.rename(held)
+                    entry.symlink_to(target)
+                    entry.unlink()
+                    held.rename(entry)
+
+        writer = threading.Thread(target=replace_entries)
+        writer.start()
+        try:
+            for _ in range(100):
+                packed = io.BytesIO()
+                try:
+                    pack_directory(race_source, packed)
+                except (OSError, ValueError, tarfile.FilterError):
+                    continue
+                packed.seek(0)
+                with tarfile.open(fileobj=packed) as archive:
+                    for member in archive:
+                        if member.isfile():
+                            assert archive.extractfile(member).read() == b"inside"
+        finally:
+            finished.set()
+            writer.join()
         outside = root / "outside"
         outside.mkdir()
         link = root / "destination"
