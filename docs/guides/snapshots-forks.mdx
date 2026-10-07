@@ -82,3 +82,26 @@ Destroy the clone when finished to release capacity:
 ```sh title="CONTROLLER: Destroy forked workspace"
 raft destroy "$copy"
 ```
+
+## Starting from a prepared snapshot
+
+```sh
+copy=$(raft new --from "$box/pre-upgrade" --ttl 600)
+```
+
+The source box can be running because Raft copies the saved snapshot. The new box stays on the same host, uses normal creation sizing defaults and has a fresh network identity. Filesystem secrets are copied too.
+
+Remove a snapshot you no longer need:
+
+```sh
+raft snapshot-delete "$box" pre-upgrade
+```
+
+## Choosing clone resources
+
+```sh
+copy=$(raft fork "$box" --ttl 600 --cpu 2 --memory 4GiB)
+raft resume "$box" --ttl 600 --memory 2GiB
+```
+
+Omitted sizing values keep the source limits. Forks are persistent by default; add `--disposable` to delete a clone when it stops or expires.

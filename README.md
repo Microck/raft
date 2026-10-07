@@ -27,7 +27,7 @@ set up Incus and download or build an image.
 | --- | --- |
 | host | dedicated ARM64 or AMD64 Ubuntu host, 2 CPUs, 8 GiB RAM, 80 GiB free disk |
 | host access | SSH and passwordless sudo |
-| controller | Linux, Python 3.11+, uv, SSH and SCP |
+| controller | Linux, Python 3.11.8+, uv, SSH and SCP |
 
 once your host and image are configured, run the commands below. replace `lab`
 with a location from your configuration:
@@ -39,8 +39,11 @@ raft ssh "$box"
 raft stop "$box"
 ```
 
-`raft stop` and expiration stop processes but keep files. `raft resume` starts
+`raft stop` and expiration keep persistent boxes on disk. `new --disposable`
+deletes a temporary box when it stops or expires. `raft resume` starts
 the box with a new lifetime. `raft destroy` deletes the box and its snapshots.
+disposable creation and retention cleanup require the current host worker;
+redeploy from the current checkout before using them.
 
 each host allows four saved boxes, including stopped ones. `raft limits` reports
 current allocations, free disk space and recommended running counts for each
@@ -103,22 +106,22 @@ records differences, sources and test coverage.
 | Native ARM64 workspaces | ❌ | ✅ | Boat documents x86_64 machines only |
 | Create/list/inspect/delete | ✅ | ✅ | Single operator |
 | Persistent stop/resume | ✅ | ✅ | Shared host kernel |
-| TTL and lifetime extension | ✅ | ✅ | Expiration retains disk |
+| TTL and lifetime extension | ✅ | ✅ | Persistent boxes retain disk; disposable boxes delete |
 | CPU/memory sizing and usage | ✅ | ✅ | 1 or 2 CPUs, 1, 2 or 4 GiB RAM. Disk usage covers the shared pool |
 | Host capacity recommendations | ❌ | ✅ | Raft recommends running capacity and enforces four saved boxes. Boat reports plan limits |
 | Root terminal and command execution | ✅ | ✅ | Host SSH transport |
 | Background jobs, logs and cancellation | ✅ | ✅ | No process checkpoints |
-| File upload/download | ✅ | ✅ | Individual files |
+| File upload/download | ✅ | ✅ | Files and recursive trees; new directory destinations only |
 | Snapshots and same-host forks | ✅ | ✅ | Stopped source, checked under the lifecycle lock |
-| Deploy/delete named snapshots | ✅ | ❌ | No snapshot deployment or deletion command |
+| Deploy/delete named snapshots | ✅ | ✅ | Same-host templates and named snapshot deletion |
 | Portable backup/recovery | ❓ | ✅ | Raft native archives; Boat whole-instance archive import is not established |
 | Docker and development tools | ✅ | ✅ | Native ARM64 and AMD64 images. See [image tests](docs/boot-performance.mdx) |
 | Private port forwarding | ✅ | ✅ | Local SSH tunnel |
 | Desktop access | ✅ | ✅ | noVNC; see verification limits |
-| Recursive SCP and reverse forwarding | ✅ | ❌ | Not implemented |
+| Reverse forwarding | ✅ | ❌ | Not implemented |
 | Public workspace hosting and browser-only streaming | ✅ | ❌ | Not implemented |
-| Resize on resume/fork | ✅ | ❌ | Create-time sizing only |
-| CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft only list/info/usage/limits |
+| Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides within supported sizes |
+| CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft list/info/usage/limits plus prune JSONL |
 | Snapshot file browsing/download | ✅ | ❌ | Whole-box backup only |
 | Strict per-box disk quotas | ✅ | ❌ | Shared 60 GiB Btrfs pool |
 | Separate-kernel VM isolation | ✅ | ❌ | Container runtime |
@@ -126,7 +129,8 @@ records differences, sources and test coverage.
 | Organizations and webhooks | ✅ | ❌ | Raft is single-operator; no event API |
 | Dashboard, remote API and SDK | ✅ | ❌ | CLI only |
 | Managed agent conversations | ✅ | ❌ | Not implemented |
-| Automatic deletion and CLI self-update | ✅ | ❌ | Run `raft destroy` to delete a box. No CLI self-update command |
+| Automatic deletion and retention | ✅ | ✅ | Disposable deletion; opt-in age-based prune with preview |
+| CLI self-update | ✅ | ❌ | Standard Python package installation |
 
 ## verification and development
 

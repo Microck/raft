@@ -33,7 +33,7 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | Development image | Real developer-user tool checks, immutable selection and credential-path archive rejection |
 | Deployment/firewall | Repeat deployment removes stale rules without restarting Incus; failed filtering blocks normal and socket startup; boot timestamps prove filtering precedes Incus |
 | Storage contract | Disposable oversized pool is rejected without automatic resizing |
-| CLI options and errors | Help for all 26 commands; default location, TTL and desktop port; all six sizing profiles; global and per-location reports; invalid TTLs, sizes, required arguments, handles, paths, snapshot names, jobs and ports |
+| CLI options and errors | Help for all 28 commands; default location, TTL and desktop port; all six sizing profiles; global and per-location reports; invalid TTLs, sizes, required arguments, handles, paths, snapshot names, jobs and ports |
 
 ## Command and option audit (2026-10-06)
 
@@ -52,6 +52,27 @@ The audit found and fixed two CLI bugs:
 This covers implemented workflows and selected option combinations, not every possible workload or environment. A full-image export exceeded the local controller's free disk space and was interrupted. Full-sized archive validation runs on disposable CI hosts with sufficient scratch space.
 
 The [final runtime validation](https://github.com/Microck/raft/actions/runs/37542355027) tests commit `ac618e64`. ARM64 and AMD64 both passed extended lifecycle tests with daemon restarts, capacity transitions and full development-image backup/recovery. [Packaging checks](https://github.com/Microck/raft/actions/runs/37542355021) passed on Python 3.11 and 3.14, and [documentation checks](https://github.com/Microck/raft/actions/runs/37542355020) passed.
+
+</details>
+
+## New workspace controls
+
+`python3 deploy/verify-features.py --location lab` verifies recursive trees and unsafe-archive rejection, templates from a running source, snapshot deletion, CPU/RAM overrides, disposable timer deletion, and retention preview/apply. It uses only its own fixtures. Run the archive checks without `--location` to avoid allocating boxes.
+
+For an older deployment whose services should stay unchanged, `--isolated-worker` stages the current worker under a private temporary path. This checks worker logic without installing it; automatic timer integration is verified on disposable CI hosts. Current deployments use the normal verification mode; the isolated mode rejects them before allocation.
+
+## Workspace controls validation (2026-10-07)
+
+<details>
+<summary>Native feature tests and transfer regressions</summary>
+
+At runtime commit `a7fef1f5`, ARM64 and AMD64 passed the new workspace-control suite in [native CI](https://github.com/Microck/raft/actions/runs/37603576786). It verifies installed-timer deletion, retention preview and exclusions, live-source snapshot templates, snapshot deletion, and effective CPU/RAM limits after resume and fork.
+
+Directory tests cover binary files, permissions, relative symlinks, hardlinks, empty directories and existing destinations. Unix sockets and unsafe archive entries are rejected. A real Incus transfer truncated between complete archive entries fails without publishing a partial directory.
+
+Both architectures passed extended lifecycle tests, full development-image recovery, startup measurements and clean-template inspection. Fresh provisioning, image import, firewall ordering and reboot passed on a disposable AMD64 KVM host.
+
+The source-race fix also passed a real concurrent writer test that swaps files and directories for external symlinks. Accepted archives retain only the selected files. Two configured ARM64 hosts passed the final feature suite with a staged worker, without changing installed services. Local fixtures and staged files were removed.
 
 </details>
 

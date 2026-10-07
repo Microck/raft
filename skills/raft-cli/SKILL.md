@@ -41,7 +41,8 @@ only the four-saved-box cap is enforced. Disk growth is not included in the coun
 
 ## Persistence and cleanup
 
-Expiry stops execution and retains disk. `raft stop "$box"` releases the
+Persistent boxes stop and retain disk at expiry. `new --disposable` deletes a
+box and its snapshots on stop or expiry. `raft stop "$box"` releases the
 container's running processes; `raft resume "$box" --ttl 600` starts it again.
 Stop is not pause and does not keep guest RAM allocated. Installed dependencies,
 files and secrets remain on disk. For a temporary run, completion requires
@@ -49,8 +50,10 @@ successful `destroy`, even after command failure. Stop reusable runners when
 finished. Destroy only boxes owned by the current task unless authorized otherwise.
 
 Host systemd timers enforce deadlines every 15 seconds, even when the controller
-is offline. `raft gc` runs those expiry workers manually; it does not delete saved
-boxes. A powered-off host enforces expiry when it returns.
+is offline. `raft gc` runs those expiry workers manually and deletes expired disposable
+boxes. `raft prune --older-than 7` previews stopped boxes older than seven days;
+`--yes` deletes them. It skips running boxes and boxes without a recorded stop
+time. Never apply prune outside the task-owned scope without explicit permission. A powered-off host enforces expiry when it returns.
 
 Stop a box before a consistent disk snapshot or fork:
 
@@ -65,7 +68,14 @@ raft restore "$box" prepared
 Restore replaces disk contents with the snapshot and retains the destination's
 current instance configuration, including its MAC and resource limits. Use it
 only when the user requested that rollback. A fork copies filesystem data, including any
-credentials installed there. Forks stay on the same host.
+credentials installed there. Forks stay on the same host. `new --from "$box/prepared"` starts from a named
+snapshot; `snapshot-delete "$box" prepared` removes it. Resume and fork accept
+optional `--cpu` and `--memory` overrides. Omitted values retain the source limits.
+Forks default to persistent; use `--disposable` explicitly for temporary clones.
+
+`upload/download --recursive` copy directory trees into new destinations without
+merging or overwriting. They require a running guest with Python 3.11.8+ and
+temporary controller disk space. Escaping links and special files are rejected.
 
 ## Long commands and previews
 

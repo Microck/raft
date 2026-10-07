@@ -45,11 +45,17 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 
 - **Stop and resume**: Stop terminates guest processes and preserves disk contents; stopped boxes retain disk but do not reserve guest RAM. Resume starts the container anew with an explicit TTL without restoring process memory.
 - **Lifetime extension**: `raft extend --ttl` resets a running box's deadline from current host time without restarting; stopped boxes require `raft resume`.
-- **Expiration cleanup**: The host timer checks expirations every 15 seconds, stopping expired containers without deleting files. Expiry may be delayed by graceful shutdown, long locked transactions, and host outage until startup.
-- **Destroy**: Removes the container instance and its snapshots, releasing storage. Destroy confirms absence; SSH failure is not proof of deletion. Disposable runs must execute destroy.
+- **Host worker contract**: Disposable creation/fork and retention cleanup require the current worker protocol. A mismatch fails before executing deletion policy or creating a disposable box; deploy the current checkout explicitly.
+- **Disposable lifecycle**: `new --disposable` opts a box into deletion on stop or TTL expiry, including its snapshots. Clones and recovered boxes default to persistent; fork accepts an explicit `--disposable`.
+- **Retention cleanup**: `prune --older-than DAYS` previews persistent stopped boxes with a recorded stop timestamp. `--yes` deletes matching boxes under the host lifecycle lock. Running boxes and boxes without a recorded stop time are excluded. No automatic persistent-box deletion is enabled.
+- **Resizing**: Resume and fork accept optional supported CPU/RAM overrides, preserving omitted values. Resume validates stopped state under the lock before changing sizing.
+- **Expiration cleanup**: The host timer checks expirations every 15 seconds, stopping expired persistent containers and deleting expired disposable containers. Expiry may be delayed by graceful shutdown, long locked transactions, and host outage until startup.
+- **Destroy**: Removes the container instance and its snapshots, releasing storage. Destroy confirms absence; SSH failure is not proof of deletion. Disposable boxes created with `new --disposable` are deleted on explicit stop or expiry. Persistent boxes still require explicit destroy for deletion.
 - **Execution transport**: Incus exec and file APIs travel over authenticated host SSH without a public Incus listener or injected credentials. Interactive SSH runs a PTY over host SSH and Incus exec.
 - **State inspection and tunnels**: `raft list` and `raft info` read native metadata without guest process counters during shutdown; tunnels use the managed NIC.
 - **Resource reporting**: `raft usage` reports running cgroup memory, CPU microseconds, CPU affinity, and shared pool space. It does not provide per-box disk accounting or billing.
+- **Recursive transfers**: `upload/download --recursive` require a running workspace and Python 3.11.8+ in the guest. They stream a tar archive and publish a new destination directory atomically without overwriting or merging. Relative links contained within the tree, regular files, directories and internal hardlinks are supported; escaping paths/links and special files are rejected. Source entries are pinned with no-follow descriptors before metadata inspection, file reads or directory descent, so pathname replacement cannot redirect access outside the selected tree. Failed transfers leave existing destinations unchanged.
+- **Directory transfer completion**: The receiver verifies the sender's exact archive byte count before publication. A truncated stream, including one ending between complete entries, is rejected without publishing a partial tree.
 - **File transfer failures**: Controller write errors return an error before replacing a download destination or publishing a backup archive.
 
 ## Security and network isolation
@@ -65,6 +71,7 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 - **Storage pool**: A dedicated 60 GiB Btrfs pool per host supports snapshots and clones. Nested container subvolumes prevent strict per-box quota enforcement. The native compressed image cache resides outside the shared pool, so host disk space still matters.
 - **Stopped-state requirement**: Snapshots, restores and forks require a stopped source for consistent disk contents. Operations run under the host lifecycle lock.
 - **Snapshot restore**: `raft restore` rolls back disk blocks via `--diskonly`, retaining container configuration, limits, and MAC address.
+- **Snapshot management**: `snapshot-delete <box> <name>` removes one named snapshot under the lock. `new --from LOCATION:BOX/SNAPSHOT` creates a same-host box from that snapshot, with normal creation defaults and a fresh network identity. The source may run; the named snapshot is immutable. Templates retain filesystem secrets.
 - **Workspace forks**: `raft fork` copies filesystem data and secrets to a new container with an independent Incus name, fresh MAC address, and renewed TTL. Source snapshots are not inherited.
 
 ## Background jobs and desktop

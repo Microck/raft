@@ -137,7 +137,9 @@ def deploy(name):
     ]:
         copy(host, ROOT / source, "/tmp/raft-" + target)
         remote(host, f"sudo -n install -m 755 /tmp/raft-{target} /usr/local/lib/raft/{target}")
-    wrapper = "#!/bin/sh\nexec flock /run/lock/raft-incus.lock /usr/local/lib/raft/expire-worker\n"
+    wrapper = (
+        '#!/bin/sh\nexec flock /run/lock/raft-incus.lock /usr/local/lib/raft/expire-worker "$@"\n'
+    )
     local_wrapper = ROOT / ".raft-expire-wrapper"
     local_wrapper.write_text(wrapper)
     try:

@@ -65,55 +65,22 @@ raft download "$box" "/workspace/my documents/data file.csv" "./downloaded-data.
 
 ## Transferring directories
 
-`raft upload` and `raft download` operate on individual files. Archive directories with `tar` for batch transfers:
+Use `--recursive` to copy a tree into a new directory:
 
-### Uploading a project directory
-
-#### 1. Create a local tar archive
-
-```sh title="CONTROLLER"
-mkdir -p ./my-project && echo "package main" > ./my-project/main.go
-tar -czf ./project.tar.gz -C ./my-project .
+```sh
+raft upload "$box" ./my-project /workspace/my-project --recursive
+raft download "$box" /workspace/my-project ./project-copy --recursive
 ```
 
-#### 2. Upload archive to workspace
+The destination must not exist, and its parent must exist. Raft publishes the directory after the complete transfer; it does not merge or overwrite trees.
 
-```sh title="CONTROLLER"
-raft upload "$box" ./project.tar.gz /workspace/project.tar.gz
-```
+| Preserved | Rejected |
+| --- | --- |
+| File contents and executable bits | Existing destination directories or symlinks |
+| Empty directories and internal hardlinks | Paths or links that escape the tree |
+| Relative symlinks within the tree | Devices, FIFOs and other special files |
 
-#### 3. Extract inside workspace
-
-```sh title="CONTROLLER"
-raft exec "$box" -- bash -lc '
-mkdir -p /workspace/my-project
-tar -xzf /workspace/project.tar.gz -C /workspace/my-project
-rm /workspace/project.tar.gz
-'
-```
-
-### Downloading a directory
-
-#### 1. Create archive inside workspace
-
-```sh title="CONTROLLER"
-raft exec "$box" -- bash -lc '
-tar -czf /workspace/results.tar.gz -C /workspace/my-project .
-'
-```
-
-#### 2. Download archive to controller
-
-```sh title="CONTROLLER"
-raft download "$box" /workspace/results.tar.gz ./results.tar.gz
-```
-
-#### 3. Extract locally on controller
-
-```sh title="CONTROLLER"
-mkdir -p ./results
-tar -xzf ./results.tar.gz -C ./results
-```
+Recursive transfers require a running box with Python 3.11.8+ and temporary disk space on the controller. Individual-file transfers also work while a box is stopped.
 
 ## File ownership
 
