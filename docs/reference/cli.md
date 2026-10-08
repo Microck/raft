@@ -10,6 +10,10 @@ Command-line reference for the `raft` controller tool.
 Syntax:
 `raft <subcommand> [options] [arguments]`
 
+`raft --help` lists commands, `raft <subcommand> --help` lists its arguments,
+and `raft --version` prints the installed version without loading configuration.
+Output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
+
 Workspaces are referenced by location-qualified handles formatted as `<location>:<instance-name>` (for example `lab:rf-a1b2c3d4e5f60718`).
 
 ## Command index
@@ -31,7 +35,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 
 Create and launch a new workspace container.
 
-`raft new [--location LOCATION] [--ttl TTL] [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB}]`
+`raft new [--location LOCATION] [--ttl TTL] [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB}] [--disposable] [--from LOCATION:BOX/SNAPSHOT]`
 
 - `--location LOCATION`: Target host location in `~/.config/raft/incus.json`. Defaults to first configured location.
 - `--ttl TTL`: Lifetime in seconds before automatic stop (`60` to `2592000`). Default: `600`.
@@ -59,6 +63,9 @@ Start a stopped workspace with a renewed lifetime deadline.
 
 - `--ttl TTL`: Lifetime in seconds from resumption (`60` to `2592000`). Required.
 
+CPU/RAM overrides on resume apply before startup. Omitted values stay unchanged.
+A running box is rejected before changing its limits.
+
 ### `extend`
 
 Reset the expiration deadline for a running workspace without restarting it.
@@ -74,8 +81,6 @@ Permanently delete a workspace container and its snapshots.
 `raft destroy <box>`
 
 Stops the container if running, removes all associated Btrfs snapshots, and releases host storage.
-
-CPU/RAM overrides on resume apply before startup. Omitted values stay unchanged. A running box is rejected before changing its limits.
 
 ## Execution and inspection commands
 
@@ -261,6 +266,10 @@ Inspect host connectivity, Incus version, active systemd units (`incus`, `raft-e
 List existing workspace containers across configured hosts.
 
 `raft list [--location LOCATION]`
+
+Prints one JSON object per box (JSONL), with `box`, `state`, and `stopAt` fields.
+An empty inventory prints no records. See [Scripting and CI](../guides/scripting-ci.mdx)
+for output formats, exit codes, readiness, and failure handling.
 
 ### `gc`
 

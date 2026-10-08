@@ -3,12 +3,16 @@
   "collapsible": true,
   "defaultOpen": false,
   "pages": [
+    "project-setup",
     "docker",
     "files",
     "background-jobs",
+    "long-running-services",
+    "scripting-ci",
     "desktop-services",
     "snapshots-forks",
     "backup-recovery",
+    "upgrades",
     "troubleshooting"
   ]
 }

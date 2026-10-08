@@ -90,3 +90,6 @@ raft extend "$box" --ttl 1800
 ```
 
 `raft extend` resets the container expiration deadline to `now + TTL` seconds using the host clock. It does not add time to the existing deadline.
+
+For deadline inspection and an enabled systemd service that starts again after
+resume or fork, see [Lifetime and persistent services](./long-running-services.mdx).

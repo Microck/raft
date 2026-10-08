@@ -1,0 +1,133 @@
+---
+title: Scripting and CI
+description: Parse CLI output, preserve command exit codes, wait for readiness, and handle interrupted operations.
+---
+
+# Scripting and CI
+
+Raft is a controller CLI using host SSH. A Linux CI runner needs Python 3.11.8+,
+OpenSSH, the installed CLI, host inventory, verified SSH host keys, batch
+authentication, and hosts with passwordless sudo. No Raft HTTP API, SDK, or API key
+exists. Give access only to trusted jobs: the configured SSH account has host sudo
+and controls all boxes on that host.
+
+## Output formats
+
+Raft does not have a global `--json` option. Parse each command's actual format:
+
+| Command | stdout |
+| --- | --- |
+| `new`, `fork`, `recover` | One location-qualified handle |
+| `exec --detach` | One `rfcmd-` job ID |
+| `list` | JSONL: one object per box, with `box`, `state`, `stopAt` |
+| `info` | One pretty-printed native Incus metadata JSON object |
+| `usage` | One JSON object containing running resource counters |
+| `limits --json` | One JSON object per location (JSONL across multiple hosts) |
+| `prune` | JSONL candidates or deleted records with `box`, `action` |
+| `status` | systemd `ActiveState`, `SubState`, `ExecMainStatus` property lines |
+| `logs` | Guest journal text |
+| `exec` | Payload stdout/stderr |
+| Other inspection/maintenance commands | Human-readable text or no output |
+
+`list` emits nothing when there are no boxes. `stopAt` is the host Unix deadline
+as a string, or an empty string when absent. `info` uses native Incus keys rather
+than a normalized Raft schema. `usage` includes `memoryBytes`, `memoryLimit`,
+`cpuTime`, `effectiveCpus`, `filesystemUsedBytes`, `filesystemAvailableBytes`, and
+`filesystemScope`; disk values describe the shared pool, not an individual box.
+See [Capacity limits](../reference/capacity-limits.mdx) for capacity calculations.
+
+These examples require `jq` on the controller:
+
+```sh title="CONTROLLER: Parse records without mixing stderr"
+raft list --location lab | jq -r 'select(.state == "Running") | .box'
+raft limits --location lab --json | jq '{location, savedSlots, warnings}'
+raft prune --location lab --older-than 7 | jq -r '.box'
+```
+
+Do not redirect `2>&1` into machine-readable output. Recovery reports its allocated
+handle on stderr before import finishes; only a successful completion prints the
+final handle on stdout.
+
+## Exit codes and job results
+
+| Situation | Exit code |
+| --- | --- |
+| Successful control operation | `0` |
+| Synchronous `exec` | Transport/command return code; preserves payload exit status when transport succeeds |
+| Recognized runtime/configuration failure | `1`, with `raft: ...` on stderr |
+| Argument parsing failure | `2`, with argparse diagnostics on stderr |
+| Caught keyboard interruption | `130` |
+
+SSH transport failures may return SSH's status rather than the payload's result.
+The foreground tunnel replaces the CLI process with SSH and uses SSH's exit code.
+A zero exit from `status` means the query succeeded; read `ExecMainStatus` for the
+job result and `ActiveState`/`SubState` for whether it finished. Do not interpret a
+running job's initial `ExecMainStatus=0` as completion. See
+[Background jobs](./background-jobs.mdx).
+
+## Create, wait, run, and stop
+
+`new` returns after Incus starts the box, before every guest service is necessarily
+ready. Probe a harmless command before running setup. This Bash example waits up
+to about a minute plus transport time, executes an uploaded project check, and
+attempts to stop the persistent box on exit. It assumes `./my-project/check.sh`
+exists and the configured host has a free saved slot:
+
+```bash title="CONTROLLER or trusted Linux CI runner"
+set -euo pipefail
+box=""
+cleanup() {
+  result=$?
+  trap - EXIT
+  if [ -n "$box" ]; then
+    if ! raft stop "$box"; then
+      echo "Cleanup failed; inspect $box" >&2
+      [ "$result" -ne 0 ] || result=1
+    fi
+  fi
+  exit "$result"
+}
+trap cleanup EXIT
+
+box=$(raft new --location lab --ttl 3600)
+printf 'Created %s\n' "$box" >&2
+ready=false
+for attempt in {1..30}; do
+  if raft exec "$box" -- true; then
+    ready=true
+    break
+  fi
+  sleep 2
+done
+if [ "$ready" != true ]; then
+  echo "Guest did not become command-ready: $box" >&2
+  exit 1
+fi
+
+raft upload "$box" ./my-project /workspace/my-project --recursive
+raft exec "$box" -- bash -lc 'cd /workspace/my-project && bash ./check.sh'
+```
+
+The stopped box remains available for inspection and still consumes a saved slot.
+Destroy it after collecting needed files, or preview old stopped boxes with prune.
+For disposable CI boxes, deletion on stop/expiry removes artifacts and snapshots;
+download results before cleanup. A new box or a retry still consumes a saved slot.
+
+Command readiness does not mean Docker or a web application is ready. Probe the
+specific dependency (`docker info`, an HTTP health endpoint, or systemd status)
+with its own bounded wait. Extend the deadline before work exceeding the current
+lifetime. This example's retries are only for the harmless readiness probe.
+
+## Interrupted operations and retries
+
+Raft does not automatically retry commands or provide idempotency keys. If SSH
+drops during creation, resume, import, or execution, the remote operation may have
+already happened. Inspect `raft list`, `raft info`, guest logs, and the host before
+repeating an operation that creates boxes or changes data. A failed create can
+leave a saved box even when no handle reached stdout.
+
+For an interrupted recovery, inspect the handle printed on stderr and follow
+[Host crash during recovery](./troubleshooting.mdx#host-crash-during-recovery).
+For uncertain command execution, check its effects before rerunning it; use
+idempotent setup scripts where possible. Do not treat a lost connection as proof
+of deletion or of a command not having run.

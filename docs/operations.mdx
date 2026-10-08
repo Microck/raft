@@ -33,18 +33,31 @@ sudo -n true && echo "Passwordless sudo is functional"
 
 <Step>
 
-### Clone repository and install controller CLI
+### Install the CLI and obtain deployment scripts
 
-On your controller machine, clone the repository and install the `raft` CLI tool using `uv`:
+On your Linux controller with Python 3.11.8+, install the published CLI:
+
+```sh title="CONTROLLER: Install published CLI"
+npm install -g @microck/raft@0.2.0
+raft --version
+```
+
+Installation does not configure hosts or download images. Clone the matching
+release to obtain the deployment scripts and example configuration:
+
+```sh title="CONTROLLER: Obtain deployment scripts"
+git clone --branch v0.2.0 https://github.com/Microck/raft.git raft
+cd raft
+```
+
+Alternatively, install from that checkout using `uv` instead of npm:
 
 ```sh title="CONTROLLER: Clone repository and install CLI"
-git clone https://github.com/Microck/raft.git raft
-cd raft
 uv sync --locked
 uv tool install --editable .
 ```
 
-Add `~/.local/bin` to `PATH` and verify the CLI:
+For the `uv` installation, add `~/.local/bin` to `PATH` and verify the CLI:
 
 ```sh title="CONTROLLER: Verify CLI installation"
 export PATH="$HOME/.local/bin:$PATH"
@@ -122,16 +135,16 @@ Workspaces require an unprivileged Debian 13 development image matching the host
 
 <Tab value="Download release image">
 
-Download the release archive, checksum, and manifest from [Raft releases](https://github.com/Microck/raft/releases). The `sha256sum` check gates import so corrupted archives are rejected:
+Download the release archive, checksum, and manifest from [Raft releases](https://github.com/Microck/raft/releases). These examples pin `v0.2.0`, matching the CLI and deployment checkout above. The `sha256sum` check gates import so corrupted archives are rejected:
 
 <Tabs items={["ARM64", "AMD64"]}>
 
 <Tab value="ARM64">
 
 ```sh title="HOST (ARM64): Download, verify, and import release image"
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/raft-dev-arm64.tar.gz
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/SHA256SUMS
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/manifest-arm64.json
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.2.0/raft-dev-arm64.tar.gz
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.2.0/SHA256SUMS
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.2.0/manifest-arm64.json
 
 sha256sum --ignore-missing -c SHA256SUMS && \
   sudo incus --project raft image import ./raft-dev-arm64.tar.gz --alias raft-dev
@@ -142,9 +155,9 @@ sha256sum --ignore-missing -c SHA256SUMS && \
 <Tab value="AMD64">
 
 ```sh title="HOST (AMD64): Download, verify, and import release image"
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/raft-dev-amd64.tar.gz
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/SHA256SUMS
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.1.0/manifest-amd64.json
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.2.0/raft-dev-amd64.tar.gz
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.2.0/SHA256SUMS
+curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.2.0/manifest-amd64.json
 
 sha256sum --ignore-missing -c SHA256SUMS && \
   sudo incus --project raft image import ./raft-dev-amd64.tar.gz --alias raft-dev
@@ -222,3 +235,5 @@ Check that Incus, the network service, and the expiration timer are active. For 
 ## Next step
 
 Proceed to [First working box](./first-box.mdx) to launch, verify, and manage your first workspace.
+
+For later releases, follow [Upgrades and image changes](./guides/upgrades.mdx).

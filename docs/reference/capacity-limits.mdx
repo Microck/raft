@@ -50,7 +50,16 @@ Select CPU and memory limits when launching with `raft new`:
 - `--cpu`: `1` or `2` shared vCPUs managed by Incus (default: `1`).
 - `--memory`: `1GiB`, `2GiB`, or `4GiB` cgroup limit (default: `2GiB`).
 
-Resizing existing containers or modifying limits upon resume is not supported.
+Change supported CPU/RAM limits when resuming a stopped box or creating a fork:
+
+```sh
+raft resume "$box" --ttl 1800 --cpu 2 --memory 4GiB
+copy=$(raft fork "$box" --ttl 1800 --memory 2GiB)
+```
+
+Resume requires a stopped box; fork requires a stopped source. Omitted limits
+stay unchanged on resume and inherit the source limits on fork. Live resizing is
+not exposed by the CLI. See [Snapshots and forks](../guides/snapshots-forks.mdx).
 
 ## Host resource reserves and active states
 

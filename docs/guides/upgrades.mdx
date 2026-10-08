@@ -1,0 +1,113 @@
+---
+title: Upgrades and image changes
+description: Update the controller CLI and host worker, replace image fingerprints, and understand existing-box behavior.
+---
+
+# Upgrades and image changes
+
+The controller CLI, host deployment scripts, and workspace image are separate
+parts of Raft. Updating one does not automatically update the others.
+
+| Component | Update method | Effect on existing boxes |
+| --- | --- | --- |
+| Controller CLI | Install the chosen npm or Python release | Changes controller commands; does not rewrite guest files |
+| Host worker and firewall | Run the chosen release's deployer per host | Replaces host policy code and reapplies filtering |
+| Pinned development image | Import an image and change the configuration fingerprint | Used for future image-based `new`; existing boxes keep their files |
+
+## Choose a release and prepare
+
+Review [release notes](https://github.com/Microck/raft/releases) and use matching
+CLI and deployment sources. The examples below pin `v0.2.0`; replace that version
+consistently when adopting another release.
+
+```sh title="CONTROLLER: Inspect the current installation"
+raft --version
+raft doctor
+raft list
+```
+
+Save a copy of your controller inventory. Export important persistent boxes using
+[Backup and recovery](./backup-recovery.mdx) before host changes. Backup requires a
+stopped box. Stopping a disposable box deletes it, so copy needed files out before
+stopping one. Schedule redeployment when interruptions are acceptable.
+
+## Update the controller
+
+For an npm installation:
+
+```sh title="CONTROLLER: Install a pinned CLI release"
+npm install -g @microck/raft@0.2.0
+raft --version
+```
+
+For a Python installation, download the wheel and `SHA256SUMS` from the same
+release, verify the checksum, then install it with `uv`:
+
+```sh title="CONTROLLER: Install a verified release wheel instead of npm"
+sha256sum --ignore-missing -c SHA256SUMS
+uv tool install --force ./raft-0.2.0-py3-none-any.whl
+raft --version
+```
+
+Proceed only if checksum verification succeeds. Choose one installation method
+and check which executable your shell uses with `command -v raft`.
+
+For an editable source installation, updating the checkout changes the installed
+tool's source. Keep uncommitted work separate and run `uv sync --locked` for the
+chosen checkout. Raft has no `self-update` command.
+
+## Redeploy each host
+
+Obtain a separate checkout of the matching release:
+
+```sh title="CONTROLLER: Obtain and deploy matching host code"
+git clone --branch v0.2.0 https://github.com/Microck/raft.git raft-v0.2.0
+cd raft-v0.2.0
+python3 deploy/deploy.py --location lab
+raft doctor
+```
+
+Repeat for each configured location. The deployer uses your existing
+`~/.config/raft/incus.json`, verifies owned project/pool/network/profile state,
+replaces host scripts and units, reapplies firewall rules, and starts the expiry
+timer. It does not import an image or migrate guest files.
+
+Do not bypass a conflicting-resource or storage-size error. Inspect the host and
+preserve backups before explicit recovery; redeployment does not repair arbitrary
+infrastructure drift. Disposable creation/fork and prune check the worker protocol
+and fail if it differs from the CLI. That check is not an automatic upgrade.
+
+## Replace the image pin
+
+Follow [Acquire a native workspace image](../operations.mdx#acquire-a-native-workspace-image)
+to download and verify or build the image for each host's architecture. Retrieve
+its full fingerprint and replace only that location's `image` field in the
+controller inventory. Keep the previous fingerprint if you may need it again.
+
+Changing the pin affects ordinary `raft new` calls. Resume retains the existing
+filesystem; forks and `new --from` use their source filesystem, not the new image.
+Install guest updates explicitly inside an existing box, or create a new box and
+transfer the project and needed data. Recovering an old backup also restores that
+backup's guest filesystem rather than rebuilding it from the new image.
+
+## Verify the update
+
+```sh title="CONTROLLER: Smoke-check a new persistent box"
+box=$(raft new --location lab --ttl 600)
+raft exec "$box" -- node --version
+raft exec "$box" -- docker info
+raft stop "$box"
+raft resume "$box" --ttl 600
+raft exec "$box" -- ls /workspace
+raft destroy "$box"
+```
+
+Creation can return before guest services are ready. Use the readiness pattern in
+[Scripting and CI](./scripting-ci.mdx) if an immediate check fails during startup.
+For dedicated test infrastructure, [Verification](../verification.mdx) describes
+the real-host suites and their effects.
+
+To revert an image choice for future boxes, restore the previous fingerprint
+while that image remains imported. This does not revert existing boxes. Raft has
+no automatic migration or rollback of host policy or guest packages; review the
+chosen release and backups before downgrading those components.

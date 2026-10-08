@@ -74,13 +74,17 @@ Host system journals can capture command lines, arguments, and environment varia
 
 ### Manually triggering garbage collection
 
-The host timer stops expired containers every 15 seconds. Trigger an immediate expiration run from the controller:
+The host timer enforces expiry every 15 seconds. Trigger an immediate expiration run from the controller:
 
 ```sh title="CONTROLLER: Run expiration workers manually"
 raft gc
 ```
 
-Expired containers transition from `Running` to `Stopped`. Expiration never deletes container files or snapshots.
+Expired persistent containers transition from `Running` to `Stopped` and retain
+files and snapshots. Expired disposable containers are deleted, including their
+snapshots. Use `raft gc --location lab` to check only one host. The timer normally
+checks every 15 seconds; host outages, graceful shutdown and long locked
+operations can delay expiry. See [Lifetime and persistent services](./long-running-services.mdx).
 
 ## Common error scenarios
 
