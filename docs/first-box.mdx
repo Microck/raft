@@ -71,6 +71,9 @@ raft destroy "$box"
 
 ## Next steps
 
+- [Project setup and templates](./guides/project-setup.mdx): Prepare a project and reuse its dependencies.
+- [Lifetime and persistent services](./guides/long-running-services.mdx): Manage deadlines and restart applications after resume.
+- [Scripting and CI](./guides/scripting-ci.mdx): Parse CLI output and handle failures.
 - [Docker in workspaces](./guides/docker.mdx): Run nested containers and build images.
 - [File transfer](./guides/files.mdx): Upload and download files over SSH.
 - [Background jobs](./guides/background-jobs.mdx): Run detached commands under systemd.
@@ -78,5 +81,6 @@ raft destroy "$box"
 - [Snapshots and forks](./guides/snapshots-forks.mdx): Capture disk states and create same-host clones.
 - [Backup and recovery](./guides/backup-recovery.mdx): Export portable archives and restore across hosts.
 - [Troubleshooting](./guides/troubleshooting.mdx): Diagnose common errors and inspect host services.
+- [Upgrades and image changes](./guides/upgrades.mdx): Update the controller, hosts, and image pins.
 
 For temporary work, create with `--disposable`. Stopping or expiry then deletes the box and its snapshots. For persistent boxes, `raft prune --older-than 7` previews old stopped workspaces; add `--yes` only after reviewing the candidates.

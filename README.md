@@ -76,6 +76,11 @@ see the task guides for [background jobs](docs/guides/background-jobs.mdx),
 [backup and recovery](docs/guides/backup-recovery.mdx)
 and [Docker](docs/guides/docker.mdx).
 
+See [project setup and templates](docs/guides/project-setup.mdx),
+[persistent services](docs/guides/long-running-services.mdx),
+[scripting and CI](docs/guides/scripting-ci.mdx), and
+[upgrades](docs/guides/upgrades.mdx) for complete operator workflows.
+
 stop the source box before taking a snapshot, restoring one or making a fork.
 stopping a box ends its jobs without saving process memory.
 

@@ -66,7 +66,10 @@ Start the desktop and establish a private tunnel:
 raft desktop "$box" --local 6080
 ```
 
-`raft desktop` starts `raft-desktop.service` inside the container if needed, waits for Xvfb and VNC readiness, and opens a tunnel to local port `6080`.
+`raft desktop` requests startup of `raft-desktop.service` inside the container if
+needed and opens a tunnel to local port `6080`. The service waits for Xvfb before
+launching its desktop clients. The CLI does not poll noVNC readiness; if the first
+browser request fails during startup, retry after the service initializes.
 
 Open the client in your browser:
 
