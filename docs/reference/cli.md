@@ -257,7 +257,7 @@ Inspect host resource capacity, active allocations, and recommended workspace li
 
 ### `doctor`
 
-Inspect host connectivity, Incus version, active systemd units (`incus`, `raft-expire.timer`, `raft-network.service`), root filesystem usage, storage pool status, and saved box count across configured hosts.
+Inspect host connectivity, Incus version, expiry-worker compatibility, active systemd units (`incus`, `raft-expire.timer`, `raft-network.service`), root filesystem usage, storage pool status, and saved box count across configured hosts. An incompatible worker returns a nonzero exit status and names the failing location without running expiry or modifying boxes.
 
 `raft doctor`
 

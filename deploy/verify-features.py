@@ -157,6 +157,57 @@ def verify_archives():
     )
 
 
+def verify_readiness(location, expect_stale=False):
+    # Isolate the selected host without losing the controller's verified SSH config.
+    with tempfile.TemporaryDirectory(prefix="raft-doctor-test-") as work:
+        home = Path(work)
+        (home / ".ssh").symlink_to(Path.home() / ".ssh", target_is_directory=True)
+        config = home / ".config/raft/incus.json"
+        config.parent.mkdir(parents=True)
+        config.write_text(json.dumps({location: settings(location)}))
+        response = live.raft("doctor", check=False, env={**os.environ, "HOME": str(home)})
+    assert location + ": " in response.stdout, response
+    if expect_stale:
+        assert response.returncode == 1, response
+        assert (
+            f"raft: {location}: Host expiry worker differs from this CLI; "
+            "deploy the current Raft checkout first"
+        ) in response.stderr, response
+    else:
+        assert response.returncode == 0, response
+        assert "saved boxes; system containers (shared host kernel)" in response.stdout, response
+    print(f"{location}: doctor {'rejected stale worker' if expect_stale else 'passed'}", flush=True)
+
+
+def verify_transaction_stdin(location):
+    program = """import sys, tempfile
+from raft import transaction
+assert transaction(sys.argv[1], 'cat') == ''
+with tempfile.TemporaryFile() as output:
+    transaction(sys.argv[1], 'cat', stdout=output)
+    output.seek(0)
+    assert output.read() == b''
+"""
+    with subprocess.Popen(
+        [sys.executable, "-c", program, location],
+        cwd=ROOT,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ) as process:
+        try:
+            process.stdin.write(b"must-not-reach-the-host\n")
+            process.stdin.flush()
+            process.wait(timeout=30)
+        finally:
+            # Release even a regressed remote reader before leaving this test.
+            process.stdin.close()
+            process.wait(timeout=30)
+        assert process.returncode == 0, process.stderr.read().decode()
+    assert transaction(location, "printf lock-released") == "lock-released"
+    print(f"{location}: open stdin ignored and lifecycle lock released", flush=True)
+
+
 def verify(location, isolated_worker=False):
     if inventory(location):
         raise RuntimeError(
@@ -236,6 +287,8 @@ def verify(location, isolated_worker=False):
         return any(box["name"] == parse_handle(handle)[1] for box in inventory(location))
 
     try:
+        verify_readiness(location, expect_stale=isolated_worker)
+        verify_transaction_stdin(location)
         box = create("--memory", "1GiB")
         live.wait_running(box)
         _, name = parse_handle(box)

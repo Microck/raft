@@ -35,7 +35,7 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 | Lifecycle defaults | Defaults to first configured location, 1 CPU, 2 GiB RAM, and 600-second lifetime. Supported choices are 1 or 2 CPUs, 1/2/4 GiB RAM, and 60 to 2,592,000 seconds (30 days) TTL. |
 | Admission limit | Hard ceiling of four saved boxes per host, including stopped boxes. |
 | TTL calculation | Running TTL begins after launch completes, using the host clock. Cold image preparation does not consume TTL. |
-| Host locking | Creation, lifecycle transitions, and expiry are serialized by host file lock (`/run/lock/raft-incus.lock`). Native Incus admin calls bypass CLI policy. |
+| Host locking | Creation, lifecycle transitions, and expiry are serialized by host file lock (`/run/lock/raft-incus.lock`). Noninteractive transactions close controller stdin so commands cannot wait for piped input while holding this lock. Exec, SSH, and file-transfer input keep their existing forwarding behavior. Native Incus admin calls bypass CLI policy. |
 
 ## Capacity and admission inspection
 
@@ -51,7 +51,7 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 
 - **Stop and resume**: Stop terminates guest processes and preserves disk contents; stopped boxes retain disk but do not reserve guest RAM. Resume starts the container anew with an explicit TTL without restoring process memory.
 - **Lifetime extension**: `raft extend --ttl` resets a running box's deadline from current host time without restarting; stopped boxes require `raft resume`.
-- **Host worker contract**: Disposable creation/fork and retention cleanup require the current worker protocol. A mismatch fails before executing deletion policy or creating a disposable box; deploy the current checkout explicitly.
+- **Host worker contract**: `doctor`, disposable creation/fork, and retention cleanup require the current worker protocol. `doctor` checks it without running expiry or changing boxes, and reports the failing location. A mismatch fails before executing deletion policy or creating a disposable box; deploy the current checkout explicitly. Installing a new CLI does not update host workers.
 - **Disposable lifecycle**: `new --disposable` opts a box into deletion on stop or TTL expiry, including its snapshots. Clones and recovered boxes default to persistent; fork accepts an explicit `--disposable`.
 - **Retention cleanup**: `prune --older-than DAYS` previews persistent stopped boxes with a recorded stop timestamp. `--yes` deletes matching boxes under the host lifecycle lock. Running boxes and boxes without a recorded stop time are excluded. No automatic persistent-box deletion is enabled.
 - **Resizing**: Resume and fork accept optional supported CPU/RAM overrides, preserving omitted values. Resume validates stopped state under the lock before changing sizing.

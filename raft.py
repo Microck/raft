@@ -304,7 +304,9 @@ def transaction(location, script, *arguments, stdout=None):
         *arguments,
     ]
     connection = [
+        # Lifecycle transactions take arguments, never interactive or piped input.
         "ssh",
+        "-n",
         "-T",
         "-o",
         "BatchMode=yes",
@@ -710,6 +712,10 @@ def dispatch(args):
                     print(output, end="")
             elif args.action == "doctor":
                 print(location + ": " + incus(location, "version").strip())
+                try:
+                    transaction(location, CHECK_WORKER)
+                except RuntimeError as error:
+                    raise RuntimeError(f"{location}: {error}") from error
                 response = subprocess.run(
                     [
                         "ssh",

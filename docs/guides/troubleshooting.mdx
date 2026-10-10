@@ -19,14 +19,35 @@ raft doctor
 
 `raft doctor` connects to each host over SSH and reports:
 - Incus version running in project `raft`
+- Compatibility of the installed expiry worker with the CLI
 - Active status of host systemd services (`incus`, `raft-expire.timer`, `raft-network.service`)
 - Host root filesystem disk usage (`df -h /`)
 - Status and usage of the `raft-data` Btrfs pool
 - Count of existing saved containers
 
 <Callout type="info" title="Doctor scope">
-`raft doctor` reports runtime daemon and storage status. It does not validate image fingerprints, inspect nftables bridge rules, enforce admission caps, or emit 5 GiB low-disk warnings.
+`raft doctor` reports runtime daemon, expiry-worker compatibility, and storage status. It does not validate image fingerprints, inspect nftables bridge rules, enforce admission caps, or emit 5 GiB low-disk warnings.
 </Callout>
+
+### Expiry worker differs from the CLI
+
+An active expiration timer can still run an older worker. Installing or updating
+the controller CLI does not deploy host code. `doctor` checks the same worker
+protocol as disposable creation and retention cleanup, without running expiry or
+changing any boxes. It exits nonzero and names the location on a mismatch.
+
+Review the host deployment changes, then deploy from the checkout matching your
+CLI. Replace `lab` with the location reported by the diagnostic:
+
+```sh title="CONTROLLER: Explicitly update a reviewed host deployment"
+python3 deploy/deploy.py --location lab
+raft doctor
+```
+
+Deployment updates host infrastructure as well as the expiry worker. Do not run
+it on a shared host without authorization. Do not remove the compatibility check
+or mark an old worker as current; older workers may retain expired disposable
+boxes instead of deleting them.
 
 ### Listing active and stopped containers
 
