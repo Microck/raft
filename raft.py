@@ -16,7 +16,7 @@ import uuid
 
 import raft_files
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 PROJECT = "raft"

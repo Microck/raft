@@ -202,7 +202,12 @@ with tempfile.TemporaryFile() as output:
         finally:
             # Release even a regressed remote reader before leaving this test.
             process.stdin.close()
-            process.wait(timeout=30)
+            try:
+                process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                raise
         assert process.returncode == 0, process.stderr.read().decode()
     assert transaction(location, "printf lock-released") == "lock-released"
     print(f"{location}: open stdin ignored and lifecycle lock released", flush=True)

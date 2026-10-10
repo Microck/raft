@@ -35,7 +35,7 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 | Lifecycle defaults | Defaults to first configured location, 1 CPU, 2 GiB RAM, and 600-second lifetime. Supported choices are 1 or 2 CPUs, 1/2/4 GiB RAM, and 60 to 2,592,000 seconds (30 days) TTL. |
 | Admission limit | Hard ceiling of four saved boxes per host, including stopped boxes. |
 | TTL calculation | Running TTL begins after launch completes, using the host clock. Cold image preparation does not consume TTL. |
-| Host locking | Creation, lifecycle transitions, and expiry are serialized by host file lock (`/run/lock/raft-incus.lock`). Noninteractive transactions close controller stdin so commands cannot wait for piped input while holding this lock. Exec, SSH, and file-transfer input keep their existing forwarding behavior. Native Incus admin calls bypass CLI policy. |
+| Host locking | Creation, lifecycle transitions, and expiry are serialized by host file lock (`/run/lock/raft-incus.lock`). Noninteractive transactions close controller stdin so commands cannot wait for piped input while holding this lock. Exec, SSH, and file-transfer paths remain unchanged. Piped input to `raft exec` is unsupported. Native Incus admin calls bypass CLI policy. |
 
 ## Capacity and admission inspection
 
