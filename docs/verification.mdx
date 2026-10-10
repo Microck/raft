@@ -57,9 +57,15 @@ The [final runtime validation](https://github.com/Microck/raft/actions/runs/3754
 
 ## New workspace controls
 
-`python3 deploy/verify-features.py --location lab` verifies recursive trees and unsafe-archive rejection, templates from a running source, snapshot deletion, CPU/RAM overrides, disposable timer deletion, and retention preview/apply. It uses only its own fixtures. Run the archive checks without `--location` to avoid allocating boxes.
+`python3 deploy/verify-features.py --location lab` verifies `doctor` readiness against the installed worker, recursive trees and unsafe-archive rejection, templates from a running source, snapshot deletion, CPU/RAM overrides, disposable timer deletion, and retention preview/apply. It uses only its own fixtures. Run the archive checks without `--location` to avoid allocating boxes.
 
-For an older deployment whose services should stay unchanged, `--isolated-worker` stages the current worker under a private temporary path. This checks worker logic without installing it; automatic timer integration is verified on disposable CI hosts. Current deployments use the normal verification mode; the isolated mode rejects them before allocation.
+The live suite also holds a controller stdin pipe open while running real remote
+readers through both captured and streamed lifecycle transactions. Both must
+receive EOF without consuming controller input, and a subsequent transaction
+must acquire the same host lock. This covers allocation stalls caused by Incus
+waiting for stdin while the expiration worker waits for the lifecycle lock.
+
+For an older deployment whose services should stay unchanged, `--isolated-worker` first verifies that `doctor` rejects the stale installed worker with a location-specific deployment diagnostic, then uses the current worker under a private temporary path. This checks worker logic without installing it; automatic timer integration is verified on disposable CI hosts. Current deployments use the normal verification mode; the isolated mode rejects them before allocation.
 
 ## Workspace controls validation (2026-10-07)
 
