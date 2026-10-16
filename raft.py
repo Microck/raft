@@ -2,6 +2,7 @@
 """Self-hosted persistent Linux workspaces powered by Incus."""
 
 import argparse
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -61,24 +62,31 @@ def settings(location):
 
 def set_note(location, text):
     """Record operator guidance for a location. Raft shows notes but never enforces them."""
-    inventory = configuration()
-    if location not in inventory:
-        raise ValueError(f"Unknown location: {location}")
-    if text is None:
-        inventory[location].pop("note", None)
-    elif not text.strip():
-        raise ValueError("Use --clear to remove a note")
-    else:
-        inventory[location]["note"] = text.strip()
-    # Key order is preserved because the first location is the default for new.
-    # Replace atomically so an interrupted write cannot truncate the inventory;
-    # NamedTemporaryFile creates the staged file with mode 0600.
-    with tempfile.NamedTemporaryFile(
-        "w", dir=CONFIG.parent, prefix=".raft-", delete=False
-    ) as staged:
-        json.dump(inventory, staged, indent=2)
-        staged.write("\n")
-    os.replace(staged.name, CONFIG)
+    # Hold a controller lock across read, edit and replace so concurrent edits
+    # cannot drop each other. Readers need no lock because replacement is atomic.
+    with (CONFIG.parent / ".incus.json.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        inventory = configuration()
+        if location not in inventory:
+            raise ValueError(f"Unknown location: {location}")
+        if text is None:
+            inventory[location].pop("note", None)
+        elif not text.strip():
+            raise ValueError("Use --clear to remove a note")
+        else:
+            inventory[location]["note"] = text.strip()
+        # Key order is preserved because the first location is the default for new.
+        # Replace atomically so an interrupted write cannot truncate the inventory;
+        # NamedTemporaryFile creates the staged file with mode 0600.
+        staged = tempfile.NamedTemporaryFile("w", dir=CONFIG.parent, prefix=".raft-", delete=False)
+        try:
+            with staged:
+                json.dump(inventory, staged, indent=2)
+                staged.write("\n")
+            os.replace(staged.name, CONFIG)
+        finally:
+            # A no-op after a successful replace; removes the file after a failure.
+            Path(staged.name).unlink(missing_ok=True)
 
 
 def receive(command, destination, *, stdin=None):

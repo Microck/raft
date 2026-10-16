@@ -189,6 +189,21 @@ def verify_location_notes():
             rejected = cli(*arguments)
             assert rejected.returncode == 1 and error in rejected.stderr, rejected
         assert cli("note", "lab", "x", "--clear").returncode == 2
+        # Concurrent edits to different locations must all survive.
+        many = {f"host{index}": {"ssh": f"host{index}"} for index in range(8)}
+        saved = config.read_text()
+        config.write_text(json.dumps(many))
+        writers = [
+            subprocess.Popen(
+                [sys.executable, str(ROOT / "raft.py"), "note", location, "busy " + location],
+                env={**os.environ, "HOME": home},
+            )
+            for location in many
+        ]
+        assert all(writer.wait() == 0 for writer in writers)
+        notes = {key: entry.get("note") for key, entry in json.loads(config.read_text()).items()}
+        assert notes == {location: "busy " + location for location in many}, notes
+        config.write_text(saved)
         assert cli("note", "spare", "--clear").returncode == 0
         assert "note" not in json.loads(config.read_text())["spare"]
         assert not list(config.parent.glob(".raft-*")), "Staged configuration left behind"
