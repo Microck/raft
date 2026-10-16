@@ -18,7 +18,7 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Create/list/inspect/delete | ✅ | ✅ | Qualified handles, explicit locations, native Incus metadata. Single operator; no organization/account API |
 | Stop/resume | ✅ | ✅ | Stops processes, retains disk; resume requires TTL. Shared-kernel containers, not Boat VMs |
 | Running lifetime | ✅ | ✅ | Host-enforced TTL; extend resets deadline without restart. Long locked transactions delay expiry checks |
-| Sizing | ✅ | ✅ | 1/2 CPUs and 1/2/4 GiB choices. Resume/fork support sizing overrides; Boat offers larger sizes |
+| Sizing | ✅ | ✅ | 1/2 CPUs and 1/2/4/8 GiB choices. Resume/fork support sizing overrides; Boat offers larger sizes |
 | Host capacity recommendations | ❌ | ✅ | Raft reports host CPU/RAM budgets, active allocations, saved slots and disk headroom. Boat limits describe hosted plan credits and concurrency, not operator-host sizing. Raft enforces four saved boxes per host |
 | Hosted credit and start-rate limits | ✅ | ❌ | Boat reports plan credits, concurrency and start rates. Raft has no billing service |
 | Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides, retaining omitted limits |

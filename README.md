@@ -131,7 +131,7 @@ records differences, sources and test coverage.
 | Create/list/inspect/delete | ✅ | ✅ | Single operator |
 | Persistent stop/resume | ✅ | ✅ | Shared host kernel |
 | TTL and lifetime extension | ✅ | ✅ | Persistent boxes retain disk; disposable boxes delete |
-| CPU/memory sizing and usage | ✅ | ✅ | 1 or 2 CPUs, 1, 2 or 4 GiB RAM. Disk usage covers the shared pool |
+| CPU/memory sizing and usage | ✅ | ✅ | 1 or 2 CPUs, 1, 2, 4 or 8 GiB RAM. Disk usage covers the shared pool |
 | Host capacity recommendations | ❌ | ✅ | Raft recommends running capacity and enforces four saved boxes. Boat reports plan limits |
 | Root terminal and command execution | ✅ | ✅ | Host SSH transport |
 | Background jobs, logs and cancellation | ✅ | ✅ | No process checkpoints |

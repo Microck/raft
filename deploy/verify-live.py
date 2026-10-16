@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CLI = [sys.executable, str(ROOT / "raft.py")]
 USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
 sys.path.insert(0, str(ROOT))
-from raft import configuration, incus, remote, settings, transaction  # noqa: E402
+from raft import MEMORY_SIZES, configuration, incus, remote, settings, transaction  # noqa: E402
 
 
 def raft(*arguments, check=True, env=None):
@@ -435,7 +435,7 @@ def verify_arguments():
         for lifetime in ["59", "2592001", "invalid"]:
             rejected = raft(*prefix, "--ttl", lifetime, check=False)
             assert rejected.returncode == 2 and "Traceback" not in rejected.stderr
-    for options in [["--cpu", "0"], ["--cpu", "3"], ["--memory", "8GiB"]]:
+    for options in [["--cpu", "0"], ["--cpu", "3"], ["--memory", "16GiB"]]:
         assert raft("new", *options, check=False).returncode == 2
     for arguments in [["exec", missing], ["recover", "missing"], ["forward", missing]]:
         assert raft(*arguments, check=False).returncode == 2
@@ -692,7 +692,7 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
         if extended:
             subprocess.run([sys.executable, str(ROOT / "deploy/verify-tools.py"), box], check=True)
             for cpu in [1, 2]:
-                for memory in ["1GiB", "2GiB", "4GiB"]:
+                for memory in MEMORY_SIZES:
                     sized = raft(
                         "new",
                         "--location",
@@ -709,7 +709,7 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
                     )
                     assert execute(sized, "nproc") == str(cpu)
                     assert execute(sized, "cat", "/sys/fs/cgroup/memory.max") == str(
-                        int(memory[0]) * 1024**3
+                        int(memory.removesuffix("GiB")) * 1024**3
                     )
                     raft("destroy", sized)
                     fixtures.remove(sized)

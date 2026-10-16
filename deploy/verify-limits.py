@@ -32,6 +32,32 @@ def policy_checks():
     assert report["allocated"] == {"cpus": 2, "memoryBytes": 4 * GIB}
     size = next(r for r in report["recommendations"] if r["cpu"] == 2 and r["memoryGiB"] == 4)
     assert (size["totalRunning"], size["additionalRunning"], size["newBoxes"]) == (3, 2, 2)
+    assert len(report["recommendations"]) == 8, "Every CPU/RAM combination needs advice"
+    # An 8 GiB box uses most of a 16 GiB host's 14 GiB budget: one fits on an empty
+    # host, none more while it runs, but a 4 GiB box still does.
+    large_box = {
+        "status": "Running",
+        "expanded_config": {"limits.cpu": "2", "limits.memory": "8GiB"},
+    }
+    eight = capacity(host, [large_box])
+    assert eight["allocated"] == {"cpus": 2, "memoryBytes": 8 * GIB}
+    by_size = {(r["cpu"], r["memoryGiB"]): r for r in eight["recommendations"]}
+    assert (by_size[2, 8]["totalRunning"], by_size[2, 8]["additionalRunning"]) == (1, 0)
+    assert by_size[1, 4]["additionalRunning"] == 1
+    try:
+        capacity(
+            host,
+            [
+                {
+                    "status": "Running",
+                    "expanded_config": {"limits.cpu": "1", "limits.memory": "16GiB"},
+                }
+            ],
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Unsupported box size was counted")
     full = capacity(host, [stopped] * 4)
     assert full["savedSlots"] == 0
     assert all(r["newBoxes"] == 0 for r in full["recommendations"])
@@ -58,7 +84,7 @@ def policy_checks():
         )
         assert default["totalRunning"] == expected
     print(
-        "Capacity policy: mixed sizes, stopped/frozen boxes, low RAM/disk, reserves and saved cap passed",
+        "Capacity policy: mixed and 8 GiB sizes, unsupported sizes, stopped/frozen boxes, low RAM/disk, reserves and saved cap passed",
         flush=True,
     )
 
