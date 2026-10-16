@@ -19,6 +19,8 @@ Each workspace host must be a dedicated physical machine or virtual instance:
 | **RAM** | At least 8 GiB | Sizing calculations reserve the larger of 2 GiB or 10% of host RAM (an advisory estimate, not an enforced host reservation). |
 | **Free disk** | At least 80 GiB on host disk | The deployer provisions a 60 GiB dedicated Btrfs pool (`raft-data`). |
 
+`raft host add` checks these requirements read-only before it changes a host.
+
 Host CPU and RAM reserves are advisory estimates for `raft limits`, not enforced cgroup locks.
 
 <Callout type="warn" title="Dedicated host requirement">

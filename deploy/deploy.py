@@ -5,7 +5,9 @@ selects system containers explicitly and never silently substitutes a VM.
 """
 
 import argparse
+import hashlib
 import json
+import re
 import shlex
 from pathlib import Path
 import subprocess
@@ -15,7 +17,49 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from raft import configuration  # noqa: E402
 
-HOSTS = {name: entry["ssh"] for name, entry in configuration().items()}
+RELEASES = "https://github.com/Microck/raft/releases/download/"
+# Matches the user agent install-incus.sh sends for its own downloads.
+USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
+INCUS_ARCHITECTURES = {"arm64": "aarch64", "amd64": "x86_64"}
+
+# Shared tail of both image scripts. A unified image's Incus fingerprint is the
+# SHA-256 of its archive, so checking the digest also predicts the fingerprint and
+# lets a rerun reuse an earlier import instead of failing on a duplicate.
+IMPORT_IMAGE = """fingerprint=$(sha256sum "$archive" | cut -d ' ' -f 1)
+test "$fingerprint" = "$expected" || { echo 'Image SHA-256 does not match the expected checksum' >&2; exit 1; }
+if ! sudo -n incus --project raft image info "$fingerprint" >/dev/null 2>&1; then
+  sudo -n incus --project raft image import "$archive" >&2
+fi
+echo "$fingerprint"
+"""
+
+RELEASE_IMAGE = (
+    """set -eu
+work=$(mktemp -d /tmp/raft-image.XXXXXXXX)
+trap 'rm -rf "$work"' EXIT
+archive="$work/raft-dev-$2.tar.gz"
+curl -fsSL -A "$3" -o "$work/SHA256SUMS" "$1/SHA256SUMS"
+curl -fsSL -A "$3" -o "$archive" "$1/raft-dev-$2.tar.gz"
+expected=$(awk -v name="raft-dev-$2.tar.gz" '$2 == name {print $1}' "$work/SHA256SUMS")
+test -n "$expected" || { echo "Release SHA256SUMS lists no raft-dev-$2.tar.gz" >&2; exit 1; }
+"""
+    + IMPORT_IMAGE
+)
+
+ARCHIVE_IMAGE = (
+    """set -eu
+archive=$(mktemp /tmp/raft-image.XXXXXXXX)
+trap 'rm -f "$archive"' EXIT
+cat > "$archive"
+expected="$1"
+"""
+    + IMPORT_IMAGE
+)
+
+
+def hosts():
+    # Read at call time: onboarding imports this module before its location exists.
+    return {name: entry["ssh"] for name, entry in configuration().items()}
 
 
 def remote(host, command):
@@ -40,8 +84,57 @@ def host_architecture(host):
     return architecture
 
 
-def deploy(name):
-    host = HOSTS[name]
+def script(host, body, *arguments, stdin=None):
+    """Run a shell script on the host with positional arguments, returning its stdout."""
+    response = subprocess.run(
+        [
+            "ssh",
+            "-T",
+            "-o",
+            "BatchMode=yes",
+            host,
+            shlex.join(["sh", "-c", body, "raft", *arguments]),
+        ],
+        stdin=stdin,
+        capture_output=True,
+        text=True,
+    )
+    if response.returncode:
+        raise RuntimeError(response.stderr.strip() or "Remote script failed")
+    return response.stdout.strip()
+
+
+def checked_image(host, fingerprint, architecture):
+    """Confirm the imported image exists and matches the host architecture."""
+    if not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+        raise RuntimeError("Image import returned an invalid fingerprint")
+    images = json.loads(
+        remote(host, f"sudo -n incus --project raft image list {fingerprint} --format json")
+    )
+    image = next((item for item in images if item["fingerprint"] == fingerprint), None)
+    if image is None or image["architecture"] != INCUS_ARCHITECTURES[architecture]:
+        raise RuntimeError(f"Imported image is missing or not a native {architecture} image")
+    return fingerprint
+
+
+def import_release(host, tag, architecture):
+    """Download a release image on the host, verify it against SHA256SUMS and import it."""
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+        raise ValueError("Release tags look like v0.3.0")
+    fingerprint = script(host, RELEASE_IMAGE, RELEASES + tag, architecture, USER_AGENT)
+    return checked_image(host, fingerprint, architecture)
+
+
+def import_archive(host, archive, architecture):
+    """Upload a local image archive over SSH stdin, verify its digest and import it."""
+    with Path(archive).open("rb") as source:
+        expected = hashlib.file_digest(source, "sha256").hexdigest()
+        source.seek(0)
+        fingerprint = script(host, ARCHIVE_IMAGE, expected, stdin=source)
+    return checked_image(host, fingerprint, architecture)
+
+
+def deploy(name, host):
     host_architecture(host)
     copy(host, ROOT / "deploy/install-incus.sh", "/tmp/raft-install-incus.sh")
     print(remote(host, "bash /tmp/raft-install-incus.sh </dev/null"), flush=True)
@@ -166,10 +259,11 @@ def deploy(name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--location", choices=HOSTS)
+    configured = hosts()
+    parser.add_argument("--location", choices=configured)
     args = parser.parse_args()
-    for name in [args.location] if args.location else HOSTS:
-        deploy(name)
+    for name in [args.location] if args.location else configured:
+        deploy(name, configured[name])
 
 
 if __name__ == "__main__":

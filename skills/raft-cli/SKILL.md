@@ -8,6 +8,9 @@ description: Create and use private persistent Linux workspaces on configured Li
 Raft runs unprivileged native ARM64 or AMD64 Incus system containers. They share the host kernel.
 The current deployment does not implement Incus VMs. Do not describe these boxes as VMs or promise cross-architecture emulation.
 
+`raft host add` installs packages and services on a machine. Run it only when the
+user explicitly asks to onboard that host, and show its `--dry-run` plan first.
+
 Run `raft locations`, `raft doctor`, `raft limits` and `raft list` before allocating.
 Follow each location's `note`: the operator uses it to mark preferred hosts and
 hosts to avoid for some work. Pass `--location` explicitly when a note rules out

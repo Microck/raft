@@ -40,6 +40,14 @@ up hosts or download workspace images.
 | host access | SSH and passwordless sudo |
 | controller | Linux, Python 3.11.8+, SSH and SCP; npm or uv for installation |
 
+then onboard a dedicated Ubuntu host over key-based SSH. `raft host add` checks
+the host, shows its plan, provisions Incus, imports a verified image and runs a
+smoke test:
+
+```sh
+raft host add lab --ssh ubuntu@192.0.2.10
+```
+
 once your host and image are configured, run the commands below. replace `lab`
 with a location from your configuration:
 
