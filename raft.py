@@ -16,7 +16,7 @@ import uuid
 
 import raft_files
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 PROJECT = "raft"
@@ -47,6 +47,8 @@ def configuration():
             raise ValueError("Location names must use letters, digits, underscores or hyphens")
         if not isinstance(entry, dict) or not isinstance(entry.get("ssh"), str) or not entry["ssh"]:
             raise ValueError("Each configured location needs a nonempty ssh target")
+        if not isinstance(entry.get("note", ""), str):
+            raise ValueError("Location notes must be strings")
     return inventory
 
 
@@ -55,6 +57,28 @@ def settings(location):
     if location not in inventory:
         raise ValueError(f"Unknown location: {location}")
     return inventory[location]
+
+
+def set_note(location, text):
+    """Record operator guidance for a location. Raft shows notes but never enforces them."""
+    inventory = configuration()
+    if location not in inventory:
+        raise ValueError(f"Unknown location: {location}")
+    if text is None:
+        inventory[location].pop("note", None)
+    elif not text.strip():
+        raise ValueError("Use --clear to remove a note")
+    else:
+        inventory[location]["note"] = text.strip()
+    # Key order is preserved because the first location is the default for new.
+    # Replace atomically so an interrupted write cannot truncate the inventory;
+    # NamedTemporaryFile creates the staged file with mode 0600.
+    with tempfile.NamedTemporaryFile(
+        "w", dir=CONFIG.parent, prefix=".raft-", delete=False
+    ) as staged:
+        json.dump(inventory, staged, indent=2)
+        staged.write("\n")
+    os.replace(staged.name, CONFIG)
 
 
 def receive(command, destination, *, stdin=None):
@@ -255,7 +279,11 @@ def host_limits(location):
         text=True,
         check=True,
     )
-    return {"location": location, **capacity(json.loads(response.stdout), inventory(location))}
+    return {
+        "location": location,
+        "note": settings(location).get("note", ""),
+        **capacity(json.loads(response.stdout), inventory(location)),
+    }
 
 
 def print_limits(report):
@@ -266,6 +294,8 @@ def print_limits(report):
         f"{host['memoryTotalBytes'] / gib:.1f} GiB RAM "
         f"({host['memoryAvailableBytes'] / gib:.1f} GiB available)"
     )
+    if report["note"]:
+        print("Note: " + report["note"])
     print(
         f"Saved boxes: {report['savedBoxes']}/{report['savedBoxLimit']} enforced; "
         f"active: {report['activeBoxes']}; free saved slots: {report['savedSlots']}"
@@ -358,6 +388,10 @@ def new(args):
             raise ValueError(
                 "Build an image and configure its full immutable fingerprint before creating boxes"
             )
+    note = settings(args.location).get("note")
+    if note:
+        # Stderr keeps stdout limited to the handle for scripts.
+        print(f"{args.location} note: {note}", file=sys.stderr)
     name = "rf-" + uuid.uuid4().hex[:16]
     # Initialize before starting, so a failed start still has its intended policy.
     transaction(
@@ -587,6 +621,12 @@ def parser():
     create.add_argument("--memory", choices=["1GiB", "2GiB", "4GiB"], default="2GiB")
     create.add_argument("--disposable", action="store_true", help="Delete on stop or expiry")
     create.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
+    commands.add_parser("locations", help="List configured locations and their notes")
+    note = commands.add_parser("note", help="Set or clear operator guidance for a location")
+    note.add_argument("location")
+    text = note.add_mutually_exclusive_group(required=True)
+    text.add_argument("text", nargs="?", help="Guidance, e.g. 'Preferred for builds'")
+    text.add_argument("--clear", action="store_true", help="Remove the location's note")
     listing = commands.add_parser("list")
     listing.add_argument("--location")
     limits = commands.add_parser("limits", help="Inspect host capacity and recommended box counts")
@@ -661,6 +701,14 @@ def dispatch(args):
         return 0
     if args.action == "new":
         new(args)
+        return 0
+    if args.action == "note":
+        set_note(args.location, None if args.clear else args.text)
+        return 0
+    if args.action == "locations":
+        for index, (location, entry) in enumerate(configuration().items()):
+            record = {"location": location, "default": index == 0, "note": entry.get("note", "")}
+            print(json.dumps(record))
         return 0
     if args.action in ["list", "limits", "doctor", "gc", "prune"]:
         if args.action == "prune" and args.older_than < 1:

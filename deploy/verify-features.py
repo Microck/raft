@@ -157,6 +157,47 @@ def verify_archives():
     )
 
 
+def verify_location_notes():
+    """Edit notes in a private controller home; no host is contacted."""
+    with tempfile.TemporaryDirectory() as home:
+        config = Path(home) / ".config/raft/incus.json"
+        config.parent.mkdir(parents=True)
+        config.write_text(
+            json.dumps({"lab": {"ssh": "lab-host", "image": ""}, "spare": {"ssh": "spare-host"}})
+        )
+
+        def cli(*arguments):
+            return subprocess.run(
+                [sys.executable, str(ROOT / "raft.py"), *arguments],
+                env={**os.environ, "HOME": home},
+                capture_output=True,
+                text=True,
+            )
+
+        assert cli("note", "spare", "  Avoid for Docker builds ").returncode == 0
+        records = [json.loads(line) for line in cli("locations").stdout.splitlines()]
+        assert records == [
+            {"location": "lab", "default": True, "note": ""},
+            {"location": "spare", "default": False, "note": "Avoid for Docker builds"},
+        ], records
+        assert list(json.loads(config.read_text())) == ["lab", "spare"], "Default location moved"
+        assert config.stat().st_mode & 0o777 == 0o600, "Note editing widened permissions"
+        for arguments, error in [
+            (["note", "missing", "x"], "Unknown location"),
+            (["note", "lab", " "], "--clear"),
+        ]:
+            rejected = cli(*arguments)
+            assert rejected.returncode == 1 and error in rejected.stderr, rejected
+        assert cli("note", "lab", "x", "--clear").returncode == 2
+        assert cli("note", "spare", "--clear").returncode == 0
+        assert "note" not in json.loads(config.read_text())["spare"]
+        assert not list(config.parent.glob(".raft-*")), "Staged configuration left behind"
+        config.write_text(json.dumps({"lab": {"ssh": "lab-host", "note": 1}}))
+        rejected = cli("locations")
+        assert rejected.returncode == 1 and "notes must be strings" in rejected.stderr, rejected
+    print("Location note editing, listing, ordering and permissions passed", flush=True)
+
+
 def verify_readiness(location, expect_stale=False):
     # Isolate the selected host without losing the controller's verified SSH config.
     with tempfile.TemporaryDirectory(prefix="raft-doctor-test-") as work:
@@ -514,6 +555,7 @@ if __name__ == "__main__":
     parser.add_argument("--location")
     parser.add_argument("--isolated-worker", action="store_true")
     args = parser.parse_args()
+    verify_location_notes()
     verify_archives()
     if args.location:
         verify(args.location, args.isolated_worker)

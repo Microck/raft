@@ -27,6 +27,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Snapshots and cloning | [`snapshot`](#snapshot), [`snapshots`](#snapshots), [`restore`](#restore), [`snapshot-delete`](#snapshot-delete), [`fork`](#fork) |
 | Port forwarding and desktop | [`forward`](#forward), [`desktop`](#desktop) |
 | Backup and recovery | [`backup`](#backup), [`recover`](#recover) |
+| Locations | [`locations`](#locations), [`note`](#note) |
 | Host inspection and maintenance | [`limits`](#limits), [`doctor`](#doctor), [`list`](#list), [`gc`](#gc), [`prune`](#prune) |
 
 ## Workspace lifecycle commands
@@ -45,7 +46,8 @@ Create and launch a new workspace container.
 - `--disposable`: Delete the box and snapshots on stop or expiry. Off by default.
 - `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. Normal creation sizing applies; the source can be running. Cannot target a different location.
 
-Returns the qualified workspace handle.
+Returns the qualified workspace handle. If the location has a note, `new` prints
+it to stderr; stdout still contains only the handle.
 
 ### `stop`
 
@@ -244,6 +246,29 @@ Import a portable backup archive onto a host as a fresh stopped workspace.
 
 Returns the qualified handle of the imported stopped workspace.
 
+## Location commands
+
+### `locations`
+
+List configured locations without contacting hosts.
+
+`raft locations`
+
+Prints one JSON object per location (JSONL) in configuration order, with
+`location`, `default` and `note` fields. `default` is true for the location that
+`new` uses without `--location`. `note` is empty when none is set.
+
+### `note`
+
+Set or clear operator guidance for a location in `~/.config/raft/incus.json`.
+
+`raft note LOCATION TEXT`
+`raft note LOCATION --clear`
+
+Notes are advisory. Use them to record which host is preferred or what a host
+should not run. Raft shows notes in `locations`, `limits` and `new` but does not
+enforce them. Empty notes are rejected; use `--clear` to remove one.
+
 ## Host inspection and maintenance commands
 
 ### `limits`
@@ -254,6 +279,8 @@ Inspect host resource capacity, active allocations, and recommended workspace li
 
 - `--location LOCATION`: Filter report to a specific host.
 - `--json`: Output report as JSON.
+
+Each report includes the location's `note`, if any.
 
 ### `doctor`
 

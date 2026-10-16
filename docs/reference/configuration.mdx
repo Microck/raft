@@ -27,7 +27,8 @@ The configuration file maps location names to host definition objects:
 {
   "lab": {
     "ssh": "ubuntu@192.0.2.10",
-    "image": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    "image": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "note": "Preferred for builds"
   },
   "remote-builder": {
     "ssh": "builder.example.com",
@@ -47,6 +48,19 @@ The configuration file maps location names to host definition objects:
 | :--- | :--- | :--- | :--- |
 | `ssh` | `string` | Yes | Non-empty SSH connection string (IP, `user@host`, or SSH host alias from `~/.ssh/config`). |
 | `image` | `string` | For `raft new` only | Full 64-character hexadecimal SHA-256 fingerprint (`^[a-f0-9]{64}$`). An empty string `""` is allowed during initial host provisioning. |
+| `note` | `string` | No | Operator guidance for choosing this location, such as `Preferred for builds` or `Do not use for Docker`. Raft shows notes but never enforces them. |
+
+Set or clear notes with `raft note` instead of editing the file by hand:
+
+```sh title="CONTROLLER: Record location guidance"
+raft note lab "Preferred for builds"
+raft note spare "Do not use for Docker builds"
+raft locations
+raft note spare --clear
+```
+
+`raft note` rewrites the file with two-space indentation, keeps location order and
+mode `0600`. `raft locations`, `raft limits` and `raft new` show the note.
 
 <Callout type="warn" title="Replace placeholder image fingerprint">
 The `image` field requires the full 64-character hash for `raft new`; aliases such as `raft-dev` are rejected. Replace the example hash with the actual imported image fingerprint for that host.
