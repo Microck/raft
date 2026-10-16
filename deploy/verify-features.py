@@ -350,6 +350,25 @@ def verify(location, isolated_worker=False):
     try:
         verify_readiness(location, expect_stale=isolated_worker)
         verify_transaction_stdin(location)
+        # A location note goes to stderr; stdout stays the bare handle for scripts.
+        # A private HOME copy carries the note, leaving the operator config untouched;
+        # OpenSSH reads keys and aliases from the passwd home, not HOME.
+        with tempfile.TemporaryDirectory() as home:
+            noted = Path(home) / ".config/raft/incus.json"
+            noted.parent.mkdir(parents=True)
+            noted.write_text(
+                json.dumps({location: {**settings(location), "note": "feature verifier note"}})
+            )
+            response = live.raft(
+                "new", "--location", location, "--ttl", "600", env={**os.environ, "HOME": home}
+            )
+        handle = response.stdout.strip()
+        fixtures.append(handle)
+        assert response.stdout == handle + "\n", response.stdout
+        assert response.stderr == f"{location} note: feature verifier note\n", response.stderr
+        live.raft("destroy", handle)
+        fixtures.remove(handle)
+        print(f"{location}: noted new kept stdout to the handle and the note on stderr", flush=True)
         box = create("--memory", "1GiB")
         live.wait_running(box)
         _, name = parse_handle(box)
