@@ -3,6 +3,7 @@
 
 import argparse
 import fcntl
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import tarfile
+import time
 import uuid
 
 import raft_files
@@ -22,6 +24,8 @@ __version__ = "0.3.0"
 CONFIG = Path.home() / ".config/raft/incus.json"
 PROJECT = "raft"
 SAVED_BOX_LIMIT = 4
+LOCATION_NAME = r"[a-zA-Z0-9][a-zA-Z0-9_-]*"
+GIB = 1024**3
 
 USAGE = """import json, shutil
 from pathlib import Path
@@ -44,7 +48,7 @@ def configuration():
     if not isinstance(inventory, dict) or not inventory:
         raise ValueError("Configure at least one host in ~/.config/raft/incus.json")
     for location, entry in inventory.items():
-        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", location):
+        if not re.fullmatch(LOCATION_NAME, location):
             raise ValueError("Location names must use letters, digits, underscores or hyphens")
         if not isinstance(entry, dict) or not isinstance(entry.get("ssh"), str) or not entry["ssh"]:
             raise ValueError("Each configured location needs a nonempty ssh target")
@@ -60,21 +64,21 @@ def settings(location):
     return inventory[location]
 
 
-def set_note(location, text):
-    """Record operator guidance for a location. Raft shows notes but never enforces them."""
+def edit_configuration(change):
+    """Apply change(inventory) to the controller configuration and save it."""
+    # main() sets umask 077, so a new configuration directory is private.
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
     # Hold a controller lock across read, edit and replace so concurrent edits
     # cannot drop each other. Readers need no lock because replacement is atomic.
     with (CONFIG.parent / ".incus.json.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        inventory = configuration()
-        if location not in inventory:
-            raise ValueError(f"Unknown location: {location}")
-        if text is None:
-            inventory[location].pop("note", None)
-        elif not text.strip():
-            raise ValueError("Use --clear to remove a note")
-        else:
-            inventory[location]["note"] = text.strip()
+        # Onboarding can start on a controller that has no configuration yet.
+        inventory = configuration() if CONFIG.exists() else {}
+        change(inventory)
+        if not inventory:
+            # Removing the only location restores the unconfigured state.
+            CONFIG.unlink(missing_ok=True)
+            return
         # Key order is preserved because the first location is the default for new.
         # Replace atomically so an interrupted write cannot truncate the inventory;
         # NamedTemporaryFile creates the staged file with mode 0600.
@@ -87,6 +91,22 @@ def set_note(location, text):
         finally:
             # A no-op after a successful replace; removes the file after a failure.
             Path(staged.name).unlink(missing_ok=True)
+
+
+def set_note(location, text):
+    """Record operator guidance for a location. Raft shows notes but never enforces them."""
+    if text is not None and not text.strip():
+        raise ValueError("Use --clear to remove a note")
+
+    def change(inventory):
+        if location not in inventory:
+            raise ValueError(f"Unknown location: {location}")
+        if text is None:
+            inventory[location].pop("note", None)
+        else:
+            inventory[location]["note"] = text.strip()
+
+    edit_configuration(change)
 
 
 def receive(command, destination, *, stdin=None):
@@ -137,6 +157,188 @@ def incus(location, *argv, locked=False):
     if response.returncode:
         raise RuntimeError(response.stderr.decode(errors="replace").strip())
     return response.stdout.decode()
+
+
+# Read-only probe. It runs through the login shell of any SSH target, including
+# macOS, so each fact degrades to an empty value instead of failing the script.
+# Sizes are printed in KiB because mawk formats large products in exponent form.
+HOST_FACTS = """echo "kernel=$(uname -s)"
+if [ -r /etc/os-release ]; then . /etc/os-release; echo "os=${ID:-}"; echo "version=${VERSION_ID:-}"; fi
+echo "arch=$(dpkg --print-architecture 2>/dev/null)"
+echo "cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null)"
+echo "memory=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)"
+directory=/var/lib/incus; [ -d "$directory" ] || directory=/var/lib
+echo "disk=$(df -Pk "$directory" 2>/dev/null | awk 'NR == 2 {print $4}')"
+if sudo -n true 2>/dev/null; then echo sudo=yes; else echo sudo=no; fi
+if command -v python3 >/dev/null 2>&1; then echo python3=yes; else echo python3=no; fi
+if sudo -n incus project list --format csv -c n 2>/dev/null | grep -qx raft; then echo deployed=yes; else echo deployed=no; fi
+"""
+
+
+def host_problems(facts):
+    """Return reasons a probed SSH target cannot become a Raft host; empty means supported."""
+    kernel = facts.get("kernel") or "an unknown system"
+    if kernel != "Linux":
+        return [
+            f"The target runs {kernel}, not Linux. Raft hosts need Ubuntu 22.04 or 24.04 on "
+            "ARM64 or AMD64. On macOS, run an Ubuntu VM and onboard the VM's SSH target"
+        ]
+    problems = []
+    release = f"{facts.get('os', '')} {facts.get('version', '')}".strip() or "unknown"
+    if facts.get("os") != "ubuntu" or facts.get("version") not in {"22.04", "24.04"}:
+        problems.append(f"Raft hosts need Ubuntu 22.04 or 24.04; found {release}")
+    if facts.get("arch") not in {"arm64", "amd64"}:
+        problems.append(f"Raft hosts need ARM64 or AMD64; found {facts.get('arch') or 'unknown'}")
+    if facts.get("sudo") != "yes":
+        problems.append("Configure passwordless sudo for the SSH user; `sudo -n true` must succeed")
+    if facts.get("python3") != "yes":
+        problems.append("Install python3 on the host")
+    cpus = int(facts.get("cpus") or 0)
+    if cpus < 2:
+        problems.append(f"Raft hosts need at least 2 CPUs; found {cpus}")
+    # MemTotal excludes firmware and kernel reservations: 8 GiB machines report
+    # about 7.7 GiB. The threshold accepts them and rejects 6 GiB machines.
+    memory = int(facts.get("memory") or 0) * 1024
+    if memory < 7.5 * GIB:
+        problems.append(f"Raft hosts need at least 8 GiB RAM; found {memory / GIB:.1f} GiB")
+    # Only a fresh deployment creates the 60 GiB pool; deploy.py enforces the same limit.
+    disk = int(facts.get("disk") or 0) * 1024
+    if facts.get("deployed") != "yes" and disk < 80 * GIB:
+        problems.append(f"Fresh hosts need at least 80 GiB free disk; found {disk / GIB:.1f} GiB")
+    return problems
+
+
+def deploy_module(filename):
+    """Load a host deployment script shipped beside the CLI."""
+    path = Path(__file__).resolve().parent / "deploy" / filename
+    if not path.exists():
+        raise ValueError(
+            "Host onboarding needs the deployment files in the npm package or a source "
+            "checkout; the Python wheel contains only the CLI"
+        )
+    spec = importlib.util.spec_from_file_location("raft_" + path.stem.replace("-", "_"), path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def smoke_test(location):
+    """Create a disposable box, wait until it runs a command, then delete it."""
+    handle = new(
+        argparse.Namespace(
+            location=location, ttl=600, cpu=1, memory="2GiB", disposable=True, template=None
+        )
+    )
+    print("Smoke test box: " + handle, flush=True)
+    name = handle.partition(":")[2]
+    try:
+        # new returns once Incus starts the box, before every guest service is ready.
+        for _ in range(30):
+            if execute(location, name, ["true"], capture=True).returncode == 0:
+                break
+            time.sleep(2)
+        else:
+            raise RuntimeError("Smoke test box did not become command-ready: " + handle)
+    finally:
+        incus(location, "delete", name, "--force", locked=True)
+    print("Smoke test create/exec/destroy passed", flush=True)
+
+
+def host_add(args):
+    """Check, provision and register a new host location, then prove it works."""
+    if not re.fullmatch(LOCATION_NAME, args.location):
+        raise ValueError("Location names must use letters, digits, underscores or hyphens")
+    if CONFIG.exists() and args.location in configuration():
+        raise ValueError(f"{args.location} is already configured; check it with raft doctor")
+    archive = Path(args.image_archive).resolve() if args.image_archive else None
+    if archive is not None and not archive.is_file():
+        raise ValueError(f"Image archive not found: {archive}")
+    deployer = deploy_module("deploy.py")
+    probe = subprocess.run(
+        [
+            "ssh",
+            "-T",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            args.ssh,
+            shlex.join(["sh", "-c", HOST_FACTS]),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode:
+        raise RuntimeError(
+            f"Cannot reach {args.ssh} with key-based SSH: {probe.stderr.strip()}\n"
+            f"Verify the host key interactively, then check `ssh -o BatchMode=yes {args.ssh} true`"
+        )
+    facts = dict(line.split("=", 1) for line in probe.stdout.splitlines() if "=" in line)
+    problems = host_problems(facts)
+    if problems:
+        raise ValueError(
+            f"{args.ssh} cannot host Raft boxes; nothing was changed:\n- " + "\n- ".join(problems)
+        )
+    architecture = facts["arch"]
+    if args.build:
+        image = f"build a native {architecture} image from Debian 13 on the host"
+    elif archive is not None:
+        image = f"upload and import {archive}"
+    else:
+        image = f"download raft-dev-{architecture}.tar.gz from release {args.image_release} and import it"
+    print(
+        f"Plan for {args.location} ({args.ssh}: Ubuntu {facts['version']} {architecture}, "
+        f"{facts['cpus']} CPUs, {int(facts['memory']) * 1024 / GIB:.1f} GiB RAM)\n"
+        "- install Incus 6.0 LTS from the Zabbly apt repository, btrfs-progs and nftables if missing\n"
+        + (
+            "- reuse and verify the existing raft project, raft-data pool and rfbr0 bridge\n"
+            if facts["deployed"] == "yes"
+            else "- create Incus project raft, 60 GiB Btrfs pool raft-data and bridge rfbr0 "
+            "(10.232.0.1/24 with NAT)\n"
+        )
+        + "- install raft-network.service (rfbr0 isolation rules) and raft-expire.timer\n"
+        f"- {image}; images are checked by SHA-256 and architecture\n"
+        f"- add {args.location} with the image fingerprint to {CONFIG}\n"
+        "- run doctor and a disposable create/exec/destroy smoke test\n"
+        "SSH configuration, other firewall rules, IP addresses and account passwords are not changed.",
+        flush=True,
+    )
+    if args.dry_run:
+        print("Dry run: nothing was changed")
+        return
+    if not args.yes:
+        if not sys.stdin.isatty():
+            raise ValueError("Review the plan, then rerun with --yes to apply it")
+        if input("Apply this plan? [y/N] ").strip().lower() not in {"y", "yes"}:
+            raise ValueError("Onboarding cancelled; nothing was changed")
+    deployer.deploy(args.location, args.ssh)
+    if args.build:
+        # A fresh alias avoids refusing to build beside an earlier raft-dev image.
+        alias = "raft-dev-" + uuid.uuid4().hex[:8]
+        fingerprint = deploy_module("build-image.py").build(args.ssh, alias)
+    elif archive is not None:
+        fingerprint = deployer.import_archive(args.ssh, archive, architecture)
+    else:
+        fingerprint = deployer.import_release(args.ssh, args.image_release, architecture)
+
+    def register(inventory):
+        if args.location in inventory:
+            raise ValueError(f"{args.location} was configured while onboarding ran")
+        inventory[args.location] = {"ssh": args.ssh, "image": fingerprint}
+
+    edit_configuration(register)
+    try:
+        doctor(args.location)
+        smoke_test(args.location)
+    except BaseException:
+        # Never leave a plausible-looking but unusable location behind.
+        edit_configuration(lambda inventory: inventory.pop(args.location, None))
+        print(
+            f"Removed {args.location} from {CONFIG}. Host changes remain; a rerun reuses them.",
+            file=sys.stderr,
+        )
+        raise
+    print(f"{args.location} is ready: raft new --location {args.location}")
 
 
 def parse_handle(value):
@@ -328,6 +530,32 @@ def print_limits(report):
         print("Warning: " + warning)
 
 
+def doctor(location):
+    print(location + ": " + incus(location, "version").strip())
+    try:
+        transaction(location, CHECK_WORKER)
+    except RuntimeError as error:
+        raise RuntimeError(f"{location}: {error}") from error
+    response = subprocess.run(
+        [
+            "ssh",
+            "-T",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            settings(location)["ssh"],
+            "systemctl is-active incus raft-expire.timer raft-network.service && df -h /",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    print(response.stdout.strip())
+    print(incus(location, "storage", "info", "raft-data").strip())
+    print(f"{len(inventory(location))} saved boxes; system containers (shared host kernel)")
+
+
 def transaction(location, script, *arguments, stdout=None):
     # All lifecycle steps in a compound operation share the host expiry lock.
     command = [
@@ -430,7 +658,7 @@ def new(args):
         "volatile.eth0.hwaddr=",
         *sizing(args),
     )
-    print(f"{args.location}:{name}")
+    return f"{args.location}:{name}"
 
 
 def execute(location, name, command, *, capture=False):
@@ -635,6 +863,28 @@ def parser():
     text = note.add_mutually_exclusive_group(required=True)
     text.add_argument("text", nargs="?", help="Guidance, e.g. 'Preferred for builds'")
     text.add_argument("--clear", action="store_true", help="Remove the location's note")
+    host = commands.add_parser("host", help="Onboard workspace hosts")
+    host_commands = host.add_subparsers(dest="host_action", required=True)
+    onboard = host_commands.add_parser(
+        "add", help="Check, provision, register and smoke-test a new host location"
+    )
+    onboard.add_argument("location")
+    onboard.add_argument(
+        "--ssh", required=True, help="Key-based SSH target: user@host or an ~/.ssh/config alias"
+    )
+    source = onboard.add_mutually_exclusive_group()
+    source.add_argument(
+        "--image-release",
+        default="v" + __version__,
+        metavar="TAG",
+        help="Release whose checksummed image to download (default: this CLI's version)",
+    )
+    source.add_argument("--image-archive", metavar="PATH", help="Import a local image archive")
+    source.add_argument("--build", action="store_true", help="Build the image on the host")
+    onboard.add_argument(
+        "--dry-run", action="store_true", help="Check the host and print the plan; change nothing"
+    )
+    onboard.add_argument("--yes", action="store_true", help="Apply the plan without prompting")
     listing = commands.add_parser("list")
     listing.add_argument("--location")
     limits = commands.add_parser("limits", help="Inspect host capacity and recommended box counts")
@@ -708,7 +958,10 @@ def dispatch(args):
         recover(args)
         return 0
     if args.action == "new":
-        new(args)
+        print(new(args))
+        return 0
+    if args.action == "host":
+        host_add(args)
         return 0
     if args.action == "note":
         set_note(args.location, None if args.clear else args.text)
@@ -767,27 +1020,7 @@ def dispatch(args):
                 else:
                     print(output, end="")
             elif args.action == "doctor":
-                print(location + ": " + incus(location, "version").strip())
-                try:
-                    transaction(location, CHECK_WORKER)
-                except RuntimeError as error:
-                    raise RuntimeError(f"{location}: {error}") from error
-                response = subprocess.run(
-                    [
-                        "ssh",
-                        "-T",
-                        settings(location)["ssh"],
-                        "systemctl is-active incus raft-expire.timer raft-network.service && df -h /",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                print(response.stdout.strip())
-                print(incus(location, "storage", "info", "raft-data").strip())
-                print(
-                    f"{len(inventory(location))} saved boxes; system containers (shared host kernel)"
-                )
+                doctor(location)
             else:
                 for box in inventory(location):
                     print(

@@ -1,4 +1,4 @@
-"""Provision and reboot a disposable KVM Ubuntu host using the canonical deployer.
+"""Onboard and reboot a disposable KVM Ubuntu host through `raft host add`.
 
 CI-only harness. Writes temporary verified SSH/configuration in its own HOME.
 Uses a sparse 100 GiB virtual disk, not an 80 GiB physical capacity guarantee.
@@ -115,7 +115,6 @@ def verify(archive):
         ssh = home / ".ssh"
         config = home / ".config/raft"
         ssh.mkdir(parents=True, mode=0o700)
-        config.mkdir(parents=True, mode=0o700)
         for key in ["client", "host"]:
             run("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(work / key))
         (ssh / "config").write_text(
@@ -124,9 +123,8 @@ def verify(archive):
             f"  UserKnownHostsFile {ssh / 'known_hosts'}\n  StrictHostKeyChecking yes\n"
         )
         (ssh / "known_hosts").write_text("[localhost]:2222 " + (work / "host.pub").read_text())
+        # Onboarding starts from a controller with no Raft configuration at all.
         configuration = config / "incus.json"
-        configuration.write_text(json.dumps({"lab": {"ssh": "raft-fresh", "image": ""}}))
-        configuration.chmod(0o600)
         # A per-harness HOME keeps the operator's controller config untouched.
         env = {**os.environ, "HOME": str(home)}
         cloud = {
@@ -230,33 +228,40 @@ def verify(archive):
                 else:
                     raise RuntimeError("Fresh VM SSH did not become ready")
                 run("ssh", "raft-fresh", "sudo cloud-init status --wait --long", env=env)
-                run(sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab", env=env)
-                verify_firewall(env)
-                run("scp", str(archive), "raft-fresh:/tmp/raft-image.tar.gz", env=env)
-                run(
-                    "ssh",
-                    "raft-fresh",
-                    "sudo incus --project raft image import /tmp/raft-image.tar.gz --alias raft-dev",
-                    env=env,
+                onboard = [sys.executable, str(ROOT / "raft.py"), "host", "add", "lab"]
+                onboard += ["--ssh", "raft-fresh"]
+                preview = subprocess.run(
+                    [*onboard, "--dry-run"], env=env, capture_output=True, text=True, check=True
                 )
-                images = subprocess.check_output(
-                    [
-                        "ssh",
-                        "raft-fresh",
-                        "sudo incus --project raft image list raft-dev --format json",
-                    ],
+                assert "Dry run: nothing was changed" in preview.stdout, preview.stdout
+                assert not config.exists(), "Dry run wrote controller configuration"
+                deployed = subprocess.run(
+                    ["ssh", "raft-fresh", "command -v incus"], env=env, capture_output=True
+                )
+                assert deployed.returncode != 0, "Dry run installed Incus"
+                # Without a terminal or --yes, onboarding must refuse before changing anything.
+                refused = subprocess.run(
+                    onboard, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True
+                )
+                assert refused.returncode == 1 and "--yes" in refused.stderr, refused
+                run(*onboard, "--image-archive", str(archive), "--yes", env=env)
+                with archive.open("rb") as image_archive:
+                    digest = hashlib.file_digest(image_archive, "sha256").hexdigest()
+                saved = json.loads(configuration.read_text())
+                assert saved == {"lab": {"ssh": "raft-fresh", "image": digest}}, saved
+                assert configuration.stat().st_mode & 0o777 == 0o600
+                leftovers = subprocess.check_output(
+                    ["ssh", "raft-fresh", "ls /tmp | grep -c '^raft-image' || true"],
                     env=env,
                     text=True,
                 )
-                fingerprint = next(
-                    item["fingerprint"]
-                    for item in json.loads(images)
-                    if any(a["name"] == "raft-dev" for a in item["aliases"])
+                assert leftovers.strip() == "0", "Image staging file left on the host"
+                repeated = subprocess.run(
+                    [*onboard, "--yes"], env=env, capture_output=True, text=True
                 )
-                configuration.write_text(
-                    json.dumps({"lab": {"ssh": "raft-fresh", "image": fingerprint}})
-                )
-                run("ssh", "raft-fresh", "rm /tmp/raft-image.tar.gz", env=env)
+                assert repeated.returncode == 1 and "already configured" in repeated.stderr
+                print("Guided onboarding: dry run, confirmation, import and smoke test passed")
+                verify_firewall(env)
                 run(
                     sys.executable,
                     str(ROOT / "deploy/verify-live.py"),

@@ -10,27 +10,17 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from deploy import HOSTS, ROOT, copy, host_architecture, remote  # noqa: E402
+from deploy import ROOT, copy, host_architecture, hosts, remote  # noqa: E402
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--location", choices=HOSTS, required=True)
-    parser.add_argument(
-        "--alias", default="raft-dev", help="New image alias; existing aliases are refused"
-    )
-    args = parser.parse_args()
-    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", args.alias):
-        parser.error("alias must use letters, digits, underscores or hyphens")
-    host = HOSTS[args.location]
+def build(host, alias):
+    """Build and publish a native image under a new alias, returning its fingerprint."""
     architecture = host_architecture(host)
     started = time.monotonic()
     prefix = "sudo -n incus --project raft"
     aliases = json.loads(remote(host, prefix + " image list --format json"))
-    if any(a["name"] == args.alias for image in aliases for a in image["aliases"]):
-        raise RuntimeError(
-            args.alias + " exists; choose a fresh alias or review its removal explicitly"
-        )
+    if any(a["name"] == alias for image in aliases for a in image["aliases"]):
+        raise RuntimeError(alias + " exists; choose a fresh alias or review its removal explicitly")
     images = json.loads(
         remote(host, prefix + f" image list images:debian/13/{architecture} --format json")
     )
@@ -66,7 +56,7 @@ def main():
             host,
             prefix
             + " publish raft-builder --alias "
-            + shlex.quote(args.alias)
+            + shlex.quote(alias)
             + " --compression gzip description="
             + shlex.quote(f"Raft Debian 13 {architecture} development workspace"),
         )
@@ -74,11 +64,11 @@ def main():
     # Build failures intentionally retain their named builder for diagnostics.
     # A successful immutable publication no longer needs its writable builder.
     remote(host, prefix + " delete raft-builder")
-    published = json.loads(remote(host, prefix + " image list " + args.alias + " --format json"))
+    published = json.loads(remote(host, prefix + " image list " + alias + " --format json"))
     fingerprint = next(
         image["fingerprint"]
         for image in published
-        if any(alias["name"] == args.alias for alias in image["aliases"])
+        if any(item["name"] == alias for item in image["aliases"])
     )
     # Unpacking a full image can take a minute. Pay it during setup, before new
     # reports a usable box; init prepares the native cache without booting a guest.
@@ -89,6 +79,20 @@ def main():
     print(
         f"Native {architecture} image built in {time.monotonic() - started:.1f} seconds", flush=True
     )
+    return fingerprint
+
+
+def main():
+    configured = hosts()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--location", choices=configured, required=True)
+    parser.add_argument(
+        "--alias", default="raft-dev", help="New image alias; existing aliases are refused"
+    )
+    args = parser.parse_args()
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", args.alias):
+        parser.error("alias must use letters, digits, underscores or hyphens")
+    build(configured[args.location], args.alias)
 
 
 if __name__ == "__main__":

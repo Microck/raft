@@ -27,7 +27,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Snapshots and cloning | [`snapshot`](#snapshot), [`snapshots`](#snapshots), [`restore`](#restore), [`snapshot-delete`](#snapshot-delete), [`fork`](#fork) |
 | Port forwarding and desktop | [`forward`](#forward), [`desktop`](#desktop) |
 | Backup and recovery | [`backup`](#backup), [`recover`](#recover) |
-| Locations | [`locations`](#locations), [`note`](#note) |
+| Locations | [`host add`](#host-add), [`locations`](#locations), [`note`](#note) |
 | Host inspection and maintenance | [`limits`](#limits), [`doctor`](#doctor), [`list`](#list), [`gc`](#gc), [`prune`](#prune) |
 
 ## Workspace lifecycle commands
@@ -247,6 +247,37 @@ Import a portable backup archive onto a host as a fresh stopped workspace.
 Returns the qualified handle of the imported stopped workspace.
 
 ## Location commands
+
+### `host add`
+
+Check, provision and register a new workspace host, then prove it works.
+
+`raft host add LOCATION --ssh TARGET [--image-release TAG | --image-archive PATH | --build] [--dry-run] [--yes]`
+
+- `LOCATION`: New location name. Existing locations are rejected.
+- `--ssh TARGET`: Key-based SSH target, such as `ubuntu@192.0.2.10` or an `~/.ssh/config` alias. Accept the host key interactively first.
+- `--image-release TAG`: Download `raft-dev-<arch>.tar.gz` from this release on the host and verify it against the release `SHA256SUMS`. Default: the CLI's own version.
+- `--image-archive PATH`: Upload and import a local image archive instead.
+- `--build`: Build the image on the host from Debian 13 instead.
+- `--dry-run`: Probe the host and print the plan without changing anything.
+- `--yes`: Apply the plan without the interactive prompt. Without a terminal, `--yes` is required.
+
+Before any change, a read-only probe checks SSH, passwordless sudo, Ubuntu 22.04 or
+24.04, ARM64 or AMD64, python3, at least 2 CPUs, 8 GiB RAM and, for a fresh host,
+80 GiB free disk. Unsupported targets, including macOS, fail with the reasons and
+no changes. The command then runs the deployer, imports the image only if its
+checksum and architecture match, adds the location with the pinned fingerprint,
+and runs `doctor` plus a disposable create/exec/destroy smoke test. If the final
+checks fail, it removes the location again; host changes remain and a rerun
+reuses them.
+
+```sh title="CONTROLLER: Onboard a host"
+raft host add lab --ssh ubuntu@192.0.2.10 --dry-run
+raft host add lab --ssh ubuntu@192.0.2.10
+```
+
+The deployment files ship in the npm package and source checkouts. The Python
+wheel contains only the CLI; use npm or a checkout to onboard hosts.
 
 ### `locations`
 

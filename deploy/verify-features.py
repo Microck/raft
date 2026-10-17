@@ -22,7 +22,15 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from raft import incus, inventory, parse_handle, remote, settings, transaction  # noqa: E402
+from raft import (  # noqa: E402
+    host_problems,
+    incus,
+    inventory,
+    parse_handle,
+    remote,
+    settings,
+    transaction,
+)
 import raft_files  # noqa: E402
 from raft_files import pack_directory, publish, unpack_directory  # noqa: E402
 
@@ -211,6 +219,58 @@ def verify_location_notes():
         rejected = cli("locations")
         assert rejected.returncode == 1 and "notes must be strings" in rejected.stderr, rejected
     print("Location note editing, listing, ordering and permissions passed", flush=True)
+
+
+def verify_host_preflight():
+    """Check onboarding decisions and refusals that need no host."""
+    ready = {
+        "kernel": "Linux",
+        "os": "ubuntu",
+        "version": "24.04",
+        "arch": "arm64",
+        "cpus": "2",
+        # MemTotal of an 8 GiB VM, in KiB.
+        "memory": str(8_131_000),
+        "disk": str(90 * 1024**2),
+        "sudo": "yes",
+        "python3": "yes",
+        "deployed": "no",
+    }
+    assert host_problems(ready) == []
+    # An existing deployment already owns its pool, so free disk no longer gates it.
+    assert host_problems({**ready, "disk": "0", "deployed": "yes"}) == []
+    darwin = host_problems({"kernel": "Darwin", "sudo": "no"})
+    assert len(darwin) == 1 and "macOS" in darwin[0], darwin
+    for change, reason in [
+        ({"os": "debian", "version": "13"}, "Ubuntu 22.04 or 24.04"),
+        ({"version": "20.04"}, "Ubuntu 22.04 or 24.04"),
+        ({"arch": "armhf"}, "ARM64 or AMD64"),
+        ({"sudo": "no"}, "passwordless sudo"),
+        ({"python3": "no"}, "python3"),
+        ({"cpus": "1"}, "2 CPUs"),
+        ({"memory": str(6 * 1024**2)}, "8 GiB RAM"),
+        ({"disk": str(40 * 1024**2)}, "80 GiB"),
+    ]:
+        problems = host_problems({**ready, **change})
+        assert len(problems) == 1 and reason in problems[0], (change, problems)
+    with tempfile.TemporaryDirectory() as home:
+        config = Path(home) / ".config/raft/incus.json"
+        config.parent.mkdir(parents=True)
+        config.write_text(json.dumps({"lab": {"ssh": "lab-host", "image": ""}}))
+        # Each refusal happens before SSH; the unroutable target proves no host is contacted.
+        for arguments, error in [
+            (["lab"], "already configured"),
+            (["bad name"], "Location names"),
+            (["spare", "--image-archive", str(Path(home) / "missing.tar.gz")], "not found"),
+        ]:
+            rejected = subprocess.run(
+                [sys.executable, str(ROOT / "raft.py"), "host", "add", *arguments, "--ssh", "x"],
+                env={**os.environ, "HOME": home},
+                capture_output=True,
+                text=True,
+            )
+            assert rejected.returncode == 1 and error in rejected.stderr, rejected
+    print("Host preflight decisions and pre-SSH onboarding refusals passed", flush=True)
 
 
 def verify_readiness(location, expect_stale=False):
@@ -590,6 +650,7 @@ if __name__ == "__main__":
     parser.add_argument("--isolated-worker", action="store_true")
     args = parser.parse_args()
     verify_location_notes()
+    verify_host_preflight()
     verify_archives()
     if args.location:
         verify(args.location, args.isolated_worker)
