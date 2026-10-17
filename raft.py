@@ -332,7 +332,7 @@ def host_add(args):
         smoke_test(args.location)
     except BaseException:
         # Never leave a plausible-looking but unusable location behind.
-        edit_configuration(lambda inventory: inventory.pop(args.location))
+        edit_configuration(lambda inventory: inventory.pop(args.location, None))
         print(
             f"Removed {args.location} from {CONFIG}. Host changes remain; a rerun reuses them.",
             file=sys.stderr,
@@ -540,6 +540,10 @@ def doctor(location):
         [
             "ssh",
             "-T",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
             settings(location)["ssh"],
             "systemctl is-active incus raft-expire.timer raft-network.service && df -h /",
         ],
