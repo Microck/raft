@@ -39,7 +39,7 @@ Incus execution over verified host SSH. It does not expose a guest SSH port.
 
 Defaults are the first configured location, one CPU, 2 GiB RAM and 600 seconds. TTL accepts 60 seconds
 to 30 days. The controller admits at most four saved boxes per host; stopped
-boxes count because their disk still occupies space. Use `--memory 4GiB`
+boxes count because their disk still occupies space. Use `--memory 4GiB` or `--memory 8GiB`
 and `--cpu 2` when needed. Btrfs bounds workspace storage to a 60 GiB pool per host.
 It does not guarantee strict per-box disk quotas with nested subvolumes. Check host disk before large builds or forks. `raft limits --location lab --json`
 reports CPU/RAM recommendations for all supported sizes, active allocations and

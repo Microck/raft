@@ -36,12 +36,12 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 
 Create and launch a new workspace container.
 
-`raft new [--location LOCATION] [--ttl TTL] [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB}] [--disposable] [--from LOCATION:BOX/SNAPSHOT]`
+`raft new [--location LOCATION] [--ttl TTL] [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB,8GiB}] [--disposable] [--from LOCATION:BOX/SNAPSHOT]`
 
 - `--location LOCATION`: Target host location in `~/.config/raft/incus.json`. Defaults to first configured location.
 - `--ttl TTL`: Lifetime in seconds before automatic stop (`60` to `2592000`). Default: `600`.
 - `--cpu {1,2}`: CPU core count managed by Incus. Default: `1`.
-- `--memory {1GiB,2GiB,4GiB}`: Memory limit. Default: `2GiB`.
+- `--memory {1GiB,2GiB,4GiB,8GiB}`: Memory limit. Default: `2GiB`.
 
 - `--disposable`: Delete the box and snapshots on stop or expiry. Off by default.
 - `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. Normal creation sizing applies; the source can be running. Cannot target a different location.
@@ -61,7 +61,7 @@ Terminates guest processes and stops the container. Persistent boxes retain file
 
 Start a stopped workspace with a renewed lifetime deadline.
 
-`raft resume <box> --ttl TTL [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB}]`
+`raft resume <box> --ttl TTL [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB,8GiB}]`
 
 - `--ttl TTL`: Lifetime in seconds from resumption (`60` to `2592000`). Required.
 
@@ -196,7 +196,7 @@ Roll back a stopped workspace filesystem to a named snapshot using `--diskonly`,
 
 Clone a stopped workspace into an independent container on the same host and start it.
 
-`raft fork <box> --ttl TTL [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB}] [--disposable]`
+`raft fork <box> --ttl TTL [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB,8GiB}] [--disposable]`
 
 - `--ttl TTL`: Lifetime in seconds for the clone. Required.
 

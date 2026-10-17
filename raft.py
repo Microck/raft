@@ -26,6 +26,10 @@ PROJECT = "raft"
 SAVED_BOX_LIMIT = 4
 LOCATION_NAME = r"[a-zA-Z0-9][a-zA-Z0-9_-]*"
 GIB = 1024**3
+# Supported box sizes. Parser choices, capacity validation and recommendations
+# all derive from these lists, so adding a size here covers every command.
+CPU_SIZES = [1, 2]
+MEMORY_SIZES = ["1GiB", "2GiB", "4GiB", "8GiB"]
 
 USAGE = """import json, shutil
 from pathlib import Path
@@ -411,14 +415,13 @@ def capacity(host, boxes):
     memory_allocated = 0
     for box in active:
         limits = box["expanded_config"]
-        if limits["limits.cpu"] not in {"1", "2"} or limits["limits.memory"] not in {
-            "1GiB",
-            "2GiB",
-            "4GiB",
-        }:
+        if (
+            limits["limits.cpu"] not in {str(cpu) for cpu in CPU_SIZES}
+            or limits["limits.memory"] not in MEMORY_SIZES
+        ):
             raise ValueError("Active box has unsupported sizing; inspect its Incus configuration")
         cpu_allocated += int(limits["limits.cpu"])
-        memory_allocated += int(limits["limits.memory"][0]) * gib
+        memory_allocated += int(limits["limits.memory"].removesuffix("GiB")) * gib
     memory_reserve = max(2 * gib, host["memoryTotalBytes"] // 10)
     cpu_budget = max(0, host["cpus"] - 1)
     memory_budget = max(0, host["memoryTotalBytes"] - memory_reserve)
@@ -432,8 +435,8 @@ def capacity(host, boxes):
     )
     slots = max(0, SAVED_BOX_LIMIT - len(boxes))
     recommendations = []
-    for cpu in [1, 2]:
-        for memory in [1, 2, 4]:
+    for cpu in CPU_SIZES:
+        for memory in [int(size.removesuffix("GiB")) for size in MEMORY_SIZES]:
             total = min(SAVED_BOX_LIMIT, cpu_budget // cpu, memory_budget // (memory * gib))
             additional = min(
                 max(0, SAVED_BOX_LIMIT - len(active)),
@@ -853,8 +856,8 @@ def parser():
     create = commands.add_parser("new")
     create.add_argument("--location", default=None)
     create.add_argument("--ttl", type=ttl, default=600)
-    create.add_argument("--cpu", type=int, choices=[1, 2], default=1)
-    create.add_argument("--memory", choices=["1GiB", "2GiB", "4GiB"], default="2GiB")
+    create.add_argument("--cpu", type=int, choices=CPU_SIZES, default=1)
+    create.add_argument("--memory", choices=MEMORY_SIZES, default="2GiB")
     create.add_argument("--disposable", action="store_true", help="Delete on stop or expiry")
     create.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
     commands.add_parser("locations", help="List configured locations and their notes")
@@ -928,8 +931,8 @@ def parser():
         if action in ["resume", "fork", "extend"]:
             command.add_argument("--ttl", type=ttl, required=True)
         if action in ["resume", "fork"]:
-            command.add_argument("--cpu", type=int, choices=[1, 2])
-            command.add_argument("--memory", choices=["1GiB", "2GiB", "4GiB"])
+            command.add_argument("--cpu", type=int, choices=CPU_SIZES)
+            command.add_argument("--memory", choices=MEMORY_SIZES)
         if action == "fork":
             command.add_argument("--disposable", action="store_true")
         if action == "exec":

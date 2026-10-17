@@ -18,7 +18,7 @@ raft limits
 raft limits --location lab --json
 ```
 
-The output displays host CPU count, total RAM, configured limits, available RAM, disk headroom, and advisory recommendations across all six sizing profiles:
+The output displays host CPU count, total RAM, configured limits, available RAM, disk headroom, and advisory recommendations across all eight sizing profiles:
 
 ### Illustrative host sizing
 
@@ -48,7 +48,7 @@ Operating systems report less usable RAM than advertised hardware size. Near siz
 Select CPU and memory limits when launching with `raft new`:
 
 - `--cpu`: `1` or `2` shared vCPUs managed by Incus (default: `1`).
-- `--memory`: `1GiB`, `2GiB`, or `4GiB` cgroup limit (default: `2GiB`).
+- `--memory`: `1GiB`, `2GiB`, `4GiB`, or `8GiB` cgroup limit (default: `2GiB`). An 8 GiB box needs at least 10 GiB of usable host RAM before `raft limits` recommends running one; like other recommendations, this is advisory and not enforced.
 
 Change supported CPU/RAM limits when resuming a stopped box or creating a fork:
 
