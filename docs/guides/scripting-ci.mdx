@@ -23,6 +23,7 @@ Raft does not have a global `--json` option. Parse each command's actual format:
 | `info` | One pretty-printed native Incus metadata JSON object |
 | `usage` | One JSON object containing running resource counters |
 | `limits --json` | One JSON object per location (JSONL across multiple hosts) |
+| `locations` | One JSON object per configured location (JSONL) |
 | `prune` | JSONL candidates or deleted records with `box`, `action` |
 | `status` | systemd `ActiveState`, `SubState`, `ExecMainStatus` property lines |
 | `logs` | Guest journal text |

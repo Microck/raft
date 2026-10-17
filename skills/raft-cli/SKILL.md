@@ -8,7 +8,11 @@ description: Create and use private persistent Linux workspaces on configured Li
 Raft runs unprivileged native ARM64 or AMD64 Incus system containers. They share the host kernel.
 The current deployment does not implement Incus VMs. Do not describe these boxes as VMs or promise cross-architecture emulation.
 
-Run `raft doctor`, `raft limits` and `raft list` before allocating. Keep the exact
+Run `raft locations`, `raft doctor`, `raft limits` and `raft list` before allocating.
+Follow each location's `note`: the operator uses it to mark preferred hosts and
+hosts to avoid for some work. Pass `--location` explicitly when a note rules out
+the default. Do not change notes unless the user asks; `raft note LOCATION TEXT`
+sets one and `raft note LOCATION --clear` removes it. Keep the exact
 location-qualified handle returned by `new`. There is no implicit current box.
 
 ```sh

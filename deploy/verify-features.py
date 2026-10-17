@@ -157,6 +157,62 @@ def verify_archives():
     )
 
 
+def verify_location_notes():
+    """Edit notes in a private controller home; no host is contacted."""
+    with tempfile.TemporaryDirectory() as home:
+        config = Path(home) / ".config/raft/incus.json"
+        config.parent.mkdir(parents=True)
+        config.write_text(
+            json.dumps({"lab": {"ssh": "lab-host", "image": ""}, "spare": {"ssh": "spare-host"}})
+        )
+
+        def cli(*arguments):
+            return subprocess.run(
+                [sys.executable, str(ROOT / "raft.py"), *arguments],
+                env={**os.environ, "HOME": home},
+                capture_output=True,
+                text=True,
+            )
+
+        assert cli("note", "spare", "  Avoid for Docker builds ").returncode == 0
+        records = [json.loads(line) for line in cli("locations").stdout.splitlines()]
+        assert records == [
+            {"location": "lab", "default": True, "note": ""},
+            {"location": "spare", "default": False, "note": "Avoid for Docker builds"},
+        ], records
+        assert list(json.loads(config.read_text())) == ["lab", "spare"], "Default location moved"
+        assert config.stat().st_mode & 0o777 == 0o600, "Note editing widened permissions"
+        for arguments, error in [
+            (["note", "missing", "x"], "Unknown location"),
+            (["note", "lab", " "], "--clear"),
+        ]:
+            rejected = cli(*arguments)
+            assert rejected.returncode == 1 and error in rejected.stderr, rejected
+        assert cli("note", "lab", "x", "--clear").returncode == 2
+        # Concurrent edits to different locations must all survive.
+        many = {f"host{index}": {"ssh": f"host{index}"} for index in range(8)}
+        saved = config.read_text()
+        config.write_text(json.dumps(many))
+        writers = [
+            subprocess.Popen(
+                [sys.executable, str(ROOT / "raft.py"), "note", location, "busy " + location],
+                env={**os.environ, "HOME": home},
+            )
+            for location in many
+        ]
+        assert all(writer.wait() == 0 for writer in writers)
+        notes = {key: entry.get("note") for key, entry in json.loads(config.read_text()).items()}
+        assert notes == {location: "busy " + location for location in many}, notes
+        config.write_text(saved)
+        assert cli("note", "spare", "--clear").returncode == 0
+        assert "note" not in json.loads(config.read_text())["spare"]
+        assert not list(config.parent.glob(".raft-*")), "Staged configuration left behind"
+        config.write_text(json.dumps({"lab": {"ssh": "lab-host", "note": 1}}))
+        rejected = cli("locations")
+        assert rejected.returncode == 1 and "notes must be strings" in rejected.stderr, rejected
+    print("Location note editing, listing, ordering and permissions passed", flush=True)
+
+
 def verify_readiness(location, expect_stale=False):
     # Isolate the selected host without losing the controller's verified SSH config.
     with tempfile.TemporaryDirectory(prefix="raft-doctor-test-") as work:
@@ -294,6 +350,25 @@ def verify(location, isolated_worker=False):
     try:
         verify_readiness(location, expect_stale=isolated_worker)
         verify_transaction_stdin(location)
+        # A location note goes to stderr; stdout stays the bare handle for scripts.
+        # A private HOME copy carries the note, leaving the operator config untouched;
+        # OpenSSH reads keys and aliases from the passwd home, not HOME.
+        with tempfile.TemporaryDirectory() as home:
+            noted = Path(home) / ".config/raft/incus.json"
+            noted.parent.mkdir(parents=True)
+            noted.write_text(
+                json.dumps({location: {**settings(location), "note": "feature verifier note"}})
+            )
+            response = live.raft(
+                "new", "--location", location, "--ttl", "600", env={**os.environ, "HOME": home}
+            )
+        handle = response.stdout.strip()
+        fixtures.append(handle)
+        assert response.stdout == handle + "\n", response.stdout
+        assert response.stderr == f"{location} note: feature verifier note\n", response.stderr
+        live.raft("destroy", handle)
+        fixtures.remove(handle)
+        print(f"{location}: noted new kept stdout to the handle and the note on stderr", flush=True)
         box = create("--memory", "1GiB")
         live.wait_running(box)
         _, name = parse_handle(box)
@@ -514,6 +589,7 @@ if __name__ == "__main__":
     parser.add_argument("--location")
     parser.add_argument("--isolated-worker", action="store_true")
     args = parser.parse_args()
+    verify_location_notes()
     verify_archives()
     if args.location:
         verify(args.location, args.isolated_worker)
