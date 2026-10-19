@@ -34,5 +34,6 @@ jobs:
         with:
           name: documentation-browser-failure-traces
           path: website/.e2e/results/
+          include-hidden-files: true
           retention-days: 7
           if-no-files-found: ignore
