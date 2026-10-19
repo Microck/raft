@@ -2,3 +2,5 @@
 __pycache__/
 dist/
 .ruff_cache/
+
+website/.e2e/
