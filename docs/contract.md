@@ -42,6 +42,8 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 
 `raft locations` lists configured locations as JSONL with `location`, `default` and `note` fields without contacting hosts. `raft note LOCATION TEXT` and `raft note LOCATION --clear` edit the optional `note` field in the controller configuration atomically, preserving location order and mode `0600`. Notes are advisory guidance; Raft shows them in `locations`, `limits` and on stderr from `new`, and never enforces them.
 
+Boxes accept an optional note with a fixed template: `purpose` (required), `owner` and `next`, all nonempty strings. `raft new --purpose TEXT [--owner TEXT] [--next TEXT]` and `raft note BOX ...` store it as JSON in the box's `user.raft.note` Incus key; `raft note BOX --clear` removes it. Each edit replaces the whole note. `raft list` reports it as `note`, or `null`. `new` always writes the key, so `new --from` never inherits a snapshot's note; forks and recovered backups keep it. Box notes are advisory and never change lifecycle policy.
+
 `raft limits [--location NAME] [--json]` inspects hosts without modifying state. It reports effective CPUs, total and available RAM, saved and active box counts, active resource limits, and disk space.
 
 - **Reserve calculations**: Recommends running boxes after reserving 1 CPU and the larger of 2 GiB or 10% host RAM.

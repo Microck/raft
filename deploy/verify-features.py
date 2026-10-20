@@ -196,7 +196,21 @@ def verify_location_notes():
         ]:
             rejected = cli(*arguments)
             assert rejected.returncode == 1 and error in rejected.stderr, rejected
-        assert cli("note", "lab", "x", "--clear").returncode == 2
+        # Box note mistakes are rejected before any host is contacted.
+        handle = "lab:rf-0123456789abcdef"
+        for arguments, error in [
+            (["note", "lab", "x", "--clear"], "TEXT or --clear"),
+            (["note", "lab"], "TEXT or --clear"),
+            (["note", "lab", "--purpose", "x"], "pass a box handle"),
+            (["note", handle, "x"], "--purpose, --owner and --next"),
+            (["note", handle], "--purpose (with optional"),
+            (["note", handle, "--purpose", "x", "--clear"], "--purpose (with optional"),
+            (["note", handle, "--owner", "agent"], "need --purpose"),
+            (["note", handle, "--purpose", " "], "--purpose cannot be empty"),
+            (["new", "--location", "lab", "--next", "later"], "need --purpose"),
+        ]:
+            rejected = cli(*arguments)
+            assert rejected.returncode == 1 and error in rejected.stderr, (arguments, rejected)
         # Concurrent edits to different locations must all survive.
         many = {f"host{index}": {"ssh": f"host{index}"} for index in range(8)}
         saved = config.read_text()
@@ -429,9 +443,27 @@ def verify(location, isolated_worker=False):
         live.raft("destroy", handle)
         fixtures.remove(handle)
         print(f"{location}: noted new kept stdout to the handle and the note on stderr", flush=True)
-        box = create("--memory", "1GiB")
+        box = create("--memory", "1GiB", "--purpose", " Feature verification ", "--owner", "verify")
+
+        def listed_note(handle):
+            for line in live.raft("list", "--location", location).stdout.splitlines():
+                record = json.loads(line)
+                if record["box"] == handle:
+                    return record["note"]
+            raise AssertionError(f"{handle} missing from list")
+
+        assert listed_note(box) == {"purpose": "Feature verification", "owner": "verify"}
+        # Each note edit replaces the whole note.
+        live.raft("note", box, "--purpose", "Feature verification", "--next", "Destroy at the end")
+        assert listed_note(box) == {"purpose": "Feature verification", "next": "Destroy at the end"}
+        live.raft("note", box, "--clear")
+        assert listed_note(box) is None
+        live.raft("note", box, "--purpose", "Feature verification")
         live.wait_running(box)
         _, name = parse_handle(box)
+        print(
+            f"{location}: box note template, listing, replacement and clearing passed", flush=True
+        )
         with tempfile.TemporaryDirectory(prefix="raft-tree-test-") as work:
             root = Path(work)
             source = root / "source with spaces"
@@ -522,6 +554,7 @@ def verify(location, isolated_worker=False):
             != metadata(box)["config"]["volatile.eth0.hwaddr"]
         )
         assert metadata(template)["config"]["user.raft.disposable"] == "false"
+        assert listed_note(template) is None, "new --from inherited the source note"
         assert metadata(template)["expanded_config"]["limits.cpu"] == "1"
         live.raft("snapshot-delete", box, "prepared")
         assert live.execute(template, "cat", "/workspace/proof") == "original"
@@ -536,6 +569,7 @@ def verify(location, isolated_worker=False):
         fork = live.raft(*fork_args).stdout.strip()
         fixtures.append(fork)
         assert metadata(fork)["expanded_config"]["limits.memory"] == "1GiB"
+        assert listed_note(fork) == {"purpose": "Feature verification"}, "fork lost the note"
         assert metadata(fork)["expanded_config"]["limits.cpu"] == "1"
         assert metadata(box)["expanded_config"]["limits.memory"] == "4GiB"
         if worker:

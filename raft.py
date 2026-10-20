@@ -19,7 +19,7 @@ import uuid
 
 import raft_files
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 PROJECT = "raft"
@@ -30,6 +30,9 @@ GIB = 1024**3
 # all derive from these lists, so adding a size here covers every command.
 CPU_SIZES = [1, 2]
 MEMORY_SIZES = ["1GiB", "2GiB", "4GiB", "8GiB"]
+# Box notes follow one template so any agent can tell why a box exists, who uses
+# it and what happens to it next. Each value is free text; purpose is required.
+BOX_NOTE_FIELDS = ["purpose", "owner", "next"]
 
 USAGE = """import json, shutil
 from pathlib import Path
@@ -111,6 +114,26 @@ def set_note(location, text):
             inventory[location]["note"] = text.strip()
 
     edit_configuration(change)
+
+
+def box_note(args):
+    """Build a box note from --purpose, --owner and --next; None when none is given."""
+    note = {}
+    for field in BOX_NOTE_FIELDS:
+        value = getattr(args, field, None)
+        if value is not None:
+            if not value.strip():
+                raise ValueError(f"--{field} cannot be empty")
+            note[field] = value.strip()
+    if note and "purpose" not in note:
+        raise ValueError("Box notes need --purpose")
+    return note or None
+
+
+def read_box_note(box):
+    """Return a box's note as a dict, or None. Raft writes it as JSON in user.raft.note."""
+    stored = box["config"].get("user.raft.note")
+    return json.loads(stored) if stored else None
 
 
 def receive(command, destination, *, stdin=None):
@@ -607,6 +630,7 @@ def sizing(args):
 
 
 def new(args):
+    note = box_note(args)
     source = None
     if args.template:
         handle, separator, snapshot = args.template.partition("/")
@@ -657,6 +681,9 @@ def new(args):
         "user.raft.stopped-at=",
         "-c",
         f"user.raft.disposable={'true' if args.disposable else 'false'}",
+        "-c",
+        # Always set, so a box created from a snapshot never inherits the source note.
+        "user.raft.note=" + (json.dumps(note) if note else ""),
         "-c",
         "volatile.eth0.hwaddr=",
         *sizing(args),
@@ -849,6 +876,19 @@ def ttl(value):
     return seconds
 
 
+def note_options(command):
+    """Add the box note template flags shared by new and note."""
+    command.add_argument(
+        "--purpose", help="Box note: what the box is for, e.g. 'Integration tests for PR 42'"
+    )
+    command.add_argument(
+        "--owner", help="Box note: who uses the box, e.g. 'codex session in ~/work/app'"
+    )
+    command.add_argument(
+        "--next", help="Box note: what happens next, e.g. 'Destroy after the tests pass'"
+    )
+
+
 def parser():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--version", action="version", version=__version__)
@@ -860,12 +900,13 @@ def parser():
     create.add_argument("--memory", choices=MEMORY_SIZES, default="2GiB")
     create.add_argument("--disposable", action="store_true", help="Delete on stop or expiry")
     create.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
+    note_options(create)
     commands.add_parser("locations", help="List configured locations and their notes")
-    note = commands.add_parser("note", help="Set or clear operator guidance for a location")
-    note.add_argument("location")
-    text = note.add_mutually_exclusive_group(required=True)
-    text.add_argument("text", nargs="?", help="Guidance, e.g. 'Preferred for builds'")
-    text.add_argument("--clear", action="store_true", help="Remove the location's note")
+    note = commands.add_parser("note", help="Set or clear the note of a location or a box")
+    note.add_argument("target", metavar="LOCATION|BOX", help="A location name or a box handle")
+    note.add_argument("text", nargs="?", help="Location guidance, e.g. 'Preferred for builds'")
+    note.add_argument("--clear", action="store_true", help="Remove the note")
+    note_options(note)
     host = commands.add_parser("host", help="Onboard workspace hosts")
     host_commands = host.add_subparsers(dest="host_action", required=True)
     onboard = host_commands.add_parser(
@@ -967,7 +1008,24 @@ def dispatch(args):
         host_add(args)
         return 0
     if args.action == "note":
-        set_note(args.location, None if args.clear else args.text)
+        fields = box_note(args)
+        # Location names cannot contain ":", so a colon always means a box handle.
+        if ":" not in args.target:
+            if fields is not None:
+                raise ValueError("--purpose, --owner and --next describe boxes; pass a box handle")
+            if args.clear == (args.text is not None):
+                raise ValueError("Give the location note TEXT or --clear")
+            set_note(args.target, None if args.clear else args.text)
+            return 0
+        if args.text is not None:
+            raise ValueError("Describe boxes with --purpose, --owner and --next")
+        if args.clear == (fields is not None):
+            raise ValueError("Give --purpose (with optional --owner and --next) or --clear")
+        location, name = parse_handle(args.target)
+        instance(location, name)
+        # Each call replaces the whole note; an empty value removes the key.
+        value = "" if args.clear else json.dumps(fields)
+        incus(location, "config", "set", name, "user.raft.note=" + value, locked=True)
         return 0
     if args.action == "locations":
         for index, (location, entry) in enumerate(configuration().items()):
@@ -1032,6 +1090,7 @@ def dispatch(args):
                                 "box": location + ":" + box["name"],
                                 "state": box["status"],
                                 "stopAt": box["config"].get("user.raft.expires", ""),
+                                "note": read_box_note(box),
                             }
                         )
                     )
