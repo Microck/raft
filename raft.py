@@ -630,7 +630,7 @@ def sizing(args):
 
 
 def new(args):
-    note = box_note(args)
+    box_fields = box_note(args)
     source = None
     if args.template:
         handle, separator, snapshot = args.template.partition("/")
@@ -683,7 +683,7 @@ def new(args):
         f"user.raft.disposable={'true' if args.disposable else 'false'}",
         "-c",
         # Always set, so a box created from a snapshot never inherits the source note.
-        "user.raft.note=" + (json.dumps(note) if note else ""),
+        "user.raft.note=" + (json.dumps(box_fields) if box_fields else ""),
         "-c",
         "volatile.eth0.hwaddr=",
         *sizing(args),
