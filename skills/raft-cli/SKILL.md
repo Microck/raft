@@ -18,8 +18,21 @@ the default. Do not change notes unless the user asks; `raft note LOCATION TEXT`
 sets one and `raft note LOCATION --clear` removes it. Keep the exact
 location-qualified handle returned by `new`. There is no implicit current box.
 
+Note every box you create. Box notes follow one template so the next agent can
+tell whether a box is in use:
+
+- `--purpose`: what the box is for (required), e.g. `Integration tests for PR 42`
+- `--owner`: who uses it, e.g. `codex session in ~/work/app`
+- `--next`: what happens next, e.g. `Destroy after the tests pass`
+
+Pass them to `new`, and run `raft note "$box" --purpose ...` when the plan
+changes; each call replaces the whole note. `raft list` shows every box's
+`note`. Read it before you resume, stop, fork or destroy a box. Treat a box whose
+note names another owner or a job unrelated to your task as not yours. Forks
+keep the source note, so update a fork's note when its job differs.
+
 ```sh
-box=$(raft new --location lab --ttl 600)
+box=$(raft new --location lab --ttl 600 --purpose "Run the project tests" --owner "codex task 123" --next "Destroy when the tests finish")
 raft exec "$box" -- timeout 240 bash -lc 'git clone <url> /workspace/project && cd /workspace/project && <test-command>'
 raft download "$box" /workspace/project/report.json ./report.json
 raft destroy "$box"

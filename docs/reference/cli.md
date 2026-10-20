@@ -36,7 +36,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 
 Create and launch a new workspace container.
 
-`raft new [--location LOCATION] [--ttl TTL] [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB,8GiB}] [--disposable] [--from LOCATION:BOX/SNAPSHOT]`
+`raft new [--location LOCATION] [--ttl TTL] [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB,8GiB}] [--disposable] [--from LOCATION:BOX/SNAPSHOT] [--purpose TEXT [--owner TEXT] [--next TEXT]]`
 
 - `--location LOCATION`: Target host location in `~/.config/raft/incus.json`. Defaults to first configured location.
 - `--ttl TTL`: Lifetime in seconds before automatic stop (`60` to `2592000`). Default: `600`.
@@ -45,6 +45,7 @@ Create and launch a new workspace container.
 
 - `--disposable`: Delete the box and snapshots on stop or expiry. Off by default.
 - `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. Normal creation sizing applies; the source can be running. Cannot target a different location.
+- `--purpose TEXT`, `--owner TEXT`, `--next TEXT`: Record a [box note](#note). `--owner` and `--next` need `--purpose`. Without them the box starts with no note, including boxes created `--from` a noted snapshot.
 
 Returns the qualified workspace handle. If the location has a note, `new` prints
 it to stderr; stdout still contains only the handle.
@@ -291,14 +292,32 @@ Prints one JSON object per location (JSONL) in configuration order, with
 
 ### `note`
 
-Set or clear operator guidance for a location in `~/.config/raft/incus.json`.
+Set or clear the note of a location or a box.
 
 `raft note LOCATION TEXT`
 `raft note LOCATION --clear`
+`raft note BOX --purpose TEXT [--owner TEXT] [--next TEXT]`
+`raft note BOX --clear`
 
-Notes are advisory. Use them to record which host is preferred or what a host
-should not run. Raft shows notes in `locations`, `limits` and `new` but does not
-enforce them. Empty notes are rejected; use `--clear` to remove one.
+Location notes are operator guidance stored in `~/.config/raft/incus.json`. Use
+them to record which host is preferred or what a host should not run. Raft shows
+them in `locations`, `limits` and `new`.
+
+Box notes tell other agents and people why a box exists. They follow one
+template, stored on the box as JSON in the Incus key `user.raft.note`:
+
+| Field | Meaning | Example |
+| --- | --- | --- |
+| `purpose` (required) | What the box is for | `Integration tests for PR 42` |
+| `owner` | Who uses it | `codex session in ~/work/app` |
+| `next` | What happens to it next | `Destroy after the tests pass` |
+
+Each call replaces the whole note, on running or stopped boxes. `raft list`
+shows it as `note`. Forks and recovered backups keep the source box's note;
+update it if the copy has a different job.
+
+Notes are advisory; Raft never enforces them. Empty values are rejected; use
+`--clear` to remove a note.
 
 ## Host inspection and maintenance commands
 
@@ -325,7 +344,8 @@ List existing workspace containers across configured hosts.
 
 `raft list [--location LOCATION]`
 
-Prints one JSON object per box (JSONL), with `box`, `state`, and `stopAt` fields.
+Prints one JSON object per box (JSONL), with `box`, `state`, `stopAt` and `note` fields.
+`note` is the box note object, or `null` when the box has none.
 An empty inventory prints no records. See [Scripting and CI](../guides/scripting-ci.mdx)
 for output formats, exit codes, readiness, and failure handling.
 

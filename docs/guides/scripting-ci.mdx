@@ -19,7 +19,7 @@ Raft does not have a global `--json` option. Parse each command's actual format:
 | --- | --- |
 | `new`, `fork`, `recover` | One location-qualified handle |
 | `exec --detach` | One `rfcmd-` job ID |
-| `list` | JSONL: one object per box, with `box`, `state`, `stopAt` |
+| `list` | JSONL: one object per box, with `box`, `state`, `stopAt`, `note` |
 | `info` | One pretty-printed native Incus metadata JSON object |
 | `usage` | One JSON object containing running resource counters |
 | `limits --json` | One JSON object per location (JSONL across multiple hosts) |
@@ -31,7 +31,8 @@ Raft does not have a global `--json` option. Parse each command's actual format:
 | Other inspection/maintenance commands | Human-readable text or no output |
 
 `list` emits nothing when there are no boxes. `stopAt` is the host Unix deadline
-as a string, or an empty string when absent. `info` uses native Incus keys rather
+as a string, or an empty string when absent. `note` is the box note object with
+`purpose` and optional `owner` and `next`, or `null`. `info` uses native Incus keys rather
 than a normalized Raft schema. `usage` includes `memoryBytes`, `memoryLimit`,
 `cpuTime`, `effectiveCpus`, `filesystemUsedBytes`, `filesystemAvailableBytes`, and
 `filesystemScope`; disk values describe the shared pool, not an individual box.
