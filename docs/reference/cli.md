@@ -16,7 +16,7 @@ Output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
 
 At most once a day, after a command finishes, Raft checks GitHub for a newer
 release and prints one line on stderr, such as
-`raft 0.5.0 is available (you have 0.4.0). Run: raft self-update`. It never
+`raft 0.6.0 is available (you have 0.5.0). Run: raft self-update`. It never
 installs anything or changes stdout, and network failures stay silent. See
 [`self-update`](#self-update) to turn it off.
 

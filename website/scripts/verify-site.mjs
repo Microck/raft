@@ -62,6 +62,7 @@ try {
     '/docs/releases/0.2.1',
     '/docs/releases/0.3.0',
     '/docs/releases/0.4.0',
+    '/docs/releases/0.5.0',
   ];
   const targets = new Set();
   for (const path of paths) {
