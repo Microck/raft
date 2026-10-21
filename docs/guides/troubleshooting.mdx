@@ -135,7 +135,7 @@ Own box disks are opt-in and this host was deployed without them. Nothing was cr
 Each own disk, each snapshot of one, and the cached image reserve their full size in `raft-disks`, so Raft refused the request before creating anything. Destroy own-disk boxes or snapshots you no longer need, choose a smaller `--disk`, or use the shared pool. `raft capacity` shows the unreserved space. See [Reservation accounting](../reference/capacity.mdx#reservation-accounting).
 
 #### "No space left on device" inside an own-disk box
-The box filled its own disk. Delete files or Docker data inside the box, or snapshot it and create a larger copy with `raft new --from "$box/<snapshot>" --disk <larger size>`.
+The box filled its own disk. Delete files or Docker data inside the box. For a persistent box you can also move to a larger disk: stop it with `raft stop "$box"` (snapshots need a stopped box), take `raft snapshot "$box" <snapshot>`, then create the copy with `raft new --from "$box/<snapshot>" --disk <larger size>`. Do not stop a `--disposable` box for this: stopping deletes it.
 
 #### Low disk warnings
 `raft capacity` warns when free space on host disk or the `raft-data` pool falls below 5 GiB. This warning is diagnostic and does not halt container operations. Clean up dangling images, old snapshots, or unused containers to free space.

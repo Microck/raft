@@ -228,13 +228,23 @@ def deploy(name, host, disk_pool=None):
         if project.get("description") != "Raft managed workspaces":
             raise RuntimeError("Existing raft project needs ownership verification")
     else:
-        if (
-            pool is not None
-            or network is not None
-            or any(item["name"] == BOX_DISK_POOL for item in pools)
-        ):
+        leftovers = [
+            name
+            for name, found in [
+                ("storage pool raft-data", pool is not None),
+                ("network rfbr0", network is not None),
+                (
+                    f"storage pool {BOX_DISK_POOL}",
+                    any(item["name"] == BOX_DISK_POOL for item in pools),
+                ),
+            ]
+            if found
+        ]
+        if leftovers:
             raise RuntimeError(
-                "Raft resource names already exist without an owned project; review them explicitly"
+                "Raft resource names already exist without an owned project: "
+                + ", ".join(leftovers)
+                + "; review them explicitly"
             )
         # 60 GiB shared pool, 20 GiB for images and the host, and the own-disk
         # pool when --disk-pool enables it.

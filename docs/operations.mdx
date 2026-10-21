@@ -44,7 +44,7 @@ Connect to your host over SSH, verify its host key fingerprint, and install base
 ```sh title="HOST: Install baseline system packages"
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-  ca-certificates curl gnupg python3 openssh-server iptables btrfs-progs lvm2
+  ca-certificates curl gnupg python3 openssh-server iptables btrfs-progs lvm2 python3-yaml
 ```
 
 Verify passwordless `sudo` on the host:
