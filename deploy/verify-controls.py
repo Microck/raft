@@ -9,7 +9,7 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from raft import address, incus, parse_handle, transaction  # noqa: E402
+from raft import address, incus, inventory, parse_handle, transaction  # noqa: E402
 import importlib.util  # noqa: E402
 
 spec = importlib.util.spec_from_file_location(
@@ -38,7 +38,9 @@ def verify(source, target, directory, development_image=False):
     box = source + ":" + name
     try:
         if development_image:
-            box = live.raft("new", "--location", source, "--ttl", "1800").stdout.strip()
+            box = live.raft(
+                "new", "--location", source, "--ttl", "1800", "--cpu", "1", "--disk", "shared"
+            ).stdout.strip()
             fixtures.append(box)
             live.wait_running(box)
         else:
@@ -130,9 +132,36 @@ def verify(source, target, directory, development_image=False):
             print(f"{source}: archive completed ({size} bytes)", flush=True)
             assert live.raft("backup", box, str(archive), check=False).returncode != 0
             assert archive.stat().st_size == size
-            restored = live.raft("recover", str(archive), "--location", target).stdout.strip()
-            fixtures.append(restored)
+            # The archived box has no note, so a target policy rejects it after import
+            # and deletes the imported copy in the same locked transaction.
+            live.raft("policy", target, "--require", "purpose,owner")
+            try:
+                saved = len(inventory(target))
+                rejected = live.raft("recover", str(archive), "--location", target, check=False)
+                if rejected.returncode == 0:
+                    fixtures.append(rejected.stdout.strip())
+                assert rejected.returncode == 1, rejected
+                assert "requires box note fields purpose, owner" in rejected.stderr, rejected
+                assert len(inventory(target)) == saved, "Rejected recovery kept a box"
+                restored = live.raft(
+                    "recover",
+                    str(archive),
+                    "--location",
+                    target,
+                    "--purpose",
+                    "Recovery verification",
+                    "--owner",
+                    "verify-controls",
+                ).stdout.strip()
+                fixtures.append(restored)
+            finally:
+                live.raft("policy", target, "--clear")
             print(f"{target}: recovered stopped workspace", flush=True)
+            note = json.loads(live.raft("info", restored).stdout)["config"]["user.raft.note"]
+            assert json.loads(note) == {
+                "purpose": "Recovery verification",
+                "owner": "verify-controls",
+            }
             metadata = json.loads(live.raft("info", restored).stdout)
             assert metadata["status"] == "Stopped"
             assert not metadata["config"].get("user.raft.expires")

@@ -24,6 +24,8 @@ Raft does not have a global `--json` option. Parse each command's actual format:
 | `usage` | One JSON object containing running resource counters |
 | `capacity --json` | One JSON object per location (JSONL across multiple hosts) |
 | `locations` | One JSON object per configured location (JSONL) |
+| `config` | One pretty-printed JSON object with `file`, `defaults`, `policy` |
+| `config set/unset`, `policy` | One line describing the change |
 | `prune` | JSONL candidates or deleted records with `box`, `action` |
 | `status` | systemd `ActiveState`, `SubState`, `ExecMainStatus` property lines |
 | `logs` | Guest journal text |
@@ -47,6 +49,13 @@ raft list --location lab | jq -r 'select(.state == "Running") | .box'
 raft capacity --location lab --json | jq '{location, headroom, warnings}'
 raft prune --location lab --older-than 7 | jq -r '.box'
 ```
+
+`raft new` fills omitted options from the controller's
+`~/.config/raft/config.json`, so the same script can create different boxes on
+different controllers. Pass `--location`, `--ttl`, `--cpu`, `--memory` and
+`--disk` in CI.
+Hosts can also require box note fields; give `--purpose`, `--owner` and `--next`
+so a policy cannot fail the job. See [Defaults and note policies](./config-policy.mdx).
 
 Do not redirect `2>&1` into machine-readable output. Recovery reports its allocated
 handle on stderr before import finishes; only a successful completion prints the

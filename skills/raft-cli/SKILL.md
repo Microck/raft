@@ -16,7 +16,9 @@ task changes the CLI under it. Report a `raft X is available` stderr notice
 instead of acting on it. For pinned or scripted runs, set
 `RAFT_NO_UPDATE_CHECK=1` to suppress the notice.
 
-Run `raft locations`, `raft doctor` and `raft list` before allocating.
+Run `raft locations`, `raft config`, `raft doctor` and `raft list` before allocating.
+`raft config` shows the defaults `new` will use on this controller and each
+location's note policy: the box note fields its host requires.
 Follow each location's `note`: the operator uses it to mark preferred hosts and
 hosts to avoid for some work. Pass `--location` explicitly when a note rules out
 the default. Do not change notes unless the user asks; `raft note LOCATION TEXT`
@@ -31,7 +33,12 @@ tell whether a box is in use:
 - `--next`: what happens next, e.g. `Destroy after the tests pass`
 
 Pass them to `new`, and run `raft note "$box" --purpose ...` when the plan
-changes; each call replaces the whole note. `raft list` shows every box's
+changes; each call replaces the whole note. If a command fails with
+`requires --owner (host policy)` or similar, rerun it with the fields it names;
+the error prints the corrected command. Never change or clear a policy with
+`raft policy`, or the defaults with `raft config set/unset`, to get past an
+error; only do so when the user asks. `fork` and `recover` accept the same note
+flags, which replace the whole note on the copy. `raft list` shows every box's
 `note`. Read it before you resume, stop, fork or destroy a box. Treat a box whose
 note names another owner or a job unrelated to your task as not yours. Forks
 keep the source note, so update a fork's note when its job differs.
@@ -78,9 +85,12 @@ limit and no size budget. Decide what the task needs and why, then ask for it:
 box=$(raft new --cpu 4 --memory 16GiB --disk 20GiB --ttl 3600 --purpose "Build and test the monorepo" --owner "codex task 123" --next "Destroy when CI passes")
 ```
 
-Defaults are the first configured location, one CPU, 2 GiB RAM, the shared pool
-and 600 seconds. `new --from` and `fork` keep the source's CPU, RAM and disk
-instead; each flag overrides only its own value. TTL accepts 60 seconds to 30
+Built-in defaults are the first configured location, one CPU, 2 GiB RAM, the
+shared pool and 600 seconds; the operator can change them per controller, so
+pass `--location`, `--ttl`, `--cpu`, `--memory` and `--disk` (`--disk shared`
+for the shared pool) when the values matter. `new --from` and `fork` keep the
+source's CPU, RAM and disk instead of any default; each flag overrides only its
+own value. TTL accepts 60 seconds to 30
 days. A request larger than the whole host fails with the host's real size;
 retry with what it reports. If the own-disk pool has too little unreserved
 space for `--disk`, a snapshot or a copy, destroy own-disk boxes or snapshots

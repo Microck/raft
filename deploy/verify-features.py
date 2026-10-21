@@ -1,4 +1,5 @@
-"""Exercise disposable lifecycle, retention, templates, resizing and tree transfers.
+"""Exercise disposable lifecycle, retention, templates, resizing, tree transfers,
+controller defaults and host note policies.
 
 --isolated-worker stages the current worker under a private temporary path for
 existing hosts. It never replaces their installed services. CI uses the installed
@@ -23,6 +24,11 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from raft import (  # noqa: E402
+    CHECK_NOTE,
+    CHECK_NOTE_CODE,
+    READ_NOTE_POLICY,
+    RESERVE_BOX_DISK,
+    disk_origin,
     host_problems,
     incus,
     inventory,
@@ -235,6 +241,232 @@ def verify_location_notes():
     print("Location note editing, listing, ordering and permissions passed", flush=True)
 
 
+def verify_controller_defaults():
+    """Edit config.json in a private controller home and resolve new's options offline."""
+    with tempfile.TemporaryDirectory() as home:
+        directory = Path(home) / ".config/raft"
+        directory.mkdir(parents=True)
+        (directory / "incus.json").write_text(
+            json.dumps({"lab": {"ssh": "lab-host", "image": ""}, "spare": {"ssh": "spare-host"}})
+        )
+        config = directory / "config.json"
+
+        def cli(*arguments):
+            return subprocess.run(
+                [sys.executable, str(ROOT / "raft.py"), *arguments],
+                env={**os.environ, "HOME": home},
+                capture_output=True,
+                text=True,
+            )
+
+        def resolved(*arguments):
+            # The real parser and resolver, reading the real files under HOME.
+            program = (
+                "import json, sys; import raft; args = raft.parser().parse_args(sys.argv[1:]); "
+                "used = raft.apply_new_defaults(args); "
+                "print(json.dumps([args.location, args.ttl, args.cpu, args.memory, args.disk, "
+                "sorted(used)]))"
+            )
+            response = subprocess.run(
+                [sys.executable, "-c", program, *arguments],
+                cwd=ROOT,
+                env={**os.environ, "HOME": home},
+                capture_output=True,
+                text=True,
+            )
+            if response.returncode:
+                return response.stderr
+            return json.loads(response.stdout)
+
+        # No disk is the shared pool.
+        assert resolved("new") == ["lab", 600, 1, "2GiB", None, []]
+        for arguments, printed in [
+            (["set", "cpu", "2"], "defaults.cpu: built-in default -> 2"),
+            (["set", "memory", "4GiB"], "defaults.memory: built-in default -> 4GiB"),
+            (["set", "ttl", "3600"], "defaults.ttl: built-in default -> 3600"),
+            (["set", "location", "spare"], "defaults.location: built-in default -> spare"),
+            (["set", "disk", "20GiB"], "defaults.disk: built-in default -> 20GiB"),
+            (["set", "cpu", "1"], "defaults.cpu: 2 -> 1"),
+        ]:
+            response = cli("config", *arguments)
+            assert response.returncode == 0 and response.stdout == printed + "\n", response
+        assert json.loads(config.read_text()) == {
+            "defaults": {
+                "cpu": 1,
+                "memory": "4GiB",
+                "ttl": 3600,
+                "location": "spare",
+                "disk": "20GiB",
+            }
+        }
+        assert config.stat().st_mode & 0o777 == 0o600, "Default editing widened permissions"
+        # Explicit flags win over config.json, which wins over built-in defaults.
+        everything = ["cpu", "disk", "location", "memory", "ttl"]
+        assert resolved("new") == ["spare", 3600, 1, "4GiB", "20GiB", everything]
+        assert resolved("new", "--location", "lab", "--ttl", "60", "--cpu", "2") == [
+            "lab",
+            60,
+            2,
+            "4GiB",
+            "20GiB",
+            ["disk", "memory"],
+        ]
+        # --disk shared beats a configured own disk.
+        assert resolved("new", "--disk", "shared")[4:] == [
+            None,
+            ["cpu", "location", "memory", "ttl"],
+        ]
+        # A box from a snapshot keeps the snapshot's location, CPU, RAM and disk:
+        # defaults, configured or built-in, never override them; flags still do.
+        template = "lab:rf-0123456789abcdef/snap"
+        assert resolved("new", "--from", template) == [None, 3600, None, None, None, ["ttl"]]
+        assert resolved("new", "--from", template, "--cpu", "4", "--disk", "30GiB")[2:5] == [
+            4,
+            None,
+            "30GiB",
+        ]
+        assert "--from keeps the snapshot's disk" in resolved(
+            "new", "--from", template, "--disk", "shared"
+        )
+        # fork has no defaults at all: omitted sizes stay the source's.
+        forked = subprocess.check_output(
+            [
+                sys.executable,
+                "-c",
+                "import raft; args = raft.parser().parse_args(['fork', 'lab:rf-0123456789abcdef', "
+                "'--ttl', '600']); print(raft.sizing(args), hasattr(args, 'disk'))",
+            ],
+            cwd=ROOT,
+            env={**os.environ, "HOME": home},
+            text=True,
+        )
+        assert forked == "[] False\n", forked
+        for arguments, error in [
+            (["set", "cpu", "0"], "defaults.cpu='0' is invalid"),
+            (["set", "memory", "3GB"], "defaults.memory='3GB' is invalid"),
+            (["set", "disk", "20"], "defaults.disk='20' is invalid"),
+            (["set", "ttl", "59"], "TTL must be 60 seconds to 30 days"),
+            (["set", "location", "missing"], "Unknown location"),
+            (["set", "location", "bad name"], "Location names"),
+        ]:
+            rejected = cli("config", *arguments)
+            assert rejected.returncode == 1 and error in rejected.stderr, (arguments, rejected)
+            assert str(config) in rejected.stderr or "location" in arguments, rejected
+        assert cli("config", "set", "colour", "red").returncode == 2
+        saved = config.read_text()
+        # A broken file fails new before any host is contacted, naming the file and key.
+        for document, error in [
+            ({"defaults": {"cpu": 0}}, "defaults.cpu=0 is invalid"),
+            ({"defaults": {"cpu": True}}, "defaults.cpu=True is invalid"),
+            ({"defaults": {"disk": 20}}, "defaults.disk=20 is invalid"),
+            ({"defaults": {"colour": "red"}}, "unknown key defaults.colour"),
+            ({"defaults": []}, '{"defaults"'),
+            ({"lab": {"ssh": "x"}}, '{"defaults"'),
+            ({"defaults": {"location": "gone"}}, "unknown location gone"),
+        ]:
+            config.write_text(json.dumps(document))
+            rejected = cli("new", "--purpose", "x")
+            assert rejected.returncode == 1 and str(config) in rejected.stderr, rejected
+            assert error in rejected.stderr and "Traceback" not in rejected.stderr, rejected
+        config.write_text("{not json")
+        rejected = cli("new")
+        assert rejected.returncode == 1 and "invalid JSON" in rejected.stderr, rejected
+        # The broken key can be repaired through the CLI.
+        config.write_text(json.dumps({"defaults": {"cpu": 0, "ttl": 900}}))
+        assert cli("config", "unset", "cpu").stdout == "defaults.cpu: 0 -> built-in default\n"
+        assert json.loads(config.read_text()) == {"defaults": {"ttl": 900}}
+        config.write_text(saved)
+        # Concurrent edits to different keys must all survive.
+        writers = [
+            subprocess.Popen(
+                [sys.executable, str(ROOT / "raft.py"), "config", "set", key, value],
+                env={**os.environ, "HOME": home},
+                stdout=subprocess.DEVNULL,
+            )
+            for key, value in [
+                ("cpu", "2"),
+                ("memory", "8GiB"),
+                ("ttl", "120"),
+                ("location", "lab"),
+                ("disk", "shared"),
+            ]
+        ]
+        assert all(writer.wait() == 0 for writer in writers)
+        assert json.loads(config.read_text())["defaults"] == {
+            "cpu": 2,
+            "memory": "8GiB",
+            "ttl": 120,
+            "location": "lab",
+            "disk": "shared",
+        }
+        for key in ["cpu", "memory", "ttl", "location", "disk"]:
+            assert cli("config", "unset", key).returncode == 0
+        assert not config.exists(), "Removing every default left an empty file"
+        assert not list(directory.glob(".raft-*")), "Staged configuration left behind"
+        # Policy and note flag mistakes are rejected before any host is contacted.
+        handle = "lab:rf-0123456789abcdef"
+        for arguments, error in [
+            (["policy", "lab", "--require", "owner"], "always need purpose"),
+            (["policy", "lab", "--require", "purpose,colour"], "Give note fields from"),
+            (["policy", "lab", "--require", ","], "Give note fields from"),
+            (["policy", "missing", "--clear"], "Unknown location"),
+            (["fork", handle, "--ttl", "600", "--owner", "agent"], "need --purpose"),
+            (["recover", "archive", "--location", "lab", "--next", "x"], "need --purpose"),
+        ]:
+            rejected = cli(*arguments)
+            assert rejected.returncode == 1 and error in rejected.stderr, (arguments, rejected)
+        assert cli("policy", "lab").returncode == 2
+    # The controller message names the missing flags and a complete command.
+    program = (
+        "import raft; print(raft.note_problem('lab', ['purpose', 'owner'], "
+        "{'purpose': 'x'}, 'new')); print(raft.note_problem('lab', ['purpose'], "
+        "{'purpose': 'x'}, 'new'))"
+    )
+    messages = subprocess.check_output([sys.executable, "-c", program], cwd=ROOT, text=True)
+    assert messages == (
+        'location lab requires --owner (host policy). Add it: raft new --purpose "..." '
+        '--owner "..." [--next "..."]\nNone\n'
+    ), messages
+    # Run the exact host-side check locally; it needs only python3.
+    for required, note, accepted in [
+        ("", "", True),
+        ("purpose", json.dumps({"purpose": "x"}), True),
+        ("purpose,owner", json.dumps({"purpose": "x", "owner": "y"}), True),
+        ("purpose,owner", json.dumps({"purpose": "x"}), False),
+        ("purpose", "", False),
+    ]:
+        check = subprocess.run(
+            [sys.executable, "-I", "-c", CHECK_NOTE_CODE, required, note],
+            capture_output=True,
+            text=True,
+        )
+        assert (check.returncode == 0) == accepted, (required, note, check)
+        if not accepted:
+            assert "Nothing was changed" in check.stderr, check
+    # A configured disk on a host without own box disks gets the same refusal as
+    # --disk, plus where the size came from. Run the exact host check against a
+    # fake incus that reports no storage pools besides the shared one.
+    with tempfile.TemporaryDirectory() as bin_directory:
+        fake = Path(bin_directory) / "incus"
+        fake.write_text("#!/bin/sh\necho '[\"/1.0/storage-pools/raft-data\"]'\n")
+        fake.chmod(0o755)
+        refusals = [
+            subprocess.run(
+                [sys.executable, "-I", "-c", RESERVE_BOX_DISK, "lab", "20", "image:abc", origin],
+                env={**os.environ, "PATH": f"{bin_directory}:{os.environ['PATH']}"},
+                capture_output=True,
+                text=True,
+            )
+            for origin in ["", disk_origin("20GiB")]
+        ]
+    flag, configured = (refusal.stderr.strip() for refusal in refusals)
+    assert all(refusal.returncode == 1 for refusal in refusals), refusals
+    assert flag.startswith("lab has no raft-disks pool") and "--disk-pool SIZE" in flag, flag
+    assert configured == flag + ". " + disk_origin("20GiB"), configured
+    assert "defaults.disk in " in configured and "raft config unset disk" in configured
+    print("Controller defaults, precedence, validation and note policy messages passed", flush=True)
+
+
 def verify_host_preflight():
     """Check onboarding decisions and refusals that need no host."""
     ready = {
@@ -347,6 +579,68 @@ with tempfile.TemporaryFile() as output:
     print(f"{location}: open stdin ignored and lifecycle lock released", flush=True)
 
 
+def verify_note_policy(location, create, listed_note, fixtures):
+    """Require note fields on the host, prove every note path honors it, then clear it."""
+    source = create("--memory", "1GiB", "--purpose", "Policy fork source")
+    live.raft("stop", source)
+    changed = live.raft("policy", location, "--require", "purpose,owner")
+    try:
+        assert changed.stdout == f"{location}: required note fields none -> purpose,owner\n"
+        report = json.loads(live.raft("config").stdout)
+        assert report["policy"][location]["require"] == ["purpose", "owner"], report
+        assert " by " in report["policy"][location]["changed"], report
+        saved = len(inventory(location))
+        for arguments, error in [
+            (["new", "--location", location, "--purpose", "x"], "requires --owner (host policy)"),
+            (["new", "--location", location], "requires --purpose and --owner (host policy)"),
+            (["fork", source, "--ttl", "600"], "Forks keep the source note"),
+            (["fork", source, "--ttl", "600", "--purpose", "x"], "requires --owner"),
+            (["note", source, "--clear"], "Clearing would leave the box without them"),
+            (["note", source, "--purpose", "x", "--next", "y"], "requires --owner"),
+            # Rejected before the archive is read or uploaded.
+            (["recover", "missing.tar.gz", "--location", location, "--purpose", "x"], "--owner"),
+        ]:
+            rejected = live.raft(*arguments, check=False)
+            assert rejected.returncode == 1 and error in rejected.stderr, (arguments, rejected)
+            assert "Add it: raft " in rejected.stderr or "Add them: raft " in rejected.stderr
+        assert len(inventory(location)) == saved, "A rejected note created a box"
+        assert listed_note(source) == {"purpose": "Policy fork source"}
+        # The host repeats the check under its lock, so a controller that skips the
+        # precheck still cannot write a note that lacks a required field.
+        try:
+            transaction(
+                location,
+                'note="$1"\n' + READ_NOTE_POLICY + CHECK_NOTE,
+                json.dumps({"purpose": "x"}),
+            )
+        except RuntimeError as error:
+            assert "requires box note fields purpose, owner" in str(error), error
+        else:
+            raise AssertionError("Host accepted a note without a required field")
+        owned = create("--memory", "1GiB", "--purpose", "Policy", "--owner", "verify")
+        assert listed_note(owned) == {"purpose": "Policy", "owner": "verify"}
+        live.raft("destroy", owned)
+        fixtures.remove(owned)
+        # Note flags replace the source note on the fork.
+        fork = live.raft(
+            "fork", source, "--ttl", "600", "--purpose", "Policy fork", "--owner", "verify"
+        ).stdout.strip()
+        fixtures.append(fork)
+        assert listed_note(fork) == {"purpose": "Policy fork", "owner": "verify"}
+        live.raft("destroy", fork)
+        fixtures.remove(fork)
+        live.raft("note", source, "--purpose", "Policy fork source", "--owner", "verify")
+        assert listed_note(source) == {"purpose": "Policy fork source", "owner": "verify"}
+    finally:
+        cleared = live.raft("policy", location, "--clear")
+    assert cleared.stdout == f"{location}: required note fields purpose,owner -> none\n"
+    assert json.loads(live.raft("config").stdout)["policy"][location]["require"] == []
+    live.raft("note", source, "--clear")
+    live.raft("destroy", source)
+    fixtures.remove(source)
+    print(f"{location}: host note policy for new, fork, note and recover passed", flush=True)
+
+
 def verify(location, isolated_worker=False):
     if inventory(location):
         raise RuntimeError(
@@ -413,8 +707,18 @@ def verify(location, isolated_worker=False):
         return live.raft(*command).stdout
 
     def create(*arguments):
+        # Pin the sizes a controller's config.json could otherwise default.
         handle = live.raft(
-            "new", "--location", location, "--ttl", "1800", *arguments
+            "new",
+            "--location",
+            location,
+            "--ttl",
+            "1800",
+            "--cpu",
+            "1",
+            "--disk",
+            "shared",
+            *arguments,
         ).stdout.strip()
         fixtures.append(handle)
         return handle
@@ -468,6 +772,7 @@ def verify(location, isolated_worker=False):
         print(
             f"{location}: box note template, listing, replacement and clearing passed", flush=True
         )
+        verify_note_policy(location, create, listed_note, fixtures)
         with tempfile.TemporaryDirectory(prefix="raft-tree-test-") as work:
             root = Path(work)
             source = root / "source with spaces"
@@ -690,6 +995,7 @@ if __name__ == "__main__":
     parser.add_argument("--isolated-worker", action="store_true")
     args = parser.parse_args()
     verify_location_notes()
+    verify_controller_defaults()
     verify_host_preflight()
     verify_archives()
     if args.location:

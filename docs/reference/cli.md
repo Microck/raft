@@ -16,7 +16,7 @@ Output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
 
 At most once a day, after a command finishes, Raft checks GitHub for a newer
 release and prints one line on stderr, such as
-`raft 0.5.0 is available (you have 0.4.0). Run: raft self-update`. It never
+`raft 0.6.0 is available (you have 0.5.0). Run: raft self-update`. It never
 installs anything or changes stdout, and network failures stay silent. See
 [`self-update`](#self-update) to turn it off.
 
@@ -34,6 +34,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Port forwarding and desktop | [`forward`](#forward), [`desktop`](#desktop) |
 | Backup and recovery | [`backup`](#backup), [`recover`](#recover) |
 | Locations | [`host add`](#host-add), [`locations`](#locations), [`note`](#note) |
+| Defaults and policies | [`config`](#config), [`policy`](#policy) |
 | Host inspection and maintenance | [`capacity`](#capacity), [`doctor`](#doctor), [`list`](#list), [`gc`](#gc), [`prune`](#prune) |
 | CLI maintenance | [`self-update`](#self-update) |
 
@@ -45,15 +46,20 @@ Create and launch a new workspace container.
 
 `raft new [--location LOCATION] [--ttl TTL] [--cpu N] [--memory SIZE] [--disk SIZE] [--disposable] [--from LOCATION:BOX/SNAPSHOT] [--purpose TEXT [--owner TEXT] [--next TEXT]]`
 
-- `--location LOCATION`: Target host location in `~/.config/raft/incus.json`. Defaults to first configured location.
-- `--ttl TTL`: Lifetime in seconds before automatic stop (`60` to `2592000`). Default: `600`.
-- `--cpu N`: CPU limit, any whole number from `1` up to the host's CPU count. Default: `1`, or the snapshot's with `--from`.
-- `--memory SIZE`: Memory limit in whole GiB, for example `16GiB`, up to the host's RAM. Default: `2GiB`, or the snapshot's with `--from`.
-- `--disk SIZE`: Give the box its own disk of SIZE in whole GiB, for example `20GiB`, instead of the shared pool. Needs a host deployed with `--disk-pool`. The box, and Docker inside it, cannot write past SIZE, and the pool reserves SIZE when the box is created. Without `--disk` the box uses the shared pool, or with `--from` keeps the snapshot's disk. See [Box sizing and own disks](./capacity.mdx#own-box-disks).
+- `--location LOCATION`: Target host location in `~/.config/raft/incus.json`. Built-in default: first configured location.
+- `--ttl TTL`: Lifetime in seconds before automatic stop (`60` to `2592000`). Built-in default: `600`.
+- `--cpu N`: CPU limit, any whole number from `1` up to the host's CPU count. Built-in default: `1`, or the snapshot's with `--from`.
+- `--memory SIZE`: Memory limit in whole GiB, for example `16GiB`, up to the host's RAM. Built-in default: `2GiB`, or the snapshot's with `--from`.
+- `--disk SIZE`: Give the box its own disk of SIZE in whole GiB, for example `20GiB`, instead of the shared pool. Needs a host deployed with `--disk-pool`. The box, and Docker inside it, cannot write past SIZE, and the pool reserves SIZE when the box is created. `--disk shared` asks for the shared pool, overriding a configured `disk`. Built-in default: the shared pool, or with `--from` the snapshot's disk. See [Box sizing and own disks](./capacity.mdx#own-box-disks).
+
+An omitted option takes the controller default set with [`config`](#config),
+then the built-in default. With `--from`, configured `cpu`, `memory` and `disk`
+defaults do not apply: the box keeps the snapshot's size unless a flag overrides
+it, and `--disk shared` is refused.
 
 - `--disposable`: Delete the box and snapshots on stop or expiry. Off by default.
 - `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. The box keeps the snapshot's CPU, RAM and disk unless `--cpu`, `--memory` or `--disk` overrides them; the source can be running. Cannot target a different location.
-- `--purpose TEXT`, `--owner TEXT`, `--next TEXT`: Record a [box note](#note). `--owner` and `--next` need `--purpose`. Without them the box starts with no note, including boxes created `--from` a noted snapshot.
+- `--purpose TEXT`, `--owner TEXT`, `--next TEXT`: Record a [box note](#note). `--owner` and `--next` need `--purpose`. Without them the box starts with no note, including boxes created `--from` a noted snapshot. A host [policy](#policy) can require fields.
 
 Returns the qualified workspace handle. If the location has a note, `new` prints
 it to stderr; stdout still contains only the handle. Raft limits neither the
@@ -211,11 +217,13 @@ Roll back a stopped workspace filesystem to a named snapshot using `--diskonly`,
 
 Clone a stopped workspace into an independent container on the same host and start it.
 
-`raft fork <box> --ttl TTL [--cpu N] [--memory SIZE] [--disposable]`
+`raft fork <box> --ttl TTL [--cpu N] [--memory SIZE] [--disposable] [--purpose TEXT [--owner TEXT] [--next TEXT]]`
 
 - `--ttl TTL`: Lifetime in seconds for the clone. Required.
+- `--purpose TEXT`, `--owner TEXT`, `--next TEXT`: Replace the clone's whole note. Without them the clone keeps the source note.
 
-Omitted CPU/RAM values inherit the source limits. The clone keeps the source's disk: the shared pool, or an own disk of the same size as a thin snapshot, which reserves that size in `raft-disks`. To copy a box onto a disk of another size, snapshot it and use `new --from BOX/SNAPSHOT --disk SIZE`. The clone is persistent unless `--disposable` is supplied, regardless of the source policy.
+Omitted CPU/RAM values inherit the source limits; controller defaults never apply to forks. The clone keeps the source's disk: the shared pool, or an own disk of the same size as a thin snapshot, which reserves that size in `raft-disks`. To copy a box onto a disk of another size, snapshot it and use `new --from BOX/SNAPSHOT --disk SIZE`. The clone is persistent unless `--disposable` is supplied, regardless of the source policy.
+The note the clone ends up with must satisfy the host [policy](#policy).
 
 Returns the qualified handle of the clone.
 
@@ -254,10 +262,15 @@ Export a stopped workspace and its snapshots to a compressed archive on the cont
 
 Import a portable backup archive onto a host as a fresh stopped workspace.
 
-`raft recover <source> --location LOCATION`
+`raft recover <source> --location LOCATION [--purpose TEXT [--owner TEXT] [--next TEXT]]`
 
 - `<source>`: Path to archive file on controller.
 - `--location LOCATION`: Target host location. Required.
+- `--purpose TEXT`, `--owner TEXT`, `--next TEXT`: Replace the recovered box's whole note. Without them it keeps the archived note.
+
+Under a host [policy](#policy), a given note is checked before the upload. An
+archived note is checked after import; if it fails, the imported box is deleted
+in the same locked step.
 
 Returns the qualified handle of the imported stopped workspace. A backup of a box with its own disk is recovered onto an own disk of the same size in `raft-disks`, which must exist on the destination and have room to reserve that size for the box and each of its snapshots; any other backup lands in the shared pool.
 
@@ -328,11 +341,61 @@ template, stored on the box as JSON in the Incus key `user.raft.note`:
 | `next` | What happens to it next | `Destroy after the tests pass` |
 
 Each call replaces the whole note, on running or stopped boxes. `raft list`
-shows it as `note`. Forks and recovered backups keep the source box's note;
-update it if the copy has a different job.
+shows it as `note`. Forks and recovered backups keep the source box's note
+unless `fork` or `recover` gets note flags; update it if the copy has a
+different job.
 
-Notes are advisory; Raft never enforces them. Empty values are rejected; use
-`--clear` to remove a note.
+Empty values are rejected; use `--clear` to remove a note. A host
+[policy](#policy) can require fields, and then rejects notes and `--clear` that
+would leave them out. Otherwise Raft does not interpret notes.
+
+### `config`
+
+Show or change the controller defaults for `new`.
+
+`raft config`
+`raft config set KEY VALUE`
+`raft config unset KEY`
+
+- `KEY`: One of `location`, `ttl`, `cpu`, `memory`, `disk`.
+- `VALUE`: Accepted exactly when the same text is accepted by the matching `new` flag. A `location` must be configured.
+
+`cpu`, `memory` and `disk` size only boxes created from the image. `new --from`
+and `fork` keep the source's CPU, RAM and disk; only explicit flags change them.
+A `disk` default on a location without `raft-disks`, or larger than its
+unreserved space, fails `new` with the same error as `--disk`, plus a sentence
+naming `defaults.disk` as the source. `--disk shared` overrides it for one box.
+
+Defaults live in `~/.config/raft/config.json` as `{"defaults": {"KEY": VALUE}}`.
+`set` and `unset` print the old and new value, write atomically under a
+controller lock and keep mode `0600`. An unknown key, bad value or malformed
+file makes `new` fail with the file path and key; `set` or `unset` that key to
+repair it.
+
+`raft config` prints one JSON object: `file`, `defaults` (each key's `value` and
+`source`, `config` or `built-in`) and `policy` (each location's `require` list
+and `changed` record). It contacts every configured host to read policies.
+See [Defaults and note policies](../guides/config-policy.mdx).
+
+### `policy`
+
+Set or clear the box note fields a location's host requires.
+
+`raft policy LOCATION --require FIELDS`
+`raft policy LOCATION --clear`
+
+- `--require FIELDS`: Comma-separated fields from `purpose`, `owner`, `next`. Must include `purpose`.
+- `--clear`: Stop requiring fields.
+
+The policy is stored on the host in the Incus project key `user.raft.require`,
+so it applies to every controller. `new`, `fork`, `recover` and `note` check it
+on the controller for an actionable error, then again in the host transaction
+that writes the note. The command prints the change and the host records the
+time, SSH account and controller in `user.raft.require.changed` and the host
+journal (`journalctl -t raft`).
+
+This is a guardrail for agents, not a security boundary: SSH and sudo on the
+host can change the policy or bypass it, and older controllers do not check it.
 
 ## Host inspection and maintenance commands
 

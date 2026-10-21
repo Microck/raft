@@ -1,6 +1,6 @@
 {
   "name": "@microck/raft",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Self-hosted Linux workspaces powered by Incus, an open-source alternative to boat.dev",
   "license": "MIT",
   "repository": {

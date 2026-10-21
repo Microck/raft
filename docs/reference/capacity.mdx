@@ -17,9 +17,10 @@ Choose CPU, RAM and disk when you run `raft new`:
 - `--memory SIZE`: any whole number of GiB, such as `3GiB` or `32GiB`, up to the host's RAM (default: `2GiB`). This is the box's cgroup memory limit.
 - `--disk SIZE`: give the box its own disk instead of the shared pool, on hosts that enable own box disks. See [Own box disks](#own-box-disks).
 
-A box from the image starts from these defaults. A box from a snapshot
-(`new --from`) or a fork keeps the source's CPU, RAM and disk instead, and each
-flag you pass overrides only its own value.
+A box from the image starts from these defaults, or from the controller's
+[`config.json` defaults](../guides/config-policy.mdx#defaults-for-new) when set.
+A box from a snapshot (`new --from`) or a fork keeps the source's CPU, RAM and
+disk instead of any default, and each flag you pass overrides only its own value.
 
 ```sh
 box=$(raft new --cpu 4 --memory 16GiB --disk 40GiB --ttl 3600 --purpose "Large build")

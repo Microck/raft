@@ -42,6 +42,7 @@ try {
     '/docs/guides/background-jobs',
     '/docs/guides/long-running-services',
     '/docs/guides/scripting-ci',
+    '/docs/guides/config-policy',
     '/docs/guides/desktop-services',
     '/docs/guides/snapshots-forks',
     '/docs/guides/backup-recovery',
@@ -61,6 +62,7 @@ try {
     '/docs/releases/0.2.1',
     '/docs/releases/0.3.0',
     '/docs/releases/0.4.0',
+    '/docs/releases/0.5.0',
   ];
   const targets = new Set();
   for (const path of paths) {

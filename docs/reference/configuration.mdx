@@ -68,6 +68,40 @@ The `image` field requires the full 64-character hash for `raft new`; aliases su
 ARM64 and AMD64 images produce different fingerprints; do not reuse an ARM64 hash on an AMD64 host.
 </Callout>
 
+## Defaults for new
+
+`~/.config/raft/config.json` is optional. It sets defaults for `raft new` on this
+controller and is separate from the location inventory:
+
+```json title="Example ~/.config/raft/config.json"
+{
+  "defaults": {
+    "location": "lab",
+    "ttl": 3600,
+    "cpu": 2,
+    "memory": "4GiB",
+    "disk": "20GiB"
+  }
+}
+```
+
+| Key | Accepted values | Built-in default |
+| :--- | :--- | :--- |
+| `location` | A configured location name | First configured location |
+| `ttl` | `60` to `2592000` seconds | `600` |
+| `cpu` | A positive whole number | `1` |
+| `memory` | Whole GiB, e.g. `16GiB` | `2GiB` |
+| `disk` | Whole GiB for an own box disk, or `shared` | `shared` |
+
+Explicit flags win over these values. `cpu`, `memory` and `disk` size only boxes
+created from the image: `new --from` and `fork` keep the source's size unless a
+flag overrides it. A `disk` default needs the `raft-disks` pool on the target
+host, like `--disk`. Unknown keys and invalid values make
+`raft new` fail with the file path and key. Edit the file with
+`raft config set KEY VALUE` and `raft config unset KEY`, and inspect it with
+`raft config`. Required box note fields are a host policy, not part of this
+file; see [Defaults and note policies](../guides/config-policy.mdx).
+
 ## SSH configuration and connection behavior
 
 Primary remote commands (`raft ssh`, `upload`, `download`, and control commands) run OpenSSH with `BatchMode=yes` and `-o ConnectTimeout=10` to fail fast on unreachable hosts. The timeout applies to initial connection establishment, not session or transfer duration.
