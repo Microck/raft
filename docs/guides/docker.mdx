@@ -64,7 +64,15 @@ docker run --rm my-app
 
 ## Managing disk space
 
-Nested container layers and volumes reside on the shared 60 GiB `raft-data` Btrfs storage pool.
+Nested container layers and volumes live in the box's filesystem. By default that is the shared 60 GiB `raft-data` Btrfs pool, where one box's Docker data can fill the pool for every box.
+
+On hosts with own box disks enabled, give Docker-heavy boxes their own disk. Docker data stays inside it, and builds fail with "No space left on device" at the cap instead of filling the host:
+
+```sh title="CONTROLLER: Create a box with its own 40 GiB disk"
+box=$(raft new --disk 40GiB --ttl 3600 --purpose "Docker image builds")
+```
+
+See [Own box disks](../reference/capacity.mdx#own-box-disks).
 
 Prune dangling images without deleting active container data:
 

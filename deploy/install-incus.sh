@@ -15,6 +15,16 @@ if ! command -v incus >/dev/null; then
   sudo apt-get update -qq
   sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends incus btrfs-progs
 fi
+# raft-disks, the opt-in pool for own box disks, uses LVM thin provisioning.
+if ! command -v lvcreate >/dev/null; then
+  sudo apt-get update -qq
+  sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends lvm2
+fi
+# raft recover reads the backup index, which Incus writes as YAML.
+if ! python3 -c 'import yaml' 2>/dev/null; then
+  sudo apt-get update -qq
+  sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends python3-yaml
+fi
 if ! command -v nft >/dev/null; then
   sudo apt-get update -qq
   sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends nftables

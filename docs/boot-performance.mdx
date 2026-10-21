@@ -96,7 +96,7 @@ Successful CI runs attach seven-day artifacts (`raft-dev-amd64` and `raft-dev-ar
 
 Versioned public images are published under [releases](https://github.com/Microck/raft/releases) after recovery and fresh-host validation; public release assets do not expire on the seven-day CI schedule. Each archive must be imported into a host of the matching CPU architecture.
 
-The CI runner uses a sparse Btrfs pool on an ephemeral VM and does not certify the 80 GiB production free-disk preflight. Pinned images retain their contents until you configure a new fingerprint.
+The CI runner uses sparse Btrfs and LVM pools on an ephemeral VM and does not certify the production free-disk preflight. Pinned images retain their contents until you configure a new fingerprint.
 
 </details>
 

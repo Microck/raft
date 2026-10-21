@@ -75,7 +75,7 @@ echo "Created fork: $copy"
 - **Instance-only copy**: Uses Incus `--instance-only`. Filesystem data, installed packages, and `/workspace` files are copied; source snapshots are not inherited.
 - **Immediate start**: `raft fork` launches the new container immediately with the specified TTL while the source remains stopped.
 - **Fresh network identity**: The fork receives a new container name, a fresh MAC address on `rfbr0`, and an independent IP address.
-- **Capacity accounting**: The fork counts toward the location's four-saved-box limit and uses storage from the shared 60 GiB Btrfs pool.
+- **Disk**: The fork keeps the source disk. Both kinds fork in seconds as copy-on-write snapshots: a shared-pool source within the shared 60 GiB Btrfs pool, an own-disk source as a thin snapshot that reserves its full size in `raft-disks`.
 
 Destroy the clone when finished to release capacity:
 
@@ -89,7 +89,13 @@ raft destroy "$copy"
 copy=$(raft new --from "$box/pre-upgrade" --ttl 600)
 ```
 
-The source box can be running because Raft copies the saved snapshot. The new box stays on the same host, uses normal creation sizing defaults and has a fresh network identity. Filesystem secrets are copied too.
+The source box can be running because Raft copies the saved snapshot. The new box stays on the same host, keeps the snapshot's CPU, RAM and disk unless `--cpu`, `--memory` or `--disk` overrides them, and has a fresh network identity. Copies are copy-on-write snapshots, so starting many boxes from one prepared snapshot is fast; on own disks each copy still reserves its full size. Filesystem secrets are copied too.
+
+Add `--disk SIZE` to copy the snapshot onto an own disk of a new size, for example to give a full box more room:
+
+```sh
+bigger=$(raft new --from "$box/pre-upgrade" --disk 40GiB --ttl 600)
+```
 
 Remove a snapshot you no longer need:
 
@@ -104,4 +110,4 @@ copy=$(raft fork "$box" --ttl 600 --cpu 2 --memory 4GiB)
 raft resume "$box" --ttl 600 --memory 2GiB
 ```
 
-Omitted sizing values keep the source limits. Forks are persistent by default; add `--disposable` to delete a clone when it stops or expires.
+Omitted CPU and RAM values keep the source limits; the disk never changes on fork or resume. Forks are persistent by default; add `--disposable` to delete a clone when it stops or expires.

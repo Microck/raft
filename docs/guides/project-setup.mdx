@@ -94,9 +94,10 @@ raft exec "$copy" -- ls -la /workspace/my-project
 ```
 
 The template stays on its source host. Its source box can be running when you
-copy the saved snapshot. `new --from` uses normal creation defaults when sizing
-is omitted: 1 CPU and 2 GiB RAM. The new box has its own handle, MAC address,
-deadline, and saved slot.
+copy the saved snapshot. `new --from` keeps the snapshot's CPU, RAM and disk
+unless `--cpu`, `--memory` or `--disk SIZE` overrides them; `--disk` gives it an
+own disk of a new size. The new box has its own handle, MAC address
+and deadline.
 
 The snapshot includes packages, project files, credentials, and enabled services.
 It does not include process memory. Changing the original after snapshot creation

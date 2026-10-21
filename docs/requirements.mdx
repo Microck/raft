@@ -17,11 +17,11 @@ Each workspace host must be a dedicated physical machine or virtual instance:
 | **Operating system** | Ubuntu 22.04 LTS or 24.04 LTS | The deployer installs Incus 6.0 LTS and nftables bridge isolation rules. |
 | **CPU** | At least 2 CPU cores | Capacity calculations reserve 1 CPU core for the host OS and services (an advisory estimate, not an enforced host reservation). |
 | **RAM** | At least 8 GiB | Sizing calculations reserve the larger of 2 GiB or 10% of host RAM (an advisory estimate, not an enforced host reservation). |
-| **Free disk** | At least 80 GiB on host disk | The deployer provisions a 60 GiB dedicated Btrfs pool (`raft-data`). |
+| **Free disk** | At least 80 GiB on host disk | For the 60 GiB shared Btrfs pool (`raft-data`), images and the host. [Own box disks](./reference/capacity.mdx#own-box-disks) are optional: `--disk-pool SIZE` adds a `raft-disks` pool of SIZE, so a fresh host then needs 80 GiB plus SIZE, and an existing host SIZE plus 20 GiB. |
 
 `raft host add` checks these requirements read-only before it changes a host.
 
-Host CPU and RAM reserves are advisory estimates for `raft limits`, not enforced cgroup locks.
+Host CPU and RAM reserves are advisory estimates for `raft capacity`, not enforced cgroup locks. Raft limits neither how many boxes a host runs nor their size.
 
 <Callout type="warn" title="Dedicated host requirement">
 Do not deploy Raft on hosts with existing Incus storage pools or shared virtualization workloads. Deployment configures dedicated nftables rules, storage pools, and system services.

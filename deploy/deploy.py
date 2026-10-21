@@ -15,7 +15,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from raft import configuration  # noqa: E402
+from raft import BOX_DISK_POOL, configuration, gib, gib_size  # noqa: E402
 
 RELEASES = "https://github.com/Microck/raft/releases/download/"
 # Matches the user agent install-incus.sh sends for its own downloads.
@@ -134,7 +134,86 @@ def import_archive(host, archive, architecture):
     return checked_image(host, fingerprint, architecture)
 
 
-def deploy(name, host):
+def free_disk(host):
+    return int(
+        remote(
+            host,
+            shlex.join(
+                [
+                    "python3",
+                    "-c",
+                    "import shutil; print(shutil.disk_usage('/var/lib/incus').free)",
+                ]
+            ),
+        )
+    )
+
+
+def box_disk_pool(host, pools, size):
+    """Create or verify the thin LVM pool that holds own box disks.
+
+    Own box disks are opt-in: without --disk-pool a host has no raft-disks pool,
+    which is a normal state, and --disk-pool on a later redeploy adds it. Thin
+    volumes make forks, templates and snapshots of own-disk boxes snapshots that
+    share blocks. Raft never overcommits the pool: every write path that adds a
+    thin volume checks that all virtual sizes still fit its data space (see
+    BOX_DISK_ACCOUNTING in raft.py), so the pool cannot fill.
+    """
+    pool = next((item for item in pools if item["name"] == BOX_DISK_POOL), None)
+    if pool is None:
+        if size is None:
+            return
+        # Same 20 GiB margin as the fresh-host check for the 60 GiB shared pool.
+        if free_disk(host) < (gib(size) + 20) * 1024**3:
+            raise RuntimeError(
+                f"Creating the {size} {BOX_DISK_POOL} pool needs {gib(size) + 20} GiB free disk; "
+                "pass a smaller --disk-pool or free host disk"
+            )
+        remote(
+            host,
+            f"sudo -n incus storage create {BOX_DISK_POOL} lvm size={size} lvm.use_thinpool=true",
+        )
+        pool = json.loads(remote(host, f"sudo -n incus query /1.0/storage-pools/{BOX_DISK_POOL}"))
+    config = pool["config"]
+    if pool["driver"] != "lvm" or config.get("lvm.use_thinpool") != "true":
+        raise RuntimeError(
+            f"{BOX_DISK_POOL} must be a thin LVM pool (lvm.use_thinpool=true); inspect it and "
+            "back up its boxes before explicit storage recovery"
+        )
+    if size is not None and config.get("size") != size:
+        raise RuntimeError(
+            f"{BOX_DISK_POOL} has size={config.get('size')}, not {size}. "
+            "Deployment does not resize existing storage; omit --disk-pool to keep it"
+        )
+    # The thin pool frees blocks that boxes discard, but must not pass discards on
+    # to its loop file: that would punch holes in the file, and a later write into
+    # a hole could find the host disk full and fail every own-disk box at once.
+    # Changing passdown to nopassdown is allowed while the pool is active.
+    thinpool = f"{config['lvm.vg_name']}/{config['lvm.thinpool_name']}"
+    discards = remote(host, f"sudo -n lvs --noheadings -o discards {thinpool}").strip()
+    if discards != "nopassdown":
+        remote(host, f"sudo -n lvchange --discards nopassdown {thinpool}")
+    # Incus creates the pool's loop file sparse. Allocating its full length makes
+    # the host disk hold the whole pool; fallocate only fills holes and never
+    # changes the file's length or data, so repeating it is a no-op. A pool an
+    # operator placed on a dedicated block device has no file to allocate.
+    remote(
+        host,
+        shlex.join(
+            [
+                "sudo",
+                "-n",
+                "sh",
+                "-c",
+                'test ! -f "$1" || fallocate -l "$(stat -c %s "$1")" "$1"',
+                "raft",
+                config["source"],
+            ]
+        ),
+    )
+
+
+def deploy(name, host, disk_pool=None):
     host_architecture(host)
     copy(host, ROOT / "deploy/install-incus.sh", "/tmp/raft-install-incus.sh")
     print(remote(host, "bash /tmp/raft-install-incus.sh </dev/null"), flush=True)
@@ -149,24 +228,29 @@ def deploy(name, host):
         if project.get("description") != "Raft managed workspaces":
             raise RuntimeError("Existing raft project needs ownership verification")
     else:
-        if pool is not None or network is not None:
-            raise RuntimeError(
-                "Raft resource names already exist without an owned project; review them explicitly"
-            )
-        available = int(
-            remote(
-                host,
-                shlex.join(
-                    [
-                        "python3",
-                        "-c",
-                        "import shutil; print(shutil.disk_usage('/var/lib/incus').free)",
-                    ]
+        leftovers = [
+            name
+            for name, found in [
+                ("storage pool raft-data", pool is not None),
+                ("network rfbr0", network is not None),
+                (
+                    f"storage pool {BOX_DISK_POOL}",
+                    any(item["name"] == BOX_DISK_POOL for item in pools),
                 ),
+            ]
+            if found
+        ]
+        if leftovers:
+            raise RuntimeError(
+                "Raft resource names already exist without an owned project: "
+                + ", ".join(leftovers)
+                + "; review them explicitly"
             )
-        )
-        if available < 80 * 1024**3:
-            raise RuntimeError("Fresh deployment needs at least 80 GiB free disk")
+        # 60 GiB shared pool, 20 GiB for images and the host, and the own-disk
+        # pool when --disk-pool enables it.
+        needed = 80 + (gib(disk_pool) if disk_pool else 0)
+        if free_disk(host) < needed * 1024**3:
+            raise RuntimeError(f"Fresh deployment needs at least {needed} GiB free disk")
         remote(
             host,
             "sudo -n incus project create raft -c features.images=true -c features.profiles=true </dev/null",
@@ -207,6 +291,7 @@ def deploy(name, host):
             "Raft pool must have configured size=60GiB; inspect raft-data and back up boxes "
             "before explicit storage recovery. Deployment does not resize existing storage."
         )
+    box_disk_pool(host, pools, disk_pool)
 
     devices = profile["devices"]
     if (
@@ -261,9 +346,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     configured = hosts()
     parser.add_argument("--location", choices=configured)
+    parser.add_argument(
+        "--disk-pool",
+        type=gib_size,
+        metavar="SIZE",
+        help=f"Enable own box disks: create the {BOX_DISK_POOL} pool with SIZE of host disk "
+        "if it is missing (default: leave own box disks as they are); an existing pool must "
+        "already have this size",
+    )
     args = parser.parse_args()
     for name in [args.location] if args.location else configured:
-        deploy(name, configured[name])
+        deploy(name, configured[name], args.disk_pool)
 
 
 if __name__ == "__main__":

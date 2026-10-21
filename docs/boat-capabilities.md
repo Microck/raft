@@ -18,11 +18,11 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Create/list/inspect/delete | ✅ | ✅ | Qualified handles, explicit locations, native Incus metadata. Single operator; no organization/account API |
 | Stop/resume | ✅ | ✅ | Stops processes, retains disk; resume requires TTL. Shared-kernel containers, not Boat VMs |
 | Running lifetime | ✅ | ✅ | Host-enforced TTL; extend resets deadline without restart. Long locked transactions delay expiry checks |
-| Sizing | ✅ | ✅ | 1/2 CPUs and 1/2/4/8 GiB choices. Resume/fork support sizing overrides; Boat offers larger sizes |
-| Host capacity recommendations | ❌ | ✅ | Raft reports host CPU/RAM budgets, active allocations, saved slots and disk headroom. Boat limits describe hosted plan credits and concurrency, not operator-host sizing. Raft enforces four saved boxes per host |
+| Sizing | ✅ | ✅ | Any whole CPU count and GiB of RAM up to the host, plus an optional own disk. Resume/fork support CPU/RAM overrides; Boat offers fixed machine sizes |
+| Host capacity estimates | ❌ | ✅ | Raft reports advisory host CPU/RAM budgets, active allocations, headroom and disk space, and enforces no box count. Boat limits describe hosted plan credits and concurrency, not operator-host sizing |
 | Hosted credit and start-rate limits | ✅ | ❌ | Boat reports plan credits, concurrency and start rates. Raft has no billing service |
 | Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides, retaining omitted limits |
-| Usage | ✅ | ✅ | Cgroup memory, CPU counters, shared pool space. No billing meter or per-box disk accounting |
+| Usage | ✅ | ✅ | Cgroup memory, CPU counters, and shared-pool or own-disk space. No billing meter |
 | Root terminal | ✅ | ✅ | PTY over host SSH and native Incus exec. No directly exposed guest SSH endpoint |
 | Synchronous exec | ✅ | ✅ | Literal argv and preserved exit code. Shell syntax requires an explicit shell |
 | Detached exec | ✅ | ✅ | Guest systemd unit, status, logs, cancellation. No process checkpoint or restart after stop |
@@ -39,8 +39,8 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Desktop | ✅ | ✅ | On-demand noVNC, framebuffer, pointer and browser transport checks. See verification for desktop interaction coverage |
 | Browser-only streaming | ✅ | ❌ | Missing. Full desktop only; browser confinement deferred |
 | Network separation | ❓ | ✅ | Raft tests host/private/metadata and IPv4/IPv6 peer restrictions with startup-gated filtering. Boat's equivalent filtering policy is not established; its VM boundary is listed separately |
-| Bounded host storage pool | ❓ | ✅ | Raft configures a shared 60 GiB Btrfs host pool and rejects size drift. Boat does not document an operator-managed host storage pool |
-| Strict per-box disk allocation | ✅ | ❌ | Nested subvolumes prevent claiming strict quotas; no independent Boat-sized disks |
+| Bounded host storage pools | ❓ | ✅ | Raft configures a shared 60 GiB Btrfs pool and, when enabled, a fully allocated LVM thin pool for own box disks that it never overcommits, and rejects size drift. Boat does not document an operator-managed host storage pool |
+| Strict per-box disk allocation | ✅ | ✅ | On hosts with own box disks enabled, `new --disk SIZE` gives a box a fixed-size, copy-on-write ext4 disk that guest and Docker writes cannot exceed. Shared-pool boxes, the default, have no per-box quota |
 | VM kernel isolation | ✅ | ❌ | VM deployment not implemented |
 | Nested KVM / Android emulator acceleration | ✅ | ❌ | Boat documents KVM on standard hosts; overflow cloud VMs lack it. Raft has no guest KVM device or VM mode |
 | External guest SSH | ✅ | ❌ | Boat supports a public IP or an SSH endpoint; public IPv4 is not guaranteed. Raft uses host-mediated private access |
@@ -50,7 +50,7 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Automatic deletion/retention | ✅ | ✅ | Disposable delete-on-stop/expiry; opt-in stopped-box retention cleanup with preview |
 | Dashboard | ✅ | ❌ | Missing. CLI and private desktop cover current workflow |
 | SDK/API keys | ✅ | ❌ | Host SSH authentication. No remote Raft service API |
-| CLI-wide JSON mode | ✅ | ❌ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides JSON for list/info/usage/limits and JSONL for prune |
+| CLI-wide JSON mode | ✅ | ❌ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides JSON for list/info/usage/capacity and JSONL for prune |
 | Snapshot file browsing/download | ✅ | ❌ | Full native archives only; no Raft snapshot tree or selected-file interface |
 | CLI self-update | ✅ | ✅ | `raft self-update` upgrades npm global installs through the registry and uv tools from a release wheel checked against `SHA256SUMS`. A daily stderr notice reports new releases. Boat also updates itself after commands; Raft never installs without the command and never changes hosts |
 | Dynamic shell completions | ✅ | ❌ | Static `--help` only |

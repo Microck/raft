@@ -34,7 +34,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Port forwarding and desktop | [`forward`](#forward), [`desktop`](#desktop) |
 | Backup and recovery | [`backup`](#backup), [`recover`](#recover) |
 | Locations | [`host add`](#host-add), [`locations`](#locations), [`note`](#note) |
-| Host inspection and maintenance | [`limits`](#limits), [`doctor`](#doctor), [`list`](#list), [`gc`](#gc), [`prune`](#prune) |
+| Host inspection and maintenance | [`capacity`](#capacity), [`doctor`](#doctor), [`list`](#list), [`gc`](#gc), [`prune`](#prune) |
 | CLI maintenance | [`self-update`](#self-update) |
 
 ## Workspace lifecycle commands
@@ -43,19 +43,23 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 
 Create and launch a new workspace container.
 
-`raft new [--location LOCATION] [--ttl TTL] [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB,8GiB}] [--disposable] [--from LOCATION:BOX/SNAPSHOT] [--purpose TEXT [--owner TEXT] [--next TEXT]]`
+`raft new [--location LOCATION] [--ttl TTL] [--cpu N] [--memory SIZE] [--disk SIZE] [--disposable] [--from LOCATION:BOX/SNAPSHOT] [--purpose TEXT [--owner TEXT] [--next TEXT]]`
 
 - `--location LOCATION`: Target host location in `~/.config/raft/incus.json`. Defaults to first configured location.
 - `--ttl TTL`: Lifetime in seconds before automatic stop (`60` to `2592000`). Default: `600`.
-- `--cpu {1,2}`: CPU core count managed by Incus. Default: `1`.
-- `--memory {1GiB,2GiB,4GiB,8GiB}`: Memory limit. Default: `2GiB`.
+- `--cpu N`: CPU limit, any whole number from `1` up to the host's CPU count. Default: `1`, or the snapshot's with `--from`.
+- `--memory SIZE`: Memory limit in whole GiB, for example `16GiB`, up to the host's RAM. Default: `2GiB`, or the snapshot's with `--from`.
+- `--disk SIZE`: Give the box its own disk of SIZE in whole GiB, for example `20GiB`, instead of the shared pool. Needs a host deployed with `--disk-pool`. The box, and Docker inside it, cannot write past SIZE, and the pool reserves SIZE when the box is created. Without `--disk` the box uses the shared pool, or with `--from` keeps the snapshot's disk. See [Box sizing and own disks](./capacity.mdx#own-box-disks).
 
 - `--disposable`: Delete the box and snapshots on stop or expiry. Off by default.
-- `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. Normal creation sizing applies; the source can be running. Cannot target a different location.
+- `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. The box keeps the snapshot's CPU, RAM and disk unless `--cpu`, `--memory` or `--disk` overrides them; the source can be running. Cannot target a different location.
 - `--purpose TEXT`, `--owner TEXT`, `--next TEXT`: Record a [box note](#note). `--owner` and `--next` need `--purpose`. Without them the box starts with no note, including boxes created `--from` a noted snapshot.
 
 Returns the qualified workspace handle. If the location has a note, `new` prints
-it to stderr; stdout still contains only the handle.
+it to stderr; stdout still contains only the handle. Raft limits neither the
+number of boxes nor their size; requests larger than the whole host, own disks
+on a host without `raft-disks`, or own disks larger than the unreserved
+`raft-disks` space, fail with the reason before anything is created.
 
 ### `stop`
 
@@ -69,12 +73,13 @@ Terminates guest processes and stops the container. Persistent boxes retain file
 
 Start a stopped workspace with a renewed lifetime deadline.
 
-`raft resume <box> --ttl TTL [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB,8GiB}]`
+`raft resume <box> --ttl TTL [--cpu N] [--memory SIZE]`
 
 - `--ttl TTL`: Lifetime in seconds from resumption (`60` to `2592000`). Required.
 
 CPU/RAM overrides on resume apply before startup. Omitted values stay unchanged.
-A running box is rejected before changing its limits.
+A running box is rejected before changing its limits. Resume never changes the
+box's disk.
 
 ### `extend`
 
@@ -90,7 +95,7 @@ Permanently delete a workspace container and its snapshots.
 
 `raft destroy <box>`
 
-Stops the container if running, removes all associated Btrfs snapshots, and releases host storage.
+Stops the container if running, removes all associated snapshots, and releases its storage, including an own disk.
 
 ## Execution and inspection commands
 
@@ -116,13 +121,13 @@ Open an interactive root terminal session inside the workspace over host SSH and
 
 ### `info`
 
-Display container metadata from Incus in JSON format, including status, IP addresses, resource limits, and timestamps.
+Display container metadata from Incus in JSON format, including status, IP addresses, resource limits, and timestamps. `expanded_devices.root` shows the disk: `pool: raft-data` for the shared pool, or `pool: raft-disks` with the own disk's `size`.
 
 `raft info <box>`
 
 ### `usage`
 
-Display active resource consumption for a running workspace: cgroup memory, CPU microseconds, CPU affinity, and shared-pool disk space.
+Display active resource consumption for a running workspace: cgroup memory, CPU microseconds, CPU affinity, and filesystem space. `filesystemScope` says whether the space is the shared pool or the box's own disk.
 
 `raft usage <box>`
 
@@ -182,6 +187,8 @@ Create a named point-in-time snapshot of a stopped workspace. Names use alphanum
 
 `raft snapshot <box> <name>`
 
+A snapshot of a box with its own disk is a thin snapshot that reserves the box's disk size in `raft-disks`; it fails before anything is created when the pool lacks unreserved space.
+
 ### `snapshots`
 
 List existing snapshots and creation timestamps for a workspace.
@@ -204,11 +211,11 @@ Roll back a stopped workspace filesystem to a named snapshot using `--diskonly`,
 
 Clone a stopped workspace into an independent container on the same host and start it.
 
-`raft fork <box> --ttl TTL [--cpu {1,2}] [--memory {1GiB,2GiB,4GiB,8GiB}] [--disposable]`
+`raft fork <box> --ttl TTL [--cpu N] [--memory SIZE] [--disposable]`
 
 - `--ttl TTL`: Lifetime in seconds for the clone. Required.
 
-Omitted CPU/RAM values inherit the source limits. The clone is persistent unless `--disposable` is supplied, regardless of the source policy.
+Omitted CPU/RAM values inherit the source limits. The clone keeps the source's disk: the shared pool, or an own disk of the same size as a thin snapshot, which reserves that size in `raft-disks`. To copy a box onto a disk of another size, snapshot it and use `new --from BOX/SNAPSHOT --disk SIZE`. The clone is persistent unless `--disposable` is supplied, regardless of the source policy.
 
 Returns the qualified handle of the clone.
 
@@ -252,7 +259,7 @@ Import a portable backup archive onto a host as a fresh stopped workspace.
 - `<source>`: Path to archive file on controller.
 - `--location LOCATION`: Target host location. Required.
 
-Returns the qualified handle of the imported stopped workspace.
+Returns the qualified handle of the imported stopped workspace. A backup of a box with its own disk is recovered onto an own disk of the same size in `raft-disks`, which must exist on the destination and have room to reserve that size for the box and each of its snapshots; any other backup lands in the shared pool.
 
 ## Location commands
 
@@ -260,19 +267,20 @@ Returns the qualified handle of the imported stopped workspace.
 
 Check, provision and register a new workspace host, then prove it works.
 
-`raft host add LOCATION --ssh TARGET [--image-release TAG | --image-archive PATH | --build] [--dry-run] [--yes]`
+`raft host add LOCATION --ssh TARGET [--image-release TAG | --image-archive PATH | --build] [--disk-pool SIZE] [--dry-run] [--yes]`
 
 - `LOCATION`: New location name. Existing locations are rejected.
 - `--ssh TARGET`: Key-based SSH target, such as `ubuntu@192.0.2.10` or an `~/.ssh/config` alias. Accept the host key interactively first.
 - `--image-release TAG`: Download `raft-dev-<arch>.tar.gz` from this release on the host and verify it against the release `SHA256SUMS`. Default: the CLI's own version.
 - `--image-archive PATH`: Upload and import a local image archive instead.
 - `--build`: Build the image on the host from Debian 13 instead.
+- `--disk-pool SIZE`: Enable [own box disks](./capacity.mdx#own-box-disks) with a `raft-disks` thin pool of SIZE, in whole GiB. Default: not enabled. The pool's file takes its full size on the host disk when created. To enable them on a host that is already deployed, run `python3 deploy/deploy.py --location LOCATION --disk-pool SIZE`. An existing pool keeps its size; a different explicit value is refused.
 - `--dry-run`: Probe the host and print the plan without changing anything.
 - `--yes`: Apply the plan without the interactive prompt. Without a terminal, `--yes` is required.
 
 Before any change, a read-only probe checks SSH, passwordless sudo, Ubuntu 22.04 or
 24.04, ARM64 or AMD64, python3, at least 2 CPUs, 8 GiB RAM and, for a fresh host,
-80 GiB free disk. Unsupported targets, including macOS, fail with the reasons and
+80 GiB of free disk, plus the `--disk-pool` size when given. Unsupported targets, including macOS, fail with the reasons and
 no changes. The command then runs the deployer, imports the image only if its
 checksum and architecture match, adds the location with the pinned fingerprint,
 and runs `doctor` plus a disposable create/exec/destroy smoke test. If the final
@@ -308,7 +316,7 @@ Set or clear the note of a location or a box.
 
 Location notes are operator guidance stored in `~/.config/raft/incus.json`. Use
 them to record which host is preferred or what a host should not run. Raft shows
-them in `locations`, `limits` and `new`.
+them in `locations`, `capacity` and `new`.
 
 Box notes tell other agents and people why a box exists. They follow one
 template, stored on the box as JSON in the Incus key `user.raft.note`:
@@ -328,20 +336,22 @@ Notes are advisory; Raft never enforces them. Empty values are rejected; use
 
 ## Host inspection and maintenance commands
 
-### `limits`
+### `capacity`
 
-Inspect host resource capacity, active allocations, and recommended workspace limits.
+Estimate how many more boxes a host can run well. The report is advice: Raft
+enforces no box count or size budget, so create the boxes your task needs.
 
-`raft limits [--location LOCATION] [--json]`
+`raft capacity [--location LOCATION] [--json]`
 
 - `--location LOCATION`: Filter report to a specific host.
 - `--json`: Output report as JSON.
 
-Each report includes the location's `note`, if any.
+Each report leads with that advisory notice and includes the location's `note`,
+if any. See [Box sizing and capacity](./capacity.mdx) for the fields.
 
 ### `doctor`
 
-Inspect host connectivity, Incus version, expiry-worker compatibility, active systemd units (`incus`, `raft-expire.timer`, `raft-network.service`), root filesystem usage, storage pool status, and saved box count across configured hosts. An incompatible worker returns a nonzero exit status and names the failing location without running expiry or modifying boxes.
+Inspect host connectivity, Incus version, expiry-worker compatibility, active systemd units (`incus`, `raft-expire.timer`, `raft-network.service`), root filesystem usage, status of the shared `raft-data` pool and, when own box disks are enabled, the `raft-disks` pool, and saved box count across configured hosts. Without `raft-disks` it prints `own box disks: not enabled (redeploy with --disk-pool SIZE)` and does not fail. An incompatible worker returns a nonzero exit status and names the failing location without running expiry or modifying boxes.
 
 `raft doctor`
 
@@ -351,7 +361,8 @@ List existing workspace containers across configured hosts.
 
 `raft list [--location LOCATION]`
 
-Prints one JSON object per box (JSONL), with `box`, `state`, `stopAt` and `note` fields.
+Prints one JSON object per box (JSONL), with `box`, `state`, `stopAt`, `disk` and `note` fields.
+`disk` is `"shared"` for the shared pool or the own disk's size, such as `"20GiB"`.
 `note` is the box note object, or `null` when the box has none.
 An empty inventory prints no records. See [Scripting and CI](../guides/scripting-ci.mdx)
 for output formats, exit codes, readiness, and failure handling.

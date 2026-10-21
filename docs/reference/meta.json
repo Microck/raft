@@ -5,6 +5,6 @@
   "pages": [
     "cli",
     "configuration",
-    "capacity-limits"
+    "capacity"
   ]
 }
