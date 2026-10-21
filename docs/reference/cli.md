@@ -16,7 +16,7 @@ Output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
 
 At most once a day, after a command finishes, Raft checks GitHub for a newer
 release and prints one line on stderr, such as
-`raft 0.6.0 is available (you have 0.5.0). Run: raft self-update`. It never
+`raft 0.7.0 is available (you have 0.6.0). Run: raft self-update`. It never
 installs anything or changes stdout, and network failures stay silent. See
 [`self-update`](#self-update) to turn it off.
 
@@ -44,7 +44,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 
 Create and launch a new workspace container.
 
-`raft new [--location LOCATION] [--ttl TTL] [--cpu N] [--memory SIZE] [--disk SIZE] [--disposable] [--from LOCATION:BOX/SNAPSHOT] [--purpose TEXT [--owner TEXT] [--next TEXT]]`
+`raft new [--location LOCATION] [--ttl TTL] [--cpu N] [--memory SIZE] [--disk SIZE] [--disposable | --persistent] [--from LOCATION:BOX/SNAPSHOT] [--purpose TEXT [--owner TEXT] [--next TEXT]]`
 
 - `--location LOCATION`: Target host location in `~/.config/raft/incus.json`. Built-in default: first configured location.
 - `--ttl TTL`: Lifetime in seconds before automatic stop (`60` to `2592000`). Built-in default: `600`.
@@ -57,7 +57,8 @@ then the built-in default. With `--from`, configured `cpu`, `memory` and `disk`
 defaults do not apply: the box keeps the snapshot's size unless a flag overrides
 it, and `--disk shared` is refused.
 
-- `--disposable`: Delete the box and snapshots on stop or expiry. Off by default.
+- `--disposable`: Delete the box and snapshots on stop or expiry. Built-in default: persistent.
+- `--persistent`: Keep the box and its disk on stop or expiry, overriding a configured `disposable` default. Cannot be combined with `--disposable`.
 - `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. The box keeps the snapshot's CPU, RAM and disk unless `--cpu`, `--memory` or `--disk` overrides them; the source can be running. Cannot target a different location.
 - `--purpose TEXT`, `--owner TEXT`, `--next TEXT`: Record a [box note](#note). `--owner` and `--next` need `--purpose`. Without them the box starts with no note, including boxes created `--from` a noted snapshot. A host [policy](#policy) can require fields.
 
@@ -222,7 +223,7 @@ Clone a stopped workspace into an independent container on the same host and sta
 - `--ttl TTL`: Lifetime in seconds for the clone. Required.
 - `--purpose TEXT`, `--owner TEXT`, `--next TEXT`: Replace the clone's whole note. Without them the clone keeps the source note.
 
-Omitted CPU/RAM values inherit the source limits; controller defaults never apply to forks. The clone keeps the source's disk: the shared pool, or an own disk of the same size as a thin snapshot, which reserves that size in `raft-disks`. To copy a box onto a disk of another size, snapshot it and use `new --from BOX/SNAPSHOT --disk SIZE`. The clone is persistent unless `--disposable` is supplied, regardless of the source policy.
+Omitted CPU/RAM values inherit the source limits; controller defaults never apply to forks. The clone keeps the source's disk: the shared pool, or an own disk of the same size as a thin snapshot, which reserves that size in `raft-disks`. To copy a box onto a disk of another size, snapshot it and use `new --from BOX/SNAPSHOT --disk SIZE`. The clone is persistent unless `--disposable` is supplied, regardless of the source and of a configured `disposable` default.
 The note the clone ends up with must satisfy the host [policy](#policy).
 
 Returns the qualified handle of the clone.
@@ -357,8 +358,12 @@ Show or change the controller defaults for `new`.
 `raft config set KEY VALUE`
 `raft config unset KEY`
 
-- `KEY`: One of `location`, `ttl`, `cpu`, `memory`, `disk`.
-- `VALUE`: Accepted exactly when the same text is accepted by the matching `new` flag. A `location` must be configured.
+- `KEY`: One of `location`, `ttl`, `cpu`, `memory`, `disk`, `disposable`.
+- `VALUE`: Accepted exactly when the same text is accepted by the matching `new` flag. A `location` must be configured. `disposable` takes `true` or `false`.
+
+`disposable true` makes `new` create disposable boxes, including `new --from`,
+because a snapshot carries no lifecycle; `--persistent` keeps one box. `fork`
+ignores it: a fork is persistent unless it gets `--disposable`.
 
 `cpu`, `memory` and `disk` size only boxes created from the image. `new --from`
 and `fork` keep the source's CPU, RAM and disk; only explicit flags change them.
@@ -373,29 +378,48 @@ file makes `new` fail with the file path and key; `set` or `unset` that key to
 repair it.
 
 `raft config` prints one JSON object: `file`, `defaults` (each key's `value` and
-`source`, `config` or `built-in`) and `policy` (each location's `require` list
-and `changed` record). It contacts every configured host to read policies.
-See [Defaults and note policies](../guides/config-policy.mdx).
+`source`, `config` or `built-in`) and `policy`. For each location, `policy` has
+`require` (the required note fields), `deleteStoppedAfterHours` (`null` without
+retention), `deleteStoppedAfterSince` (when retention was set, Unix seconds) and
+the last change records `requireChanged` and `deleteStoppedAfterChanged`. It
+contacts every configured host to read policies.
+See [Defaults and host policies](../guides/config-policy.mdx).
 
 ### `policy`
 
-Set or clear the box note fields a location's host requires.
+Set or clear a location's host policies: the box note fields it requires and
+how long it keeps stopped boxes.
 
-`raft policy LOCATION --require FIELDS`
-`raft policy LOCATION --clear`
+`raft policy LOCATION [--require FIELDS|none] [--delete-stopped-after HOURS|never]`
 
-- `--require FIELDS`: Comma-separated fields from `purpose`, `owner`, `next`. Must include `purpose`.
-- `--clear`: Stop requiring fields.
+- `--require FIELDS`: Comma-separated fields from `purpose`, `owner`, `next`. Must include `purpose`. `--require none` stops requiring fields.
+- `--delete-stopped-after HOURS`: Delete boxes that stay stopped for HOURS, a positive whole number, with their snapshots. `--delete-stopped-after never` keeps stopped boxes.
 
-The policy is stored on the host in the Incus project key `user.raft.require`,
-so it applies to every controller. `new`, `fork`, `recover` and `note` check it
-on the controller for an actionable error, then again in the host transaction
-that writes the note. The command prints the change and the host records the
-time, SSH account and controller in `user.raft.require.changed` and the host
+Give either option or both; each changes only its own policy. Both values are
+checked before the host changes.
+
+Policies are stored on the host in the Incus project `raft`, so they apply to
+every controller. The command prints each change and the host records the time,
+SSH account and controller in a `.changed` key beside the policy and in the host
 journal (`journalctl -t raft`).
 
-This is a guardrail for agents, not a security boundary: SSH and sudo on the
-host can change the policy or bypass it, and older controllers do not check it.
+The note policy lives in `user.raft.require`. `new`, `fork`, `recover` and
+`note` check it on the controller for an actionable error, then again in the
+host transaction that writes the note.
+
+Retention lives in `user.raft.delete-stopped-after`, with the time it was set in
+`user.raft.delete-stopped-after.since`. The host expiry worker deletes a stopped
+box once HOURS have passed since the later of its stop and that time, so a new
+or shorter policy never deletes a box sooner than HOURS after the change. The
+worker runs every 15 seconds and on [`gc`](#gc), logs each deletion to the host
+journal and never touches running boxes. A stopped box with no recorded stop
+time, such as one powered off from inside, stopped with native `incus` or
+recovered from a backup, starts its clock when the worker first sees it.
+[`list`](#list) shows each box's `deleteAt`. Setting retention needs the current
+host worker; on an older one it fails with redeploy guidance.
+
+Policies are guardrails for agents, not a security boundary: SSH and sudo on the
+host can change or bypass them, and older controllers do not check note policies.
 
 ## Host inspection and maintenance commands
 
@@ -424,7 +448,9 @@ List existing workspace containers across configured hosts.
 
 `raft list [--location LOCATION]`
 
-Prints one JSON object per box (JSONL), with `box`, `state`, `stopAt`, `disk` and `note` fields.
+Prints one JSON object per box (JSONL), with `box`, `state`, `stopAt`, `deleteAt`, `disk` and `note` fields.
+`deleteAt` is the Unix time when the location's [retention](#policy) deletes a
+stopped box, as a string like `stopAt`, or `""` when no deletion is due.
 `disk` is `"shared"` for the shared pool or the own disk's size, such as `"20GiB"`.
 `note` is the box note object, or `null` when the box has none.
 An empty inventory prints no records. See [Scripting and CI](../guides/scripting-ci.mdx)
@@ -432,7 +458,7 @@ for output formats, exit codes, readiness, and failure handling.
 
 ### `gc`
 
-Enforce deadlines immediately. Persistent boxes stop; disposable boxes are deleted.
+Enforce deadlines and retention immediately. Persistent boxes stop; disposable boxes are deleted; stopped boxes past the location's [retention](#policy) are deleted.
 
 `raft gc [--location LOCATION]`
 
@@ -442,9 +468,9 @@ Preview deletion of persistent stopped boxes older than the selected number of d
 
 `raft prune --older-than DAYS [--location LOCATION] [--yes]`
 
-Days must be at least one. Without `--yes`, this only prints JSONL candidates. With `--yes`, it deletes matching boxes and their snapshots under the host lock. Running boxes and boxes without a recorded stop time are excluded. Stop timestamps come from Raft stop/expiry, not box creation. No automatic retention policy is enabled.
+Days must be at least one. Without `--yes`, this only prints JSONL candidates. With `--yes`, it deletes matching boxes and their snapshots under the host lock. Running boxes and boxes without a recorded stop time are excluded. Stop timestamps come from Raft stop/expiry, or from the host worker when it first sees a box stopped another way, never from box creation. For automatic deletion, set a [retention policy](#policy).
 
-Disposable creation/fork and prune require the current expiry worker installed through the deployer. A mismatch fails with deployment guidance; the CLI does not install or adapt an older worker.
+Disposable creation/fork, prune and setting retention require the current expiry worker installed through the deployer. A mismatch fails with deployment guidance; the CLI does not install or adapt an older worker.
 
 ## CLI maintenance commands
 

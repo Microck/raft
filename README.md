@@ -64,8 +64,10 @@ raft stop "$box"
 `raft stop` and expiration keep persistent boxes on disk. `new --disposable`
 deletes a temporary box when it stops or expires. `raft resume` starts
 the box with a new lifetime. `raft destroy` deletes the box and its snapshots.
-disposable creation and retention cleanup require the current host worker;
-redeploy from the current checkout before using them.
+`raft policy lab --delete-stopped-after 48` makes the host delete boxes left
+stopped for 48 hours, and logs each deletion in its journal. disposable
+creation, prune and retention require the current host worker; redeploy from
+the current checkout before using them.
 
 size boxes for the job: `--cpu`, `--memory` and `--disk` take any whole number
 up to the host. on hosts deployed with `--disk-pool SIZE`, `--disk 20GiB` gives a
@@ -74,12 +76,13 @@ templates of it are copy-on-write. raft does not cap how many boxes you keep.
 `raft capacity` prints an advisory estimate of what fits; it never blocks a box.
 see [box sizing and capacity](docs/reference/capacity.mdx).
 
-`raft config set` stores your defaults for `new`, such as location, TTL and
-size. size defaults apply only to boxes from the image: `new --from` and `fork`
-keep the source's size. `raft policy lab --require purpose,owner` makes the host
-reject boxes whose note lacks those fields, with an error that names the missing
-flags. it is a guardrail for agents: anyone with sudo on the host can change it.
-see [defaults and note policies](docs/guides/config-policy.mdx).
+`raft config set` stores your defaults for `new`, such as location, TTL, size
+and `disposable true`; `new --persistent` keeps one box anyway. size defaults
+apply only to boxes from the image: `new --from` and `fork` keep the source's
+size. `raft policy lab --require purpose,owner` makes the host reject boxes whose
+note lacks those fields, with an error that names the missing flags. policies
+are guardrails for agents: anyone with sudo on the host can change them.
+see [defaults and host policies](docs/guides/config-policy.mdx).
 
 ## image and workspace control
 
@@ -158,7 +161,7 @@ records differences, sources and test coverage.
 | Reverse forwarding | ✅ | ❌ | Not implemented |
 | Public workspace hosting and browser-only streaming | ✅ | ❌ | Not implemented |
 | Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides; disks keep their size |
-| CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft list/info/usage/capacity plus prune JSONL |
+| CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft list/info/usage/capacity/config plus prune JSONL |
 | Snapshot file browsing/download | ✅ | ❌ | Whole-box backup only |
 | Strict per-box disk quotas | ✅ | ✅ | On hosts deployed with `--disk-pool`, `new --disk SIZE` gives a box its own fixed-size, copy-on-write disk; the default shared pool has none |
 | Separate-kernel VM isolation | ✅ | ❌ | Container runtime |
@@ -166,7 +169,7 @@ records differences, sources and test coverage.
 | Organizations and webhooks | ✅ | ❌ | Raft is single-operator; no event API |
 | Dashboard, remote API and SDK | ✅ | ❌ | CLI only |
 | Managed agent conversations | ✅ | ❌ | Not implemented |
-| Automatic deletion and retention | ✅ | ✅ | Disposable deletion; opt-in age-based prune with preview |
+| Automatic deletion and retention | ✅ | ✅ | Disposable deletion, optionally by default; per-host retention deletes boxes stopped for N hours; age-based prune with preview |
 | CLI self-update | ✅ | ✅ | Explicit `raft self-update` for npm and uv installs plus a daily stderr notice. Boat also updates itself after commands; Raft only notifies |
 
 ## verification and development

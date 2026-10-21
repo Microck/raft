@@ -83,4 +83,4 @@ raft destroy "$box"
 - [Troubleshooting](./guides/troubleshooting.mdx): Diagnose common errors and inspect host services.
 - [Upgrades and image changes](./guides/upgrades.mdx): Update the controller, hosts, and image pins.
 
-For temporary work, create with `--disposable`. Stopping or expiry then deletes the box and its snapshots. For persistent boxes, `raft prune --older-than 7` previews old stopped workspaces; add `--yes` only after reviewing the candidates.
+For temporary work, create with `--disposable`. Stopping or expiry then deletes the box and its snapshots. For persistent boxes, `raft prune --older-than 7` previews old stopped workspaces; add `--yes` only after reviewing the candidates. A host can also delete boxes left stopped automatically; `raft config` shows each location's `deleteStoppedAfterHours`.

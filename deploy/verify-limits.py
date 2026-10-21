@@ -108,7 +108,8 @@ def policy_checks():
 
 
 def command(*args):
-    return subprocess.check_output([*CLI, *args], text=True).strip()
+    # The private controller HOME keeps this controller's defaults for new out.
+    return subprocess.check_output([*CLI, *args], text=True, env=live.CONTROLLER_ENV).strip()
 
 
 def report(location):

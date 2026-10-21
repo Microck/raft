@@ -19,7 +19,7 @@ Raft does not have a global `--json` option. Parse each command's actual format:
 | --- | --- |
 | `new`, `fork`, `recover` | One location-qualified handle |
 | `exec --detach` | One `rfcmd-` job ID |
-| `list` | JSONL: one object per box, with `box`, `state`, `stopAt`, `disk`, `note` |
+| `list` | JSONL: one object per box, with `box`, `state`, `stopAt`, `deleteAt`, `disk`, `note` |
 | `info` | One pretty-printed native Incus metadata JSON object |
 | `usage` | One JSON object containing running resource counters |
 | `capacity --json` | One JSON object per location (JSONL across multiple hosts) |
@@ -33,7 +33,9 @@ Raft does not have a global `--json` option. Parse each command's actual format:
 | Other inspection/maintenance commands | Human-readable text or no output |
 
 `list` emits nothing when there are no boxes. `stopAt` is the host Unix deadline
-as a string, or an empty string when absent. `disk` is `"shared"` or the box's
+as a string, or an empty string when absent. `deleteAt` is the Unix time the
+location's retention policy deletes a stopped box, in the same form, or an empty
+string. `disk` is `"shared"` or the box's
 own disk size, such as `"20GiB"`. `note` is the box note object with
 `purpose` and optional `owner` and `next`, or `null`. `info` uses native Incus keys rather
 than a normalized Raft schema. `usage` includes `memoryBytes`, `memoryLimit`,
@@ -52,10 +54,11 @@ raft prune --location lab --older-than 7 | jq -r '.box'
 
 `raft new` fills omitted options from the controller's
 `~/.config/raft/config.json`, so the same script can create different boxes on
-different controllers. Pass `--location`, `--ttl`, `--cpu`, `--memory` and
-`--disk` in CI.
+different controllers. Pass `--location`, `--ttl`, `--cpu`, `--memory`,
+`--disk` and `--disposable` or `--persistent` in CI.
 Hosts can also require box note fields; give `--purpose`, `--owner` and `--next`
-so a policy cannot fail the job. See [Defaults and note policies](./config-policy.mdx).
+so a policy cannot fail the job. A host retention policy can delete a box left
+stopped between jobs; see [Defaults and host policies](./config-policy.mdx).
 
 Do not redirect `2>&1` into machine-readable output. Recovery reports its allocated
 handle on stderr before import finishes; only a successful completion prints the
