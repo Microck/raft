@@ -38,7 +38,9 @@ def verify(source, target, directory, development_image=False):
     box = source + ":" + name
     try:
         if development_image:
-            box = live.raft("new", "--location", source, "--ttl", "1800").stdout.strip()
+            box = live.raft(
+                "new", "--location", source, "--ttl", "1800", "--cpu", "1", "--disk", "shared"
+            ).stdout.strip()
             fixtures.append(box)
             live.wait_running(box)
         else:

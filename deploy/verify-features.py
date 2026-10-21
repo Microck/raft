@@ -707,8 +707,18 @@ def verify(location, isolated_worker=False):
         return live.raft(*command).stdout
 
     def create(*arguments):
+        # Pin the sizes a controller's config.json could otherwise default.
         handle = live.raft(
-            "new", "--location", location, "--ttl", "1800", *arguments
+            "new",
+            "--location",
+            location,
+            "--ttl",
+            "1800",
+            "--cpu",
+            "1",
+            "--disk",
+            "shared",
+            *arguments,
         ).stdout.strip()
         fixtures.append(handle)
         return handle
