@@ -15,7 +15,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from raft import BOX_DISK_POOL, DEFAULT_DISK_POOL, configuration, gib, gib_size  # noqa: E402
+from raft import BOX_DISK_POOL, configuration, gib, gib_size  # noqa: E402
 
 RELEASES = "https://github.com/Microck/raft/releases/download/"
 # Matches the user agent install-incus.sh sends for its own downloads.
@@ -150,17 +150,19 @@ def free_disk(host):
 
 
 def box_disk_pool(host, pools, size):
-    """Create or verify the LVM pool that holds own box disks.
+    """Create or verify the thin LVM pool that holds own box disks.
 
-    Thick logical volumes (lvm.use_thinpool=false) give each `new --disk` box an
-    ext4 filesystem of exactly its size, so nothing inside the box, Docker
-    included, can write past it, and space is taken when the box is created
-    rather than when it writes. A thin pool would allow overcommit, and running
-    out of thin-pool space fails every box in the pool at once.
+    Own box disks are opt-in: without --disk-pool a host has no raft-disks pool,
+    which is a normal state, and --disk-pool on a later redeploy adds it. Thin
+    volumes make forks, templates and snapshots of own-disk boxes snapshots that
+    share blocks. Raft never overcommits the pool: every write path that adds a
+    thin volume checks that all virtual sizes still fit its data space (see
+    BOX_DISK_ACCOUNTING in raft.py), so the pool cannot fill.
     """
     pool = next((item for item in pools if item["name"] == BOX_DISK_POOL), None)
     if pool is None:
-        size = size or DEFAULT_DISK_POOL
+        if size is None:
+            return
         # Same 20 GiB margin as the fresh-host check for the 60 GiB shared pool.
         if free_disk(host) < (gib(size) + 20) * 1024**3:
             raise RuntimeError(
@@ -169,23 +171,32 @@ def box_disk_pool(host, pools, size):
             )
         remote(
             host,
-            f"sudo -n incus storage create {BOX_DISK_POOL} lvm size={size} lvm.use_thinpool=false",
+            f"sudo -n incus storage create {BOX_DISK_POOL} lvm size={size} lvm.use_thinpool=true",
         )
         pool = json.loads(remote(host, f"sudo -n incus query /1.0/storage-pools/{BOX_DISK_POOL}"))
-    if pool["driver"] != "lvm" or pool["config"].get("lvm.use_thinpool") != "false":
+    config = pool["config"]
+    if pool["driver"] != "lvm" or config.get("lvm.use_thinpool") != "true":
         raise RuntimeError(
-            f"{BOX_DISK_POOL} must be a thick LVM pool (lvm.use_thinpool=false); inspect it and "
+            f"{BOX_DISK_POOL} must be a thin LVM pool (lvm.use_thinpool=true); inspect it and "
             "back up its boxes before explicit storage recovery"
         )
-    if size is not None and pool["config"].get("size") != size:
+    if size is not None and config.get("size") != size:
         raise RuntimeError(
-            f"{BOX_DISK_POOL} has size={pool['config'].get('size')}, not {size}. "
+            f"{BOX_DISK_POOL} has size={config.get('size')}, not {size}. "
             "Deployment does not resize existing storage; omit --disk-pool to keep it"
         )
+    # The thin pool frees blocks that boxes discard, but must not pass discards on
+    # to its loop file: that would punch holes in the file, and a later write into
+    # a hole could find the host disk full and fail every own-disk box at once.
+    # Changing passdown to nopassdown is allowed while the pool is active.
+    thinpool = f"{config['lvm.vg_name']}/{config['lvm.thinpool_name']}"
+    discards = remote(host, f"sudo -n lvs --noheadings -o discards {thinpool}").strip()
+    if discards != "nopassdown":
+        remote(host, f"sudo -n lvchange --discards nopassdown {thinpool}")
     # Incus creates the pool's loop file sparse. Allocating its full length makes
-    # the host disk hold every own disk in full; fallocate only fills holes and
-    # never changes the file's length or data, so repeating it is a no-op. A pool
-    # an operator placed on a dedicated block device has no file to allocate.
+    # the host disk hold the whole pool; fallocate only fills holes and never
+    # changes the file's length or data, so repeating it is a no-op. A pool an
+    # operator placed on a dedicated block device has no file to allocate.
     remote(
         host,
         shlex.join(
@@ -196,7 +207,7 @@ def box_disk_pool(host, pools, size):
                 "-c",
                 'test ! -f "$1" || fallocate -l "$(stat -c %s "$1")" "$1"',
                 "raft",
-                pool["config"]["source"],
+                config["source"],
             ]
         ),
     )
@@ -225,8 +236,9 @@ def deploy(name, host, disk_pool=None):
             raise RuntimeError(
                 "Raft resource names already exist without an owned project; review them explicitly"
             )
-        # 60 GiB shared pool, the own-disk pool and 20 GiB for images and the host.
-        needed = 80 + gib(disk_pool or DEFAULT_DISK_POOL)
+        # 60 GiB shared pool, 20 GiB for images and the host, and the own-disk
+        # pool when --disk-pool enables it.
+        needed = 80 + (gib(disk_pool) if disk_pool else 0)
         if free_disk(host) < needed * 1024**3:
             raise RuntimeError(f"Fresh deployment needs at least {needed} GiB free disk")
         remote(
@@ -328,8 +340,9 @@ def main():
         "--disk-pool",
         type=gib_size,
         metavar="SIZE",
-        help=f"Size of a new {BOX_DISK_POOL} pool for own box disks (default: "
-        f"{DEFAULT_DISK_POOL}); an existing pool must already have this size",
+        help=f"Enable own box disks: create the {BOX_DISK_POOL} pool with SIZE of host disk "
+        "if it is missing (default: leave own box disks as they are); an existing pool must "
+        "already have this size",
     )
     args = parser.parse_args()
     for name in [args.location] if args.location else configured:

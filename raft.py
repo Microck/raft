@@ -26,12 +26,14 @@ PROJECT = "raft"
 LOCATION_NAME = r"[a-zA-Z0-9][a-zA-Z0-9_-]*"
 GIB = 1024**3
 # Boxes use the shared Btrfs pool unless `new --disk` gives them their own disk:
-# a fixed-size logical volume in this LVM pool. Deployment creates both pools.
+# a fixed-size thin logical volume in this LVM pool. Deployment always creates the
+# shared pool; the own-disk pool exists only on hosts deployed with --disk-pool.
 SHARED_POOL = "raft-data"
 BOX_DISK_POOL = "raft-disks"
-# Size of the own-disk pool on hosts deployed without --disk-pool. Its space is
-# allocated on the host disk up front, so fresh hosts need it on top of 80 GiB.
-DEFAULT_DISK_POOL = "40GiB"
+# Size of a box created from the image without --cpu or --memory. Boxes created
+# from a snapshot keep the snapshot's CPU, RAM and disk unless a flag overrides it.
+DEFAULT_CPU = 1
+DEFAULT_MEMORY = "2GiB"
 # Box notes follow one template so any agent can tell why a box exists, who uses
 # it and what happens to it next. Each value is free text; purpose is required.
 BOX_NOTE_FIELDS = ["purpose", "owner", "next"]
@@ -227,7 +229,7 @@ if sudo -n incus project list --format csv -c n 2>/dev/null | grep -qx raft; the
 """
 
 
-def host_problems(facts, disk_pool=DEFAULT_DISK_POOL):
+def host_problems(facts, disk_pool=None):
     """Return reasons a probed SSH target cannot become a Raft host; empty means supported."""
     kernel = facts.get("kernel") or "an unknown system"
     if kernel != "Linux":
@@ -253,14 +255,16 @@ def host_problems(facts, disk_pool=DEFAULT_DISK_POOL):
     memory = int(facts.get("memory") or 0) * 1024
     if memory < 7.5 * GIB:
         problems.append(f"Raft hosts need at least 8 GiB RAM; found {memory / GIB:.1f} GiB")
-    # Only a fresh deployment creates the 60 GiB shared pool and the own-disk
-    # pool; deploy.py enforces the same minimum.
+    # Only a fresh deployment creates the 60 GiB shared pool, and the own-disk
+    # pool when --disk-pool asks for it; deploy.py enforces the same minimum.
     disk = int(facts.get("disk") or 0) * 1024
-    needed = 80 + gib(disk_pool)
+    needed = 80 + (gib(disk_pool) if disk_pool else 0)
     if facts.get("deployed") != "yes" and disk < needed * GIB:
         problems.append(
-            f"Fresh hosts need at least {needed} GiB free disk (80 GiB plus the {disk_pool} "
-            f"own-disk pool); found {disk / GIB:.1f} GiB. A smaller --disk-pool needs less"
+            f"Fresh hosts need at least {needed} GiB free disk"
+            + (f" (80 GiB plus the {disk_pool} own-disk pool)" if disk_pool else "")
+            + f"; found {disk / GIB:.1f} GiB"
+            + (". A smaller --disk-pool needs less" if disk_pool else "")
         )
     return problems
 
@@ -337,8 +341,7 @@ def host_add(args):
             f"Verify the host key interactively, then check `ssh -o BatchMode=yes {args.ssh} true`"
         )
     facts = dict(line.split("=", 1) for line in probe.stdout.splitlines() if "=" in line)
-    disk_pool = args.disk_pool or DEFAULT_DISK_POOL
-    problems = host_problems(facts, disk_pool)
+    problems = host_problems(facts, args.disk_pool)
     if problems:
         raise ValueError(
             f"{args.ssh} cannot host Raft boxes; nothing was changed:\n- " + "\n- ".join(problems)
@@ -361,8 +364,12 @@ def host_add(args):
             else "- create Incus project raft, 60 GiB Btrfs pool raft-data and bridge rfbr0 "
             "(10.232.0.1/24 with NAT)\n"
         )
-        + f"- create the {disk_pool} thick LVM pool raft-disks for own box disks if it is "
-        "missing, and allocate its file on the host disk in full\n"
+        + (
+            f"- create the {args.disk_pool} thin LVM pool raft-disks for own box disks if it is "
+            "missing, and allocate its file on the host disk in full\n"
+            if args.disk_pool
+            else ""
+        )
         + "- install raft-network.service (rfbr0 isolation rules) and raft-expire.timer\n"
         f"- {image}; images are checked by SHA-256 and architecture\n"
         f"- add {args.location} with the image fingerprint to {CONFIG}\n"
@@ -449,26 +456,163 @@ CHECK_WORKER = (
 )
 
 
-HOST_RESOURCES = """import json, os, shutil, subprocess
+# Host-side accounting for the own-disk pool, shared by capacity reports and the
+# reservation check. It runs as root on the host, where python3 and lvs exist.
+#
+# raft-disks is a thin LVM pool, so forks, templates and snapshots of own-disk
+# boxes are thin snapshots that share blocks instead of copies. Thin volumes can
+# promise more space than the pool holds, and a full thin pool fails every volume
+# in it at once. Raft never lets that happen: a thin volume can never hold more
+# data than its virtual size, so while the virtual sizes of all thin volumes in
+# the pool (boxes, their snapshots, the cached image and anything else) add up to
+# no more than the pool's data space, the pool cannot fill. Every Raft operation
+# that adds a thin volume to raft-disks checks that sum first, under the host lock.
+BOX_DISK_ACCOUNTING = (
+    "POOL = "
+    + repr(BOX_DISK_POOL)
+    + """
+import json, subprocess, sys
+GIB = 1024**3
+
+def query(path):
+    return json.loads(subprocess.run(['incus', 'query', path], check=True, capture_output=True).stdout)
+
+def size_bytes(value):
+    # Raft sizes own disks in whole GiB; anything else came from a native Incus edit.
+    if not value.endswith('GiB') or not value[:-3].isdigit():
+        sys.exit(f'Unexpected own-disk size {value!r}; inspect it with incus')
+    return int(value[:-3]) * GIB
+
+def box_disk_pool():
+    # Own box disks are opt-in per host, so a missing pool is a normal state.
+    if '/1.0/storage-pools/' + POOL not in query('/1.0/storage-pools'):
+        return None
+    config = query('/1.0/storage-pools/' + POOL)['config']
+    thinpool = config['lvm.thinpool_name']
+    columns = 'lv_name,lv_size,pool_lv,data_percent,metadata_percent'
+    report = subprocess.run(['lvs', '--reportformat', 'json', '--units', 'b', '--nosuffix', '-o', columns, config['lvm.vg_name']], check=True, capture_output=True)
+    volumes = json.loads(report.stdout)['report'][0]['lv']
+    pool = next(volume for volume in volumes if volume['lv_name'] == thinpool)
+    # LVM reports usage only while the thin pool is active; reservations never need it.
+    active = pool['data_percent'] != ''
+    total = int(pool['lv_size'])
+    return {
+        'totalBytes': total,
+        'reservedBytes': sum(int(volume['lv_size']) for volume in volumes if volume['pool_lv'] == thinpool),
+        'usedBytes': int(total * float(pool['data_percent']) / 100) if active else None,
+        'metadataUsedPercent': float(pool['metadata_percent']) if active else None,
+        # Incus caches the image as a thin volume of the pool's volume.size, or
+        # its 10 GiB default, and starts each own-disk box as a snapshot of it.
+        'imageVolumeBytes': size_bytes(config.get('volume.size', '10GiB')),
+    }
+
+def reserve(location, pool, added):
+    # Exit with the reason unless thin volumes of the added sizes fit in full.
+    if added and pool is None:
+        sys.exit(
+            f'{location} has no {POOL} pool, so own box disks are not enabled there; nothing was '
+            f'created. Enable them with python3 deploy/deploy.py --location {location} '
+            '--disk-pool SIZE'
+        )
+    if added and pool['reservedBytes'] + sum(added) > pool['totalBytes']:
+        sys.exit(
+            f'{location}: own box disks would need {sum(added) / GIB:.1f} GiB more of {POOL}, '
+            f'which has {(pool["totalBytes"] - pool["reservedBytes"]) / GIB:.1f} of '
+            f'{pool["totalBytes"] / GIB:.1f} GiB unreserved; nothing was created. Destroy '
+            'own-disk boxes or snapshots you no longer need, or use a smaller disk or the '
+            'shared pool'
+        )
+"""
+)
+
+HOST_RESOURCES = (
+    BOX_DISK_ACCOUNTING
+    + """
+import os, shutil
 from pathlib import Path
 memory = dict(line.split()[:2] for line in Path('/proc/meminfo').read_text().splitlines())
 disk = shutil.disk_usage('/var/lib/incus')
-def pool(name):
-    # Hosts not redeployed since own box disks were added have no raft-disks pool.
-    response = subprocess.run(['incus', 'query', f'/1.0/storage-pools/{name}/resources'], capture_output=True)
-    if response.returncode:
-        return None
-    space = json.loads(response.stdout)['space']
-    return {'totalBytes': space['total'], 'freeBytes': space['total'] - space['used']}
+space = query('/1.0/storage-pools/raft-data/resources')['space']
+own = box_disk_pool()
+if own is not None:
+    del own['imageVolumeBytes']
 print(json.dumps({
     'cpus': len(os.sched_getaffinity(0)),
     'memoryTotalBytes': int(memory['MemTotal:']) * 1024,
     'memoryAvailableBytes': int(memory['MemAvailable:']) * 1024,
     'hostDiskFreeBytes': disk.free,
-    'sharedPool': pool('raft-data'),
-    'boxDiskPool': pool('raft-disks'),
+    'sharedPool': {'totalBytes': space['total'], 'freeBytes': space['total'] - space['used']},
+    'boxDiskPool': own,
 }))
 """
+)
+
+# Reservation check run inside lifecycle transactions before Incus adds a thin
+# volume to raft-disks. Arguments: location (for messages), the requested own-disk
+# size in GiB (0 for none), and the source: image:FINGERPRINT, BOX or BOX/SNAPSHOT.
+# A new volume starts as a thin snapshot of its source and is then resized to the
+# requested size, so it needs the larger of the two. Copies of shared-pool boxes
+# without --disk never touch raft-disks and need nothing.
+RESERVE_BOX_DISK = (
+    BOX_DISK_ACCOUNTING
+    + """
+location, requested, source = sys.argv[1], int(sys.argv[2]) * GIB, sys.argv[3]
+pool = box_disk_pool()
+added = []
+if source.startswith('image:'):
+    if requested:
+        image = pool['imageVolumeBytes'] if pool else 0
+        added.append(max(requested, image))
+        # Incus caches the image in the pool the first time an own-disk box needs it.
+        volume = f'/1.0/storage-pools/{POOL}/volumes/image/{source[6:]}'
+        if pool and subprocess.run(['incus', 'query', volume], capture_output=True).returncode:
+            added.append(image)
+else:
+    path = '/1.0/instances/' + source.replace('/', '/snapshots/') + '?project=raft'
+    root = query(path)['expanded_devices']['root']
+    if root.get('pool') == POOL:
+        added.append(max(requested, size_bytes(root['size'])))
+    elif requested:
+        added.append(requested)
+reserve(location, pool, added)
+"""
+)
+
+# Prints the pool `raft recover` imports into, from backup/index.yaml, the first
+# entry of every Incus export. Own-disk backups return to raft-disks with their
+# recorded size after the same reservation check: Incus restores the box and each
+# of its snapshots as a thin volume of that size. Other backups use the shared pool.
+RECOVERY_POOL = (
+    BOX_DISK_ACCOUNTING
+    + "SHARED_POOL = "
+    + repr(SHARED_POOL)
+    + """
+import tarfile, yaml
+archive, location = sys.argv[1], sys.argv[2]
+with tarfile.open(archive, 'r|gz') as backup:
+    entry = backup.next()
+    if entry is None or entry.name != 'backup/index.yaml':
+        sys.exit('Not an Incus instance backup: backup/index.yaml is not its first entry')
+    index = yaml.safe_load(backup.extractfile(entry))
+if index.get('pool') != POOL:
+    print(SHARED_POOL)
+    sys.exit()
+size = size_bytes(index['config']['container']['expanded_devices']['root']['size'])
+reserve(location, box_disk_pool(), [size] * (1 + len(index.get('snapshots') or [])))
+print(POOL)
+"""
+)
+
+
+def reserve_box_disk(location, disk, source):
+    """Shell line that refuses an own-disk volume raft-disks could not hold in full."""
+    return (
+        shlex.join(
+            ["python3", "-c", RESERVE_BOX_DISK, location, str(gib(disk) if disk else 0), source]
+        )
+        + "\n"
+    )
+
 
 # Agents read capacity output to plan work. Earlier wording that looked like a cap
 # made them skip boxes they needed, so every report leads with this sentence.
@@ -534,8 +678,15 @@ def capacity(host, boxes):
         warnings.append(
             "Host or shared-pool free disk is below 5 GiB; check image and workspace growth"
         )
-    if host["boxDiskPool"] is None:
-        warnings.append("No raft-disks pool; redeploy this host before using new --disk")
+    # LVM sizes thin pool metadata for every data block mapped, and reservations
+    # keep mappings within that, so this should never fire. It stays because full
+    # metadata stops every own-disk box and needs offline repair.
+    own = host["boxDiskPool"]
+    if own is not None and (own["metadataUsedPercent"] or 0) >= 80:
+        warnings.append(
+            f"{BOX_DISK_POOL} thin pool metadata is {own['metadataUsedPercent']:.0f}% full; "
+            "inspect it with lvs before creating more own-disk boxes"
+        )
     return {
         "notice": ADVISORY,
         "host": host,
@@ -590,16 +741,19 @@ def print_capacity(report):
         f"headroom: {report['headroom']['cpus']} CPUs, "
         f"{report['headroom']['memoryBytes'] / GIB:.1f} GiB"
     )
-    disk = [
-        f"{host['sharedPool']['freeBytes'] / GIB:.1f} of "
-        f"{host['sharedPool']['totalBytes'] / GIB:.1f} GiB shared pool"
-    ]
-    if host["boxDiskPool"] is not None:
-        disk.append(
-            f"{host['boxDiskPool']['freeBytes'] / GIB:.1f} of "
-            f"{host['boxDiskPool']['totalBytes'] / GIB:.1f} GiB for own box disks"
+    print(
+        f"Disk free: {host['sharedPool']['freeBytes'] / GIB:.1f} of "
+        f"{host['sharedPool']['totalBytes'] / GIB:.1f} GiB shared pool, "
+        f"{host['hostDiskFreeBytes'] / GIB:.1f} GiB host"
+    )
+    own = host["boxDiskPool"]
+    if own is None:
+        print("Own box disks: not enabled (redeploy with --disk-pool SIZE)")
+    else:
+        print(
+            f"Own box disks: {(own['totalBytes'] - own['reservedBytes']) / GIB:.1f} of "
+            f"{own['totalBytes'] / GIB:.1f} GiB unreserved"
         )
-    print(f"Disk free: {', '.join(disk)}, {host['hostDiskFreeBytes'] / GIB:.1f} GiB host")
     print("CPU  RAM GiB  Fit on empty host  Fit now")
     for size in report["estimates"]:
         print(
@@ -637,13 +791,11 @@ def doctor(location):
     )
     print(response.stdout.strip())
     print(incus(location, "storage", "info", SHARED_POOL).strip())
-    try:
+    # Own box disks are opt-in, so a host without their pool is healthy.
+    if BOX_DISK_POOL in incus(location, "storage", "list", "--format", "csv", "-c", "n").split():
         print(incus(location, "storage", "info", BOX_DISK_POOL).strip())
-    except RuntimeError as error:
-        raise RuntimeError(
-            f"{location}: no {BOX_DISK_POOL} pool for own box disks ({error}); "
-            "deploy the current Raft checkout first"
-        ) from error
+    else:
+        print("own box disks: not enabled (redeploy with --disk-pool SIZE)")
     print(f"{len(inventory(location))} saved boxes; system containers (shared host kernel)")
 
 
@@ -757,6 +909,12 @@ def new(args):
             raise ValueError(
                 "Build an image and configure its full immutable fingerprint before creating boxes"
             )
+        # A box from a snapshot keeps the snapshot's CPU, RAM and disk; only a box
+        # from the image starts from the defaults.
+        if args.cpu is None:
+            args.cpu = DEFAULT_CPU
+        if args.memory is None:
+            args.memory = DEFAULT_MEMORY
     note = settings(args.location).get("note")
     if note:
         # Stderr keeps stdout limited to the handle for scripts.
@@ -767,11 +925,12 @@ def new(args):
         args.location,
         (CHECK_WORKER if args.disposable else "")
         + fits_host(args)
+        # Plain boxes from the image stay off raft-disks and skip the check.
         + (
-            f"incus storage show {BOX_DISK_POOL} >/dev/null 2>&1 || {{ echo 'This location "
-            f"has no {BOX_DISK_POOL} pool for own box disks; deploy the current Raft "
-            "checkout first' >&2; exit 1; }\n"
-            if args.disk
+            reserve_box_disk(
+                args.location, args.disk, source if args.template else "image:" + source
+            )
+            if args.disk or args.template
             else ""
         )
         + 'lifetime="$1"; name="$2"; shift 2; "$@"; '
@@ -801,7 +960,8 @@ def new(args):
         "volatile.eth0.hwaddr=",
         *sizing(args),
         # Without --disk, init uses the profile's shared pool and copy keeps the
-        # snapshot's disk: the shared pool or an own disk of the same size.
+        # snapshot's disk: the shared pool or an own disk of the same size. Copies
+        # within either pool are snapshots that share the source's blocks.
         *(own_disk(args.disk) if args.disk else []),
     )
     return f"{args.location}:{name}"
@@ -930,15 +1090,13 @@ def recover(args):
             )
         transaction(
             args.location,
-            # Raft backups record their pool as the first archive entry. Own-disk boxes
-            # return to raft-disks with their recorded size; anything else lands in the
-            # shared pool, as before own disks existed.
-            "pool=$(tar -xzOf \"$1\" --occurrence=1 backup/index.yaml | sed -n 's/^pool: //p')\n"
-            f'test "$pool" = {BOX_DISK_POOL} || pool={SHARED_POOL}\n'
+            'pool=$(python3 -c "$3" "$1" "$4")\n'
             'incus --project raft import "$1" "$2" --storage "$pool" '
             "-c user.raft=true -c user.raft.expires= -c user.raft.disposable=false -c user.raft.stopped-at= -c volatile.eth0.hwaddr=",
             staged,
             name,
+            RECOVERY_POOL,
+            args.location,
         )
         if instance(args.location, name)["status"] != "Stopped":
             raise RuntimeError("Recovered box unexpectedly running: " + args.location + ":" + name)
@@ -1017,16 +1175,21 @@ def parser():
     create = commands.add_parser("new")
     create.add_argument("--location", default=None)
     create.add_argument("--ttl", type=ttl, default=600)
-    create.add_argument("--cpu", type=cpu_count, default=1, help="CPU limit (default: 1)")
+    # With --from, every omitted size comes from the snapshot instead of the default.
     create.add_argument(
-        "--memory", type=gib_size, default="2GiB", help="RAM limit, e.g. 16GiB (default: 2GiB)"
+        "--cpu", type=cpu_count, help=f"CPU limit (default: {DEFAULT_CPU}, or the snapshot's)"
+    )
+    create.add_argument(
+        "--memory",
+        type=gib_size,
+        help=f"RAM limit, e.g. 16GiB (default: {DEFAULT_MEMORY}, or the snapshot's)",
     )
     create.add_argument(
         "--disk",
         type=gib_size,
         metavar="SIZE",
         help="Give the box its own disk of SIZE, e.g. 20GiB, that it cannot grow past "
-        "(default: the shared pool; --from keeps the snapshot's disk)",
+        "(default: the shared pool, or the snapshot's disk)",
     )
     create.add_argument("--disposable", action="store_true", help="Delete on stop or expiry")
     create.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
@@ -1063,7 +1226,8 @@ def parser():
         "--disk-pool",
         type=gib_size,
         metavar="SIZE",
-        help=f"Host disk set aside for own box disks (default when created: {DEFAULT_DISK_POOL})",
+        help="Enable own box disks: set aside SIZE of host disk for them, e.g. 40GiB "
+        "(default: not enabled)",
     )
     listing = commands.add_parser("list")
     listing.add_argument("--location")
@@ -1335,7 +1499,9 @@ def dispatch(args):
         print(
             transaction(
                 location,
-                REQUIRE_STOPPED + 'incus --project raft snapshot create "$1" "$2"',
+                REQUIRE_STOPPED
+                + reserve_box_disk(location, None, name)
+                + 'incus --project raft snapshot create "$1" "$2"',
                 name,
                 args.name,
             ).strip()
@@ -1349,6 +1515,9 @@ def dispatch(args):
         snapshot_name(args.name)
         # Imported/forked snapshots carry source configuration. Restore files,
         # keeping the destination's network identity and explicitly chosen limits.
+        # On raft-disks Incus swaps in a thin snapshot of the snapshot for the box's
+        # volume, so a restore needs no reservation: it writes no data, and the
+        # reserved total is unchanged once the old volume is removed.
         transaction(
             location,
             REQUIRE_STOPPED + 'incus --project raft snapshot restore "$1" "$2" --diskonly',
@@ -1362,6 +1531,7 @@ def dispatch(args):
             (CHECK_WORKER if args.disposable else "")
             + REQUIRE_STOPPED
             + fits_host(args)
+            + reserve_box_disk(location, None, name)
             + 'name="$2"; lifetime="$3"; '
             'source="$1"; shift 3; incus --project raft copy "$source" "$name" --instance-only "$@"; '
             'incus --project raft start "$name"; '

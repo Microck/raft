@@ -1,7 +1,7 @@
 """Onboard and reboot a disposable KVM Ubuntu host through `raft host add`.
 
 CI-only harness. Writes temporary verified SSH/configuration in its own HOME.
-Uses a sparse 160 GiB virtual disk, not a 120 GiB physical capacity guarantee.
+Uses a sparse 100 GiB virtual disk, not an 80 GiB physical capacity guarantee.
 """
 
 import argparse
@@ -22,6 +22,67 @@ BASE = "https://cloud-images.ubuntu.com/noble/current/"
 
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
+
+
+def verify_box_disks(env):
+    """Own box disks are off after onboarding and a later redeploy can enable them."""
+    raft = [sys.executable, str(ROOT / "raft.py")]
+    deploy = [sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab"]
+    host = ["ssh", "raft-fresh"]
+    doctor = subprocess.check_output([*raft, "doctor"], env=env, text=True)
+    assert "own box disks: not enabled (redeploy with --disk-pool SIZE)" in doctor, doctor
+    report = json.loads(subprocess.check_output([*raft, "capacity", "--json"], env=env))
+    assert report["host"]["boxDiskPool"] is None, report
+    assert not any("raft-disks" in warning for warning in report["warnings"]), report
+    # --disk fails before anything is created and names the command that enables it.
+    boxes = subprocess.check_output([*raft, "list"], env=env, text=True)
+    rejected = subprocess.run(
+        [*raft, "new", "--disk", "10GiB"], env=env, capture_output=True, text=True
+    )
+    assert rejected.returncode == 1, rejected
+    assert "--location lab --disk-pool SIZE" in rejected.stderr, rejected.stderr
+    assert subprocess.check_output([*raft, "list"], env=env, text=True) == boxes
+    # 24 GiB holds the 10 GiB cached image volume and one 10 GiB own disk.
+    run(*deploy, "--disk-pool", "24GiB", env=env)
+    pool = subprocess.check_output(
+        [
+            *host,
+            "sudo incus storage get raft-disks size; sudo incus storage get raft-disks "
+            "lvm.use_thinpool; sudo lvs --noheadings -o discards raft-disks/IncusThinPool",
+        ],
+        env=env,
+        text=True,
+    ).split()
+    assert pool == ["24GiB", "true", "nopassdown"], pool
+    allocated = subprocess.check_output(
+        [*host, "sudo stat -c '%b %B %s' /var/lib/incus/disks/raft-disks.img"],
+        env=env,
+        text=True,
+    ).split()
+    blocks, block_size, length = map(int, allocated)
+    assert blocks * block_size >= length, "Own-disk pool file is still sparse"
+    box = subprocess.check_output(
+        [*raft, "new", "--disk", "10GiB", "--ttl", "600"], env=env, text=True
+    ).strip()
+    try:
+        for _ in range(30):
+            if subprocess.run([*raft, "exec", box, "--", "true"], env=env).returncode == 0:
+                break
+            time.sleep(2)
+        else:
+            raise RuntimeError("Own-disk box did not become command-ready")
+    finally:
+        run(*raft, "destroy", box, env=env)
+    assert "own box disks: not enabled" not in subprocess.check_output(
+        [*raft, "doctor"], env=env, text=True
+    )
+    # The pool keeps its size; an explicit different size is refused.
+    resized = subprocess.run(
+        [*deploy, "--disk-pool", "25GiB"], env=env, capture_output=True, text=True
+    )
+    assert resized.returncode != 0 and "does not resize" in resized.stderr, resized
+    run(*deploy, env=env)
+    print("Own box disks: off by default, enabled by redeploy, thin and fully allocated")
 
 
 def verify_firewall(env):
@@ -157,9 +218,7 @@ def verify(archive):
         run("curl", "-fsSL", "-A", USER_AGENT, BASE + image.name, "-o", str(image))
         with image.open("rb") as downloaded:
             assert hashlib.file_digest(downloaded, "sha256").hexdigest() == checksum
-        # Onboarding needs 120 GiB free: 80 GiB plus the default 40 GiB own-disk
-        # pool. Allocating that pool inside the guest writes no qcow2 data.
-        run("qemu-img", "resize", str(image), "160G")
+        run("qemu-img", "resize", str(image), "100G")
         run(
             "cloud-localds",
             str(work / "seed.img"),
@@ -272,29 +331,7 @@ def verify(archive):
                     "--reboot-host",
                     env=env,
                 )
-                # The own-disk pool keeps its size; an explicit different size is refused.
-                deploy = [sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab"]
-                resized = subprocess.run(
-                    [*deploy, "--disk-pool", "41GiB"], env=env, capture_output=True, text=True
-                )
-                assert resized.returncode != 0 and "does not resize" in resized.stderr, resized
-                size = subprocess.check_output(
-                    ["ssh", "raft-fresh", "sudo incus storage get raft-disks size"],
-                    env=env,
-                    text=True,
-                )
-                assert size.strip() == "40GiB", "Deployment resized the own-disk pool"
-                allocated = subprocess.check_output(
-                    [
-                        "ssh",
-                        "raft-fresh",
-                        "sudo stat -c '%b %B %s' /var/lib/incus/disks/raft-disks.img",
-                    ],
-                    env=env,
-                    text=True,
-                ).split()
-                blocks, block_size, length = map(int, allocated)
-                assert blocks * block_size >= length, "Own-disk pool file is still sparse"
+                verify_box_disks(env)
                 # Oversize only this disposable pool after all boxes have been removed.
                 run("ssh", "raft-fresh", "sudo incus storage set raft-data size=61GiB", env=env)
                 drift = subprocess.run(
@@ -311,8 +348,8 @@ def verify(archive):
                 )
                 assert size.strip() == "61GiB", "Deployment silently resized a drifting pool"
                 print(
-                    "Fresh provisioning, firewall failure gating, redeployment, pool size drift "
-                    "rejection, own-disk pool allocation and real host reboot passed",
+                    "Fresh provisioning, firewall failure gating, redeployment, opt-in own box "
+                    "disks, pool size drift rejection and real host reboot passed",
                     flush=True,
                 )
             finally:

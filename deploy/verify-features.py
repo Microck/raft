@@ -245,8 +245,7 @@ def verify_host_preflight():
         "cpus": "2",
         # MemTotal of an 8 GiB VM, in KiB.
         "memory": str(8_131_000),
-        # 80 GiB plus the default 40 GiB own-disk pool, in KiB.
-        "disk": str(130 * 1024**2),
+        "disk": str(90 * 1024**2),
         "sudo": "yes",
         "python3": "yes",
         "deployed": "no",
@@ -254,8 +253,10 @@ def verify_host_preflight():
     assert host_problems(ready) == []
     # An existing deployment already owns its pool, so free disk no longer gates it.
     assert host_problems({**ready, "disk": "0", "deployed": "yes"}) == []
-    # A smaller own-disk pool lowers the fresh-host minimum.
+    # Own box disks are opt-in; enabling them adds the pool size to the minimum.
     assert host_problems({**ready, "disk": str(95 * 1024**2)}, "10GiB") == []
+    problems = host_problems(ready, "40GiB")
+    assert len(problems) == 1 and "120 GiB free disk" in problems[0], problems
     darwin = host_problems({"kernel": "Darwin", "sudo": "no"})
     assert len(darwin) == 1 and "macOS" in darwin[0], darwin
     for change, reason in [
@@ -266,7 +267,7 @@ def verify_host_preflight():
         ({"python3": "no"}, "python3"),
         ({"cpus": "1"}, "2 CPUs"),
         ({"memory": str(6 * 1024**2)}, "8 GiB RAM"),
-        ({"disk": str(100 * 1024**2)}, "120 GiB free disk"),
+        ({"disk": str(40 * 1024**2)}, "80 GiB"),
     ]:
         problems = host_problems({**ready, **change})
         assert len(problems) == 1 and reason in problems[0], (change, problems)
@@ -558,7 +559,9 @@ def verify(location, isolated_worker=False):
         )
         assert metadata(template)["config"]["user.raft.disposable"] == "false"
         assert listed_note(template) is None, "new --from inherited the source note"
+        # A template keeps the snapshot's sizes, not the box's later ones or the defaults.
         assert metadata(template)["expanded_config"]["limits.cpu"] == "1"
+        assert metadata(template)["expanded_config"]["limits.memory"] == "1GiB"
         live.raft("snapshot-delete", box, "prepared")
         assert live.execute(template, "cat", "/workspace/proof") == "original"
         live.raft("destroy", template)
