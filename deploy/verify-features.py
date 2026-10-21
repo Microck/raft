@@ -548,7 +548,7 @@ def verify_retention_worker():
         return {"name": name, "status": status, "config": config}
 
     instances = [
-        # Running boxes are never touched, even with an old stop time left behind.
+        # Running boxes are never deleted; an old stop time left behind is cleared.
         box("rf-running", "Running", now - 30 * 86400),
         box("rf-old", "Stopped", now - 3 * 3600),
         box("rf-recent", "Stopped", now - 3600),
@@ -578,10 +578,13 @@ def verify_retention_worker():
                 text=True,
             )
             calls = [json.loads(line) for line in (root / "calls.jsonl").read_text().splitlines()]
-        # Leave out the two reads; normalize the recorded stop time to "now".
+        # Leave out the two reads and the stale stop time cleared on the running box;
+        # normalize the recorded stop time to "now".
+        clear = ["incus", "--project", "raft", "config", "unset", "rf-running"]
+        cleared.append(clear + ["user.raft.stopped-at"] in calls)
         changes = []
         for call in calls:
-            if call[-2:] == ["--format", "json"]:
+            if call[-2:] == ["--format", "json"] or call == clear + ["user.raft.stopped-at"]:
                 continue
             if call[-1].startswith("user.raft.stopped-at="):
                 assert started <= int(call[-1].partition("=")[2]) <= int(time.time()), call
@@ -589,6 +592,7 @@ def verify_retention_worker():
             changes.append(call)
         return response, changes
 
+    cleared = []
     record = ["incus", "--project", "raft", "config", "set", "rf-unrecorded"]
     record.append("user.raft.stopped-at=now")
     two_hours = {"user.raft.delete-stopped-after": "2", "user.raft.delete-stopped-after.since": ""}
@@ -598,6 +602,7 @@ def verify_retention_worker():
     assert changes[0] == ["incus", "--project", "raft", "delete", "rf-old"], changes
     assert changes[1][:3] == ["logger", "-t", "raft"] and "rf-old" in changes[1][3], changes
     assert "under the 2-hour retention" in changes[1][3] and changes[2:] == [record], changes
+    assert cleared[-1], "the worker kept a stale stop time on a running box"
     assert changes[1][3] in response.stdout, response
     # Set an hour ago, the policy's clock starts then: nothing is deleted yet.
     since = str(now - 3600)
