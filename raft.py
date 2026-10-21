@@ -935,12 +935,12 @@ def update_cache():
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "raft/update.json"
 
 
-def save_update_check(latest):
+def save_update_check():
     """Record a release check. A torn write only makes the next command check again."""
     path = update_cache()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"checkedAt": time.time(), "latest": latest}))
+        path.write_text(json.dumps({"checkedAt": time.time()}))
     except OSError:
         pass
 
@@ -949,48 +949,45 @@ def update_check(action, api=RELEASES_API):
     """Start the passive release check for a command; the returned function prints its notice.
 
     At most once per UPDATE_CHECK_INTERVAL, a background thread asks GitHub for
-    the latest release while the command runs. The notice is one stderr line, so
-    stdout stays parseable. It never installs anything, and network or cache
-    failures stay silent. RAFT_NO_UPDATE_CHECK=1 disables it.
+    the latest release while the command runs, and only that command can print
+    the notice, so a controller sees it at most once per interval. The notice is
+    one stderr line, so stdout stays parseable. It never installs anything, and
+    network, thread or cache failures stay silent. RAFT_NO_UPDATE_CHECK=1
+    disables it.
     """
     if action == "self-update" or os.environ.get("RAFT_NO_UPDATE_CHECK"):
         return lambda: None
     try:
-        cache = json.loads(update_cache().read_text())
-        checked, latest = float(cache["checkedAt"]), cache["latest"]
+        checked = float(json.loads(update_cache().read_text())["checkedAt"])
     except (OSError, ValueError, KeyError, TypeError):
-        checked, latest = 0, None
-    found = {}
-    thread = None
+        checked = 0
     # A timestamp in the future, e.g. after a clock change, counts as stale.
-    if not 0 <= time.time() - checked < UPDATE_CHECK_INTERVAL:
-        # Record the attempt first: an offline controller then waits for at most
-        # one timeout per interval instead of one per command.
-        save_update_check(latest)
+    if 0 <= time.time() - checked < UPDATE_CHECK_INTERVAL:
+        return lambda: None
+    # Record the attempt first: an offline controller then waits for at most one
+    # timeout per interval instead of one per command.
+    save_update_check()
+    found = {}
 
-        def check():
-            try:
-                found["latest"] = release(api, timeout=UPDATE_CHECK_TIMEOUT)["version"]
-            except Exception:
-                # A best-effort notice must not print tracebacks or fail commands.
-                pass
+    def check():
+        try:
+            found["latest"] = release(api, timeout=UPDATE_CHECK_TIMEOUT)["version"]
+        except Exception:
+            # A best-effort notice must not print tracebacks or fail commands.
+            pass
 
-        thread = threading.Thread(target=check, daemon=True)
+    thread = threading.Thread(target=check, daemon=True)
+    try:
         thread.start()
+    except RuntimeError:
+        # The runtime could not create the thread; skip this interval's notice.
+        return lambda: None
 
     def notice():
-        nonlocal latest
-        if thread is not None:
-            # Commands usually outlast the request; otherwise wait a bounded time.
-            thread.join(UPDATE_CHECK_TIMEOUT)
-            if "latest" in found:
-                latest = found["latest"]
-                save_update_check(latest)
-        try:
-            newer = parse_version(latest) > parse_version(__version__)
-        except (TypeError, ValueError):
-            return
-        if newer:
+        # Commands usually outlast the request; otherwise wait a bounded time.
+        thread.join(UPDATE_CHECK_TIMEOUT)
+        latest = found.get("latest")
+        if latest is not None and parse_version(latest) > parse_version(__version__):
             print(update_message(latest), file=sys.stderr)
 
     return notice
@@ -1053,7 +1050,7 @@ def self_update(args, api=RELEASES_API):
     """Install the latest or the requested release through the channel that installed raft."""
     if args.check:
         latest = release(api)["version"]
-        save_update_check(latest)
+        save_update_check()
         if parse_version(latest) > parse_version(__version__):
             print(update_message(latest))
             return UPDATE_AVAILABLE
@@ -1546,7 +1543,7 @@ def main():
     os.umask(0o077)
     # Parsing exits for --version, --help and usage errors, before any release check.
     args = parser().parse_args()
-    notice = update_check(args.action)
+    notice = update_check(args.action, RELEASES_API)
     try:
         status = dispatch(args)
     except (

@@ -288,17 +288,16 @@ def verify_notice(work, base, next_wheel):
         Releases.requests.clear()
         assert notice("list", api)[0] == expected
         assert Releases.requests == ["/api/latest"], Releases.requests
-        assert json.loads(cached.read_text())["latest"] == NEXT
-        # Within the interval the cached result answers without a request.
-        assert notice("list", api)[0] == expected and len(Releases.requests) == 1
+        # Within the interval there is neither a request nor a second notice.
+        assert notice("list", api)[0] == "" and len(Releases.requests) == 1
         assert notice("self-update", api)[0] == ""
-        os.environ["RAFT_NO_UPDATE_CHECK"] = "1"
-        assert notice("list", api)[0] == ""
-        del os.environ["RAFT_NO_UPDATE_CHECK"]
         cached.write_text("not json")
+        os.environ["RAFT_NO_UPDATE_CHECK"] = "1"
+        assert notice("list", api)[0] == "" and len(Releases.requests) == 1
+        del os.environ["RAFT_NO_UPDATE_CHECK"]
         assert notice("list", api)[0] == expected and len(Releases.requests) == 2
         # An old check expires; an unreachable API stays silent and is not retried.
-        cached.write_text(json.dumps({"checkedAt": time.time() - 25 * 3600, "latest": None}))
+        cached.write_text(json.dumps({"checkedAt": time.time() - 25 * 3600}))
         assert notice("list", "http://127.0.0.1:9/api")[0] == ""
         assert time.time() - json.loads(cached.read_text())["checkedAt"] < 60
         assert notice("list", api)[0] == "" and len(Releases.requests) == 2
@@ -317,12 +316,16 @@ def verify_notice(work, base, next_wheel):
     config.write_text(json.dumps({"lab": {"ssh": "lab-host"}}))
     cache = home / ".cache/raft/update.json"
     cache.parent.mkdir(parents=True)
-    cache.write_text(json.dumps({"checkedAt": time.time(), "latest": NEXT}))
     env = {key: value for key, value in os.environ.items() if key != "XDG_CACHE_HOME"}
+    # main() reads RELEASES_API when it runs, so the CLI can target the local server.
+    entry = (
+        f"import sys; sys.path.insert(0, {str(ROOT)!r}); import raft; "
+        f"raft.RELEASES_API = {api!r}; sys.argv[0] = 'raft'; sys.exit(raft.main())"
+    )
 
     def cli(*arguments, **extra):
         return subprocess.run(
-            [sys.executable, str(ROOT / "raft.py"), *arguments],
+            [sys.executable, "-c", entry, *arguments],
             env={**env, "HOME": str(home), **extra},
             capture_output=True,
             text=True,
@@ -331,8 +334,12 @@ def verify_notice(work, base, next_wheel):
     listing = cli("locations")
     assert listing.stdout == '{"location": "lab", "default": true, "note": ""}\n', listing
     assert listing.stderr == expected, listing
+    # The notice also follows a failed command, but only once per interval.
+    cache.unlink()
     failed = cli("note", "missing", "x")
     assert failed.returncode == 1 and failed.stderr.endswith(expected), failed
+    again = cli("note", "missing", "x")
+    assert again.returncode == 1 and not again.stderr.endswith(expected), again
     for response in [
         cli("locations", RAFT_NO_UPDATE_CHECK="1"),
         cli("--version"),
