@@ -15,6 +15,11 @@ if ! command -v incus >/dev/null; then
   sudo apt-get update -qq
   sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends incus btrfs-progs
 fi
+# raft-disks, the pool for own box disks, uses LVM.
+if ! command -v lvcreate >/dev/null; then
+  sudo apt-get update -qq
+  sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends lvm2
+fi
 if ! command -v nft >/dev/null; then
   sudo apt-get update -qq
   sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends nftables

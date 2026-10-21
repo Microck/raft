@@ -245,7 +245,8 @@ def verify_host_preflight():
         "cpus": "2",
         # MemTotal of an 8 GiB VM, in KiB.
         "memory": str(8_131_000),
-        "disk": str(90 * 1024**2),
+        # 80 GiB plus the default 40 GiB own-disk pool, in KiB.
+        "disk": str(130 * 1024**2),
         "sudo": "yes",
         "python3": "yes",
         "deployed": "no",
@@ -253,6 +254,8 @@ def verify_host_preflight():
     assert host_problems(ready) == []
     # An existing deployment already owns its pool, so free disk no longer gates it.
     assert host_problems({**ready, "disk": "0", "deployed": "yes"}) == []
+    # A smaller own-disk pool lowers the fresh-host minimum.
+    assert host_problems({**ready, "disk": str(95 * 1024**2)}, "10GiB") == []
     darwin = host_problems({"kernel": "Darwin", "sudo": "no"})
     assert len(darwin) == 1 and "macOS" in darwin[0], darwin
     for change, reason in [
@@ -263,7 +266,7 @@ def verify_host_preflight():
         ({"python3": "no"}, "python3"),
         ({"cpus": "1"}, "2 CPUs"),
         ({"memory": str(6 * 1024**2)}, "8 GiB RAM"),
-        ({"disk": str(40 * 1024**2)}, "80 GiB"),
+        ({"disk": str(100 * 1024**2)}, "120 GiB free disk"),
     ]:
         problems = host_problems({**ready, **change})
         assert len(problems) == 1 and reason in problems[0], (change, problems)

@@ -1,7 +1,7 @@
 """Onboard and reboot a disposable KVM Ubuntu host through `raft host add`.
 
 CI-only harness. Writes temporary verified SSH/configuration in its own HOME.
-Uses a sparse 100 GiB virtual disk, not an 80 GiB physical capacity guarantee.
+Uses a sparse 160 GiB virtual disk, not a 120 GiB physical capacity guarantee.
 """
 
 import argparse
@@ -157,7 +157,9 @@ def verify(archive):
         run("curl", "-fsSL", "-A", USER_AGENT, BASE + image.name, "-o", str(image))
         with image.open("rb") as downloaded:
             assert hashlib.file_digest(downloaded, "sha256").hexdigest() == checksum
-        run("qemu-img", "resize", str(image), "100G")
+        # Onboarding needs 120 GiB free: 80 GiB plus the default 40 GiB own-disk
+        # pool. Allocating that pool inside the guest writes no qcow2 data.
+        run("qemu-img", "resize", str(image), "160G")
         run(
             "cloud-localds",
             str(work / "seed.img"),
@@ -270,6 +272,29 @@ def verify(archive):
                     "--reboot-host",
                     env=env,
                 )
+                # The own-disk pool keeps its size; an explicit different size is refused.
+                deploy = [sys.executable, str(ROOT / "deploy/deploy.py"), "--location", "lab"]
+                resized = subprocess.run(
+                    [*deploy, "--disk-pool", "41GiB"], env=env, capture_output=True, text=True
+                )
+                assert resized.returncode != 0 and "does not resize" in resized.stderr, resized
+                size = subprocess.check_output(
+                    ["ssh", "raft-fresh", "sudo incus storage get raft-disks size"],
+                    env=env,
+                    text=True,
+                )
+                assert size.strip() == "40GiB", "Deployment resized the own-disk pool"
+                allocated = subprocess.check_output(
+                    [
+                        "ssh",
+                        "raft-fresh",
+                        "sudo stat -c '%b %B %s' /var/lib/incus/disks/raft-disks.img",
+                    ],
+                    env=env,
+                    text=True,
+                ).split()
+                blocks, block_size, length = map(int, allocated)
+                assert blocks * block_size >= length, "Own-disk pool file is still sparse"
                 # Oversize only this disposable pool after all boxes have been removed.
                 run("ssh", "raft-fresh", "sudo incus storage set raft-data size=61GiB", env=env)
                 drift = subprocess.run(
@@ -286,7 +311,8 @@ def verify(archive):
                 )
                 assert size.strip() == "61GiB", "Deployment silently resized a drifting pool"
                 print(
-                    "Fresh provisioning, firewall failure gating, redeployment, oversize rejection and real host reboot passed",
+                    "Fresh provisioning, firewall failure gating, redeployment, pool size drift "
+                    "rejection, own-disk pool allocation and real host reboot passed",
                     flush=True,
                 )
             finally:

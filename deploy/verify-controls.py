@@ -9,7 +9,7 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from raft import ADMISSION, address, incus, inventory, parse_handle, transaction  # noqa: E402
+from raft import address, incus, parse_handle, transaction  # noqa: E402
 import importlib.util  # noqa: E402
 
 spec = importlib.util.spec_from_file_location(
@@ -32,48 +32,6 @@ def wait_address(box):
     raise RuntimeError("Resumed workspace has no managed IPv4 address after 30 seconds")
 
 
-def verify_admission(location, directory):
-    fixtures = []
-    saved = len(inventory(location))
-    if saved >= 4:
-        raise RuntimeError("Admission test needs at least one free slot on its target")
-    try:
-        for _ in range(4 - saved):
-            box = live.raft(
-                "new", "--location", location, "--memory", "1GiB", "--ttl", "600"
-            ).stdout.strip()
-            fixtures.append(box)
-            live.wait_running(box)
-            live.raft("stop", box)
-        rejected = live.raft("new", "--location", location, check=False)
-        if rejected.returncode == 0:
-            fixtures.append(rejected.stdout.strip())
-        assert rejected.returncode != 0 and "already holds four boxes" in rejected.stderr
-        rejected = live.raft("fork", fixtures[0], "--ttl", "600", check=False)
-        if rejected.returncode == 0:
-            fixtures.append(rejected.stdout.strip())
-        assert rejected.returncode != 0 and "already holds four boxes" in rejected.stderr
-        with tempfile.TemporaryDirectory(dir=directory, prefix="raft-admission-") as work:
-            # Admission must reject before native archive parsing, without creating a box.
-            archive = Path(work) / "rejected.tar.gz"
-            archive.write_bytes(b"not-an-incus-archive")
-            rejected = live.raft("recover", str(archive), "--location", location, check=False)
-            if rejected.returncode == 0:
-                fixtures.append(rejected.stdout.strip())
-            assert rejected.returncode != 0 and "already holds four boxes" in rejected.stderr
-        assert len(inventory(location)) == 4
-        report = json.loads(live.raft("limits", "--location", location, "--json").stdout)
-        assert report["savedBoxes"] == 4 and report["savedSlots"] == 0
-        assert all(size["newBoxes"] == 0 for size in report["recommendations"])
-        print(
-            f"{location}: stopped boxes count toward admission; new/fork/recover reject a fifth box",
-            flush=True,
-        )
-    finally:
-        for box in reversed(fixtures):
-            live.raft("destroy", box)
-
-
 def verify(source, target, directory, development_image=False):
     fixtures = []
     name = "rf-" + uuid.uuid4().hex[:16]
@@ -86,7 +44,7 @@ def verify(source, target, directory, development_image=False):
         else:
             transaction(
                 source,
-                ADMISSION + 'incus --project raft launch images:debian/13 "$1" '
+                'incus --project raft launch images:debian/13 "$1" '
                 "-c user.raft=true -c limits.cpu=1 -c limits.memory=1GiB; "
                 'incus --project raft config set "$1" user.raft.expires="$(( $(date +%s) + 600 ))"',
                 name,
@@ -237,5 +195,4 @@ if __name__ == "__main__":
         help="Export the complete configured development image rather than a small fixture",
     )
     args = parser.parse_args()
-    verify_admission(args.target, args.directory)
     verify(args.source, args.target, args.directory, args.development_image)

@@ -38,7 +38,7 @@ jobs:
           df -h /
           test "$(dpkg --print-architecture)" = '${{ matrix.architecture }}'
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends btrfs-progs curl gnupg iptables openssh-server python3
+          sudo apt-get install -y --no-install-recommends btrfs-progs curl gnupg iptables lvm2 openssh-server python3
           bash deploy/install-incus.sh
           sudo systemctl start ssh
           mkdir -p ~/.ssh ~/.config/raft
@@ -51,11 +51,14 @@ jobs:
           chmod 600 ~/.ssh/config
           printf '{"lab":{"ssh":"raft-ci","image":""}}\n' > ~/.config/raft/incus.json
           chmod 600 ~/.config/raft/incus.json
-          # This sparse Btrfs fixture is confined to an ephemeral CI VM. It tests
-          # images and workflows, not the production deployer's 80 GiB preflight.
+          # These sparse pools are confined to an ephemeral CI VM. They test images
+          # and workflows, not the production deployer's free-disk preflight or its
+          # up-front allocation of raft-disks. 40 GiB holds verify-limits' own-disk
+          # box, its snapshot and one larger copy at the same time.
           sudo incus project create raft -c features.images=true -c features.profiles=true
           sudo incus project set raft --property description='Raft managed workspaces'
           sudo incus storage create raft-data btrfs size=60GiB
+          sudo incus storage create raft-disks lvm size=40GiB lvm.use_thinpool=false
           sudo incus network create rfbr0 ipv4.address=10.232.0.1/24 ipv4.nat=true ipv6.address=none
           sudo incus --project raft profile device add default root disk path=/ pool=raft-data
           sudo incus --project raft profile device add default eth0 nic network=rfbr0 name=eth0
@@ -93,7 +96,7 @@ jobs:
           df -h /
       - name: Verify lifecycle, desktop and all development tools
         run: python3 deploy/verify-live.py --location lab --extended --restart-incus
-      - name: Verify host capacity and real box transitions
+      - name: Verify capacity advice, free-form sizing and own box disks
         run: python3 deploy/verify-limits.py --location lab
       - name: Verify disposable lifecycle, templates, resizing and recursive transfers
         run: python3 deploy/verify-features.py --location lab

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CLI = [sys.executable, str(ROOT / "raft.py")]
 USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
 sys.path.insert(0, str(ROOT))
-from raft import MEMORY_SIZES, configuration, incus, remote, settings, transaction  # noqa: E402
+from raft import configuration, incus, remote, settings, transaction  # noqa: E402
 
 
 def raft(*arguments, check=True, env=None):
@@ -424,7 +424,7 @@ def verify_configuration():
 
 def verify_arguments():
     # Invoke actual CLI processes: help and argument errors must not access a host.
-    commands = "new locations note host list limits doctor gc prune recover info stop resume extend destroy ssh exec upload download snapshot snapshots snapshot-delete restore fork forward desktop logs status cancel backup usage".split()
+    commands = "new locations note host list capacity doctor gc prune recover info stop resume extend destroy ssh exec upload download snapshot snapshots snapshot-delete restore fork forward desktop logs status cancel backup usage".split()
     assert raft("--help").returncode == 0
     for command in commands:
         assert raft(command, "--help").returncode == 0
@@ -435,7 +435,15 @@ def verify_arguments():
         for lifetime in ["59", "2592001", "invalid"]:
             rejected = raft(*prefix, "--ttl", lifetime, check=False)
             assert rejected.returncode == 2 and "Traceback" not in rejected.stderr
-    for options in [["--cpu", "0"], ["--cpu", "3"], ["--memory", "16GiB"]]:
+    for options in [
+        ["--cpu", "0"],
+        ["--cpu", "1.5"],
+        ["--memory", "16"],
+        ["--memory", "0GiB"],
+        ["--memory", "1.5GiB"],
+        ["--disk", "20G"],
+        ["--disk", "0GiB"],
+    ]:
         assert raft("new", *options, check=False).returncode == 2
     for arguments in [["exec", missing], ["recover", "missing"], ["forward", missing]]:
         assert raft(*arguments, check=False).returncode == 2
@@ -444,14 +452,14 @@ def verify_arguments():
 
 def verify_option_edges(location, box):
     assert any(json.loads(line)["box"] == box for line in raft("list").stdout.splitlines())
-    reports = [json.loads(line) for line in raft("limits", "--json").stdout.splitlines()]
+    reports = [json.loads(line) for line in raft("capacity", "--json").stdout.splitlines()]
     assert {report["location"] for report in reports} == set(configuration())
-    assert "CPU  RAM GiB" in raft("limits").stdout
+    assert "CPU  RAM GiB" in raft("capacity").stdout
     for arguments, message in [
         (["info", "invalid"], "location-qualified handle"),
         (["info", location + ":rf-0000000000000000"], "Raft box not found"),
         (["list", "--location", "missing-location"], "Unknown location"),
-        (["limits", "--location", "missing-location"], "Unknown location"),
+        (["capacity", "--location", "missing-location"], "Unknown location"),
         (["new", "--location", "missing-location"], "Unknown location"),
         (["upload", box, "missing", "relative"], "must be absolute"),
         (["download", box, "relative", "missing"], "must be absolute"),
@@ -691,29 +699,30 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
         verify_option_edges(location, box)
         if extended:
             subprocess.run([sys.executable, str(ROOT / "deploy/verify-tools.py"), box], check=True)
-            for cpu in [1, 2]:
-                for memory in MEMORY_SIZES:
-                    sized = raft(
-                        "new",
-                        "--location",
-                        location,
-                        "--cpu",
-                        str(cpu),
-                        "--memory",
-                        memory,
-                    ).stdout.strip()
-                    fixtures.append(sized)
-                    assert (
-                        int(json.loads(raft("info", sized).stdout)["config"]["user.raft.expires"])
-                        > int(execute(sized, "date", "+%s")) + 550
-                    )
-                    assert execute(sized, "nproc") == str(cpu)
-                    assert execute(sized, "cat", "/sys/fs/cgroup/memory.max") == str(
-                        int(memory.removesuffix("GiB")) * 1024**3
-                    )
-                    raft("destroy", sized)
-                    fixtures.remove(sized)
-            print(f"{location}: developer tools and all resource combinations passed", flush=True)
+            # Sizes are free-form; these cover the smallest box, an odd CPU count and
+            # more RAM per CPU than the default shape. CI hosts have 4 CPUs and 16 GiB.
+            for cpu, memory in [(1, "1GiB"), (3, "3GiB"), (2, "8GiB")]:
+                sized = raft(
+                    "new",
+                    "--location",
+                    location,
+                    "--cpu",
+                    str(cpu),
+                    "--memory",
+                    memory,
+                ).stdout.strip()
+                fixtures.append(sized)
+                assert (
+                    int(json.loads(raft("info", sized).stdout)["config"]["user.raft.expires"])
+                    > int(execute(sized, "date", "+%s")) + 550
+                )
+                assert execute(sized, "nproc") == str(cpu)
+                assert execute(sized, "cat", "/sys/fs/cgroup/memory.max") == str(
+                    int(memory.removesuffix("GiB")) * 1024**3
+                )
+                raft("destroy", sized)
+                fixtures.remove(sized)
+            print(f"{location}: developer tools and free-form resource sizes passed", flush=True)
         assert execute(box, "pwd") == "/workspace"
         host_machine = subprocess.check_output(
             ["ssh", "-T", "-o", "BatchMode=yes", settings(location)["ssh"], "uname -m"],
