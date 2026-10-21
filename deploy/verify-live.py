@@ -366,7 +366,9 @@ def browser_session(box):
                 assert.equal(response.result.errorText, undefined);
                 socket.send(JSON.stringify(viewerProof));
             } else if (response.id === 4) {
-                const viewer = JSON.parse(response.result.result.value);
+                // While noVNC is still loading, the evaluation can return no value.
+                const value = response.result.result.value;
+                const viewer = typeof value === 'string' ? JSON.parse(value) : {connected: false};
                 if (!viewer.connected) {
                     setTimeout(() => socket.send(JSON.stringify(viewerProof)), 200); return;
                 }
