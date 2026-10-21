@@ -3,6 +3,7 @@
 
 import argparse
 import fcntl
+import getpass
 import importlib.util
 import json
 import os
@@ -10,6 +11,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -22,6 +24,9 @@ import raft_files
 __version__ = "0.4.0"
 
 CONFIG = Path.home() / ".config/raft/incus.json"
+# Controller defaults for new live apart from the location inventory, so location
+# names can never collide with setting names.
+DEFAULTS_CONFIG = Path.home() / ".config/raft/config.json"
 PROJECT = "raft"
 LOCATION_NAME = r"[a-zA-Z0-9][a-zA-Z0-9_-]*"
 GIB = 1024**3
@@ -30,8 +35,9 @@ GIB = 1024**3
 # shared pool; the own-disk pool exists only on hosts deployed with --disk-pool.
 SHARED_POOL = "raft-data"
 BOX_DISK_POOL = "raft-disks"
-# Size of a box created from the image without --cpu or --memory. Boxes created
-# from a snapshot keep the snapshot's CPU, RAM and disk unless a flag overrides it.
+# Size of a box created from the image without --cpu, --memory or a config.json
+# default. Boxes created from a snapshot keep the snapshot's CPU, RAM and disk
+# unless a flag overrides it; config.json defaults never do.
 DEFAULT_CPU = 1
 DEFAULT_MEMORY = "2GiB"
 # Box notes follow one template so any agent can tell why a box exists, who uses
@@ -74,33 +80,41 @@ def settings(location):
     return inventory[location]
 
 
-def edit_configuration(change):
-    """Apply change(inventory) to the controller configuration and save it."""
+def edit_json(path, load, change):
+    """Apply change(document) to a controller JSON file and save it.
+
+    load() reads and validates the current file. An empty document removes the file.
+    """
     # main() sets umask 077, so a new configuration directory is private.
-    CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     # Hold a controller lock across read, edit and replace so concurrent edits
     # cannot drop each other. Readers need no lock because replacement is atomic.
-    with (CONFIG.parent / ".incus.json.lock").open("w") as lock:
+    with (path.parent / f".{path.name}.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         # Onboarding can start on a controller that has no configuration yet.
-        inventory = configuration() if CONFIG.exists() else {}
-        change(inventory)
-        if not inventory:
-            # Removing the only location restores the unconfigured state.
-            CONFIG.unlink(missing_ok=True)
+        document = load() if path.exists() else {}
+        change(document)
+        if not document:
+            # Removing the last entry restores the unconfigured state.
+            path.unlink(missing_ok=True)
             return
         # Key order is preserved because the first location is the default for new.
-        # Replace atomically so an interrupted write cannot truncate the inventory;
+        # Replace atomically so an interrupted write cannot truncate the file;
         # NamedTemporaryFile creates the staged file with mode 0600.
-        staged = tempfile.NamedTemporaryFile("w", dir=CONFIG.parent, prefix=".raft-", delete=False)
+        staged = tempfile.NamedTemporaryFile("w", dir=path.parent, prefix=".raft-", delete=False)
         try:
             with staged:
-                json.dump(inventory, staged, indent=2)
+                json.dump(document, staged, indent=2)
                 staged.write("\n")
-            os.replace(staged.name, CONFIG)
+            os.replace(staged.name, path)
         finally:
             # A no-op after a successful replace; removes the file after a failure.
             Path(staged.name).unlink(missing_ok=True)
+
+
+def edit_configuration(change):
+    """Apply change(inventory) to the location inventory and save it."""
+    edit_json(CONFIG, configuration, change)
 
 
 def set_note(location, text):
@@ -153,6 +167,11 @@ def gib_size(value):
     return value
 
 
+def disk_size(value):
+    """Parse new --disk: an own-disk size like 20GiB, or shared for the shared pool."""
+    return value if value == "shared" else gib_size(value)
+
+
 def gib(size):
     return int(size.removesuffix("GiB"))
 
@@ -161,6 +180,110 @@ def box_disk(box):
     """Return a box's own disk size, e.g. 20GiB, or "shared" for the shared pool."""
     root = box["expanded_devices"].get("root", {})
     return root.get("size", "") if root.get("pool") == BOX_DISK_POOL else "shared"
+
+
+# Box note policy. A host can require note fields for every box it holds; the
+# policy lives on the host, in the Incus project key user.raft.require (for
+# example "purpose,owner"), so every controller reads the same rule. Each
+# command that creates a box or changes its note checks the policy twice: once
+# from the controller for an actionable message before any work, and again in
+# the host transaction that writes the note, under the host lock. This is a
+# guardrail for agents: SSH and sudo on the host bypass it, and controllers
+# older than this check never run it.
+POLICY_KEY = "user.raft.require"
+POLICY_CHANGED_KEY = "user.raft.require.changed"
+
+# Host half of the check, run with the required fields and the note the box
+# will carry. Kept short; the controller builds the detailed message.
+CHECK_NOTE_CODE = """import json, sys
+required = [field for field in sys.argv[1].split(",") if field]
+note = json.loads(sys.argv[2]) if sys.argv[2] else {}
+missing = [field for field in required if not note.get(field)]
+if missing:
+    raise SystemExit(
+        "This host requires box note fields " + ", ".join(required)
+        + " (Incus project key user.raft.require); missing " + ", ".join(missing)
+        + ". Nothing was changed. Give the note with "
+        + " ".join("--" + field for field in required) + " and retry"
+    )
+"""
+# Read the policy with errexit active: inside a command substitution used as an
+# argument, a failed read would pass an empty policy and let every note through.
+READ_NOTE_POLICY = f"require=$(incus project get raft {POLICY_KEY})\n"
+# Callers set $note to the exact value they write to user.raft.note.
+CHECK_NOTE = "python3 -c " + shlex.quote(CHECK_NOTE_CODE) + ' "$require" "$note"'
+
+
+def note_policy(location):
+    """Return a location's required note fields and its last recorded policy change."""
+    # `incus query` rejects the --project flag that remote() always passes.
+    projects = json.loads(incus(location, "project", "list", "--format", "json"))
+    project = next(item for item in projects if item["name"] == PROJECT)
+    stored = project["config"].get(POLICY_KEY, "")
+    required = [field for field in stored.split(",") if field]
+    unknown = [field for field in required if field not in BOX_NOTE_FIELDS]
+    if unknown:
+        raise ValueError(
+            f"{location}: host policy {POLICY_KEY}={stored!r} names unknown note fields; "
+            f"fix it with raft policy {location} --require FIELDS or --clear"
+        )
+    return {"require": required, "changed": project["config"].get(POLICY_CHANGED_KEY, "")}
+
+
+def note_problem(location, required, note, command, hint=""):
+    """Describe how note falls short of the required fields, or return None."""
+    missing = [field for field in required if not (note or {}).get(field)]
+    if not missing:
+        return None
+    flags = " and ".join("--" + field for field in missing)
+    usage = " ".join(
+        f'--{field} "..."' if field in required else f'[--{field} "..."]'
+        for field in BOX_NOTE_FIELDS
+    )
+    return (
+        f"location {location} requires {flags} (host policy).{hint} "
+        f"Add {'it' if len(missing) == 1 else 'them'}: raft {command} {usage}"
+    )
+
+
+def require_note(location, note, command, hint=""):
+    """Fail before any host change when note lacks a field the location requires."""
+    problem = note_problem(location, note_policy(location)["require"], note, command, hint)
+    if problem:
+        raise ValueError(problem)
+
+
+def note_fields(text):
+    """Parse --require FIELDS into BOX_NOTE_FIELDS order."""
+    fields = [field.strip() for field in text.split(",") if field.strip()]
+    unknown = [field for field in fields if field not in BOX_NOTE_FIELDS]
+    if unknown or not fields:
+        raise ValueError(
+            "Give note fields from " + ", ".join(BOX_NOTE_FIELDS) + ", e.g. --require purpose,owner"
+        )
+    if "purpose" not in fields:
+        # Every box note has a purpose, so a policy without it would be misleading.
+        raise ValueError("Box notes always need purpose; include it, e.g. --require purpose,owner")
+    return [field for field in BOX_NOTE_FIELDS if field in fields]
+
+
+def set_policy(location, fields):
+    """Set (fields) or clear (None) a location's note policy and record the change on the host."""
+    settings(location)
+    value = ",".join(fields or [])
+    # Who and when is recorded on the host beside the policy and in its journal.
+    # The controller identity is self-reported; SUDO_USER is the SSH account.
+    before = transaction(
+        location,
+        f"before=$(incus project get raft {POLICY_KEY})\n"
+        'changed="$(date -u +%Y-%m-%dT%H:%M:%SZ) by ${SUDO_USER:-root} from $2"\n'
+        f'incus project set raft {POLICY_KEY}="$1" {POLICY_CHANGED_KEY}="$changed"\n'
+        "logger -t raft \"Box note policy: required fields '$before' -> '$1' ($changed)\"\n"
+        "printf '%s\\n' \"$before\"",
+        value,
+        f"{getpass.getuser()}@{socket.gethostname()}",
+    ).strip()
+    print(f"{location}: required note fields {before or 'none'} -> {value or 'none'}")
 
 
 def receive(command, destination, *, stdin=None):
@@ -291,9 +414,14 @@ def smoke_test(location):
             ttl=600,
             cpu=1,
             memory="2GiB",
-            disk=None,
+            # Explicit, so a configured disk default never moves the smoke box off the shared pool.
+            disk="shared",
             disposable=True,
             template=None,
+            # A full note satisfies any note policy left on a reused deployment.
+            purpose="raft host add smoke test",
+            owner="raft host add",
+            next="Deleted by the smoke test",
         )
     )
     print("Smoke test box: " + handle, flush=True)
@@ -506,13 +634,15 @@ def box_disk_pool():
         'imageVolumeBytes': size_bytes(config.get('volume.size', '10GiB')),
     }
 
-def reserve(location, pool, added):
+def reserve(location, pool, added, origin=''):
     # Exit with the reason unless thin volumes of the added sizes fit in full.
+    # origin, when given, is a sentence saying where the requested size came from.
+    suffix = '. ' + origin if origin else ''
     if added and pool is None:
         sys.exit(
             f'{location} has no {POOL} pool, so own box disks are not enabled there; nothing was '
             f'created. Enable them with python3 deploy/deploy.py --location {location} '
-            '--disk-pool SIZE'
+            '--disk-pool SIZE' + suffix
         )
     if added and pool['reservedBytes'] + sum(added) > pool['totalBytes']:
         sys.exit(
@@ -520,7 +650,7 @@ def reserve(location, pool, added):
             f'which has {(pool["totalBytes"] - pool["reservedBytes"]) / GIB:.1f} of '
             f'{pool["totalBytes"] / GIB:.1f} GiB unreserved; nothing was created. Destroy '
             'own-disk boxes or snapshots you no longer need, or use a smaller disk or the '
-            'shared pool'
+            'shared pool' + suffix
         )
 """
 )
@@ -549,14 +679,15 @@ print(json.dumps({
 
 # Reservation check run inside lifecycle transactions before Incus adds a thin
 # volume to raft-disks. Arguments: location (for messages), the requested own-disk
-# size in GiB (0 for none), and the source: image:FINGERPRINT, BOX or BOX/SNAPSHOT.
+# size in GiB (0 for none), the source: image:FINGERPRINT, BOX or BOX/SNAPSHOT,
+# and the origin sentence for refusals (empty when the size is a flag).
 # A new volume starts as a thin snapshot of its source and is then resized to the
 # requested size, so it needs the larger of the two. Copies of shared-pool boxes
 # without --disk never touch raft-disks and need nothing.
 RESERVE_BOX_DISK = (
     BOX_DISK_ACCOUNTING
     + """
-location, requested, source = sys.argv[1], int(sys.argv[2]) * GIB, sys.argv[3]
+location, requested, source, origin = sys.argv[1], int(sys.argv[2]) * GIB, sys.argv[3], sys.argv[4]
 pool = box_disk_pool()
 added = []
 if source.startswith('image:'):
@@ -574,7 +705,7 @@ else:
         added.append(max(requested, size_bytes(root['size'])))
     elif requested:
         added.append(requested)
-reserve(location, pool, added)
+reserve(location, pool, added, origin)
 """
 )
 
@@ -604,14 +735,10 @@ print(POOL)
 )
 
 
-def reserve_box_disk(location, disk, source):
+def reserve_box_disk(location, disk, source, origin=""):
     """Shell line that refuses an own-disk volume raft-disks could not hold in full."""
-    return (
-        shlex.join(
-            ["python3", "-c", RESERVE_BOX_DISK, location, str(gib(disk) if disk else 0), source]
-        )
-        + "\n"
-    )
+    size = str(gib(disk) if disk else 0)
+    return shlex.join(["python3", "-c", RESERVE_BOX_DISK, location, size, source, origin]) + "\n"
 
 
 # Agents read capacity output to plan work. Earlier wording that looked like a cap
@@ -889,6 +1016,9 @@ def own_disk(size):
 
 def new(args):
     box_fields = box_note(args)
+    # Sizes are filled here only for boxes from the image; a box from a snapshot
+    # keeps the snapshot's CPU, RAM and disk unless a flag overrides them.
+    from_config = apply_new_defaults(args)
     source = None
     if args.template:
         handle, separator, snapshot = args.template.partition("/")
@@ -901,24 +1031,17 @@ def new(args):
         args.location = location
         instance(location, original)
         source = original + "/" + snapshot
-    if args.location is None:
-        args.location = next(iter(configuration()))
     if source is None:
         source = settings(args.location).get("image", "")
         if not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{64}", source):
             raise ValueError(
                 "Build an image and configure its full immutable fingerprint before creating boxes"
             )
-        # A box from a snapshot keeps the snapshot's CPU, RAM and disk; only a box
-        # from the image starts from the defaults.
-        if args.cpu is None:
-            args.cpu = DEFAULT_CPU
-        if args.memory is None:
-            args.memory = DEFAULT_MEMORY
     note = settings(args.location).get("note")
     if note:
         # Stderr keeps stdout limited to the handle for scripts.
         print(f"{args.location} note: {note}", file=sys.stderr)
+    require_note(args.location, box_fields, "new")
     name = "rf-" + uuid.uuid4().hex[:16]
     # Initialize before starting, so a failed start still has its intended policy.
     transaction(
@@ -928,17 +1051,27 @@ def new(args):
         # Plain boxes from the image stay off raft-disks and skip the check.
         + (
             reserve_box_disk(
-                args.location, args.disk, source if args.template else "image:" + source
+                args.location,
+                args.disk,
+                source if args.template else "image:" + source,
+                # A refusal of a configured disk says where the size came from.
+                disk_origin(args.disk) if "disk" in from_config else "",
             )
             if args.disk or args.template
             else ""
         )
-        + 'lifetime="$1"; name="$2"; shift 2; "$@"; '
+        + 'lifetime="$1"; name="$2"; note="$3"; shift 3\n'
+        + READ_NOTE_POLICY
+        + CHECK_NOTE
+        # Always set the note, so a box created from a snapshot never inherits the
+        # source note. The host checks the same value it writes.
+        + '\n"$@" -c user.raft.note="$note"; '
         'incus --project raft start "$name"; '
         'incus --project raft config set "$name" '
         'user.raft.expires="$(( $(date +%s) + lifetime ))"',
         str(args.ttl),
         name,
+        json.dumps(box_fields) if box_fields else "",
         "incus",
         "--project",
         PROJECT,
@@ -953,9 +1086,6 @@ def new(args):
         "user.raft.stopped-at=",
         "-c",
         f"user.raft.disposable={'true' if args.disposable else 'false'}",
-        "-c",
-        # Always set, so a box created from a snapshot never inherits the source note.
-        "user.raft.note=" + (json.dumps(box_fields) if box_fields else ""),
         "-c",
         "volatile.eth0.hwaddr=",
         *sizing(args),
@@ -1062,7 +1192,11 @@ def backup(args, location, name):
 
 
 def recover(args):
+    box_fields = box_note(args)
     host = settings(args.location)["ssh"]
+    if box_fields:
+        # Without a new note the archived one applies; the host checks it after import.
+        require_note(args.location, box_fields, f"recover {args.source} --location {args.location}")
     name = "rf-" + uuid.uuid4().hex[:16]
     response = subprocess.run(
         ["ssh", "-T", "-o", "BatchMode=yes", host, "mktemp /tmp/raft-recovery.XXXXXXXX"],
@@ -1088,15 +1222,24 @@ def recover(args):
                 stdin=archive,
                 check=True,
             )
+        # The archive carries the source note, known only after import. A rejected
+        # note deletes the imported box inside the same locked transaction.
         transaction(
             args.location,
+            # The reservation check runs first and creates nothing when it refuses.
             'pool=$(python3 -c "$3" "$1" "$4")\n'
-            'incus --project raft import "$1" "$2" --storage "$pool" '
-            "-c user.raft=true -c user.raft.expires= -c user.raft.disposable=false -c user.raft.stopped-at= -c volatile.eth0.hwaddr=",
+            + READ_NOTE_POLICY
+            + 'incus --project raft import "$1" "$2" --storage "$pool" '
+            "-c user.raft=true -c user.raft.expires= -c user.raft.disposable=false -c user.raft.stopped-at= -c volatile.eth0.hwaddr=\n"
+            'if [ -n "$5" ]; then incus --project raft config set "$2" user.raft.note="$5"; fi\n'
+            'note=$(incus --project raft config get "$2" user.raft.note)\n'
+            + CHECK_NOTE
+            + ' || { incus --project raft delete "$2" --force; exit 1; }',
             staged,
             name,
             RECOVERY_POOL,
             args.location,
+            json.dumps(box_fields) if box_fields else "",
         )
         if instance(args.location, name)["status"] != "Stopped":
             raise RuntimeError("Recovered box unexpectedly running: " + args.location + ":" + name)
@@ -1155,8 +1298,155 @@ def ttl(value):
     return seconds
 
 
+def location_name(value):
+    if not re.fullmatch(LOCATION_NAME, value):
+        raise ValueError("Location names must use letters, digits, underscores or hyphens")
+    return value
+
+
+# Options of new that ~/.config/raft/config.json can default, with their built-in
+# defaults and value checks. Values go through str() first, so a configured value
+# is accepted exactly when the same text passed as the flag would be. Adding a
+# defaultable option means adding one entry here and keeping its flag default None.
+NEW_DEFAULTS = {
+    # None means the first configured location.
+    "location": (None, location_name),
+    "ttl": (600, ttl),
+    "cpu": (DEFAULT_CPU, cpu_count),
+    "memory": (DEFAULT_MEMORY, gib_size),
+    "disk": ("shared", disk_size),
+}
+# A box from a snapshot keeps the snapshot's size, so these defaults, configured
+# or built-in, apply only to boxes created from the image.
+SIZE_DEFAULTS = {"cpu", "memory", "disk"}
+
+
+def default_value(key, value):
+    """Validate one configured default; errors name the file and the key."""
+    if key not in NEW_DEFAULTS:
+        raise ValueError(
+            f"{DEFAULTS_CONFIG}: unknown key defaults.{key}; "
+            "supported keys: " + ", ".join(NEW_DEFAULTS)
+        )
+    try:
+        return NEW_DEFAULTS[key][1](str(value))
+    except (ValueError, argparse.ArgumentTypeError) as error:
+        raise ValueError(
+            f"{DEFAULTS_CONFIG}: defaults.{key}={value!r} is invalid: {error}"
+        ) from None
+
+
+def configured_defaults(unchecked=None):
+    """Return the validated defaults from config.json; a missing file means none.
+
+    The unchecked key is returned as stored, so `raft config set/unset KEY` can
+    repair a file whose only problem is that key.
+    """
+    if not DEFAULTS_CONFIG.exists():
+        return {}
+    try:
+        document = json.loads(DEFAULTS_CONFIG.read_text())
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{DEFAULTS_CONFIG}: invalid JSON: {error}") from None
+    if (
+        not isinstance(document, dict)
+        or set(document) - {"defaults"}
+        or not isinstance(document.get("defaults", {}), dict)
+    ):
+        raise ValueError(f'{DEFAULTS_CONFIG}: expected {{"defaults": {{"KEY": VALUE, ...}}}}')
+    return {
+        key: value if key == unchecked else default_value(key, value)
+        for key, value in document.get("defaults", {}).items()
+    }
+
+
+def apply_new_defaults(args):
+    """Fill omitted new options: explicit flag, then config.json, then the built-in default.
+
+    Returns the keys whose value came from config.json. With --from only explicit
+    flags change the size: the snapshot's CPU, RAM and disk beat any default.
+    """
+    configured = configured_defaults()
+    used = set()
+    for key, (builtin, _) in NEW_DEFAULTS.items():
+        # getattr's default lets internal callers such as smoke_test omit options.
+        if key == "location" or getattr(args, key, None) is not None:
+            continue
+        if args.template and key in SIZE_DEFAULTS:
+            continue
+        if key in configured:
+            used.add(key)
+        setattr(args, key, configured.get(key, builtin))
+    if args.disk == "shared":
+        if args.template:
+            raise ValueError(
+                "--from keeps the snapshot's disk; leave out --disk, or give --disk SIZE "
+                "for an own disk of that size"
+            )
+        # The rest of new() spells the shared pool as no own disk.
+        args.disk = None
+    # A --from template fixes the location, so only plain creation takes a default.
+    if args.location is None and not args.template:
+        if "location" not in configured:
+            args.location = next(iter(configuration()))
+        elif configured["location"] in configuration():
+            args.location = configured["location"]
+            used.add("location")
+        else:
+            raise ValueError(
+                f"{DEFAULTS_CONFIG}: defaults.location names unknown location "
+                f"{configured['location']}; run raft config set location NAME or "
+                "raft config unset location"
+            )
+    return used
+
+
+def effective_defaults():
+    """Return each defaultable option's effective value and where it comes from."""
+    configured = configured_defaults()
+    report = {}
+    for key, (builtin, _) in NEW_DEFAULTS.items():
+        if key in configured:
+            report[key] = {"value": configured[key], "source": "config"}
+        else:
+            value = next(iter(configuration())) if key == "location" else builtin
+            report[key] = {"value": value, "source": "built-in"}
+    return report
+
+
+def disk_origin(size):
+    """Explain a reservation refusal for an own disk that config.json chose, not a flag."""
+    return (
+        f"The {size} own disk comes from defaults.disk in {DEFAULTS_CONFIG}; "
+        "give --disk shared or --disk SIZE, or run raft config unset disk"
+    )
+
+
+def set_default(key, value):
+    """Set (value) or remove (None) one default in config.json and print the change."""
+    if value is not None:
+        value = default_value(key, value)
+        if key == "location":
+            settings(value)
+    previous = {}
+
+    def change(document):
+        defaults = document.setdefault("defaults", {})
+        previous.update(defaults)
+        if value is None:
+            defaults.pop(key, None)
+        else:
+            defaults[key] = value
+        if not defaults:
+            document.pop("defaults")
+
+    edit_json(DEFAULTS_CONFIG, lambda: {"defaults": configured_defaults(key)}, change)
+    before = previous.get(key, "built-in default")
+    print(f"defaults.{key}: {before} -> {'built-in default' if value is None else value}")
+
+
 def note_options(command):
-    """Add the box note template flags shared by new and note."""
+    """Add the box note template flags shared by new, note, fork and recover."""
     command.add_argument(
         "--purpose", help="Box note: what the box is for, e.g. 'Integration tests for PR 42'"
     )
@@ -1174,27 +1464,48 @@ def parser():
     commands = cli.add_subparsers(dest="action", required=True)
     create = commands.add_parser("new")
     create.add_argument("--location", default=None)
-    create.add_argument("--ttl", type=ttl, default=600)
-    # With --from, every omitted size comes from the snapshot instead of the default.
+    # Omitted options take ~/.config/raft/config.json defaults, then NEW_DEFAULTS.
+    # With --from, every omitted size comes from the snapshot instead of a default.
+    create.add_argument("--ttl", type=ttl)
     create.add_argument(
-        "--cpu", type=cpu_count, help=f"CPU limit (default: {DEFAULT_CPU}, or the snapshot's)"
+        "--cpu",
+        type=cpu_count,
+        help=f"CPU limit (default: config, else {DEFAULT_CPU}; with --from, the snapshot's)",
     )
     create.add_argument(
         "--memory",
         type=gib_size,
-        help=f"RAM limit, e.g. 16GiB (default: {DEFAULT_MEMORY}, or the snapshot's)",
+        help="RAM limit, e.g. 16GiB "
+        f"(default: config, else {DEFAULT_MEMORY}; with --from, the snapshot's)",
     )
     create.add_argument(
         "--disk",
-        type=gib_size,
+        type=disk_size,
         metavar="SIZE",
-        help="Give the box its own disk of SIZE, e.g. 20GiB, that it cannot grow past "
-        "(default: the shared pool, or the snapshot's disk)",
+        help="Give the box its own disk of SIZE, e.g. 20GiB, that it cannot grow past, "
+        "or shared for the shared pool "
+        "(default: config, else shared; with --from, the snapshot's disk)",
     )
     create.add_argument("--disposable", action="store_true", help="Delete on stop or expiry")
     create.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
     note_options(create)
     commands.add_parser("locations", help="List configured locations and their notes")
+    defaults = commands.add_parser(
+        "config", help="Show defaults for new and each location's note policy, or change defaults"
+    )
+    default_commands = defaults.add_subparsers(dest="config_action")
+    default_set = default_commands.add_parser("set", help="Set a default for new")
+    default_set.add_argument("key", choices=list(NEW_DEFAULTS))
+    default_set.add_argument("value")
+    default_unset = default_commands.add_parser("unset", help="Restore a built-in default")
+    default_unset.add_argument("key", choices=list(NEW_DEFAULTS))
+    policy = commands.add_parser(
+        "policy", help="Set or clear the box note fields a location's host requires"
+    )
+    policy.add_argument("location")
+    rule = policy.add_mutually_exclusive_group(required=True)
+    rule.add_argument("--require", metavar="FIELDS", help="Note fields, e.g. purpose,owner")
+    rule.add_argument("--clear", action="store_true", help="Stop requiring note fields")
     note = commands.add_parser("note", help="Set or clear the note of a location or a box")
     note.add_argument("target", metavar="LOCATION|BOX", help="A location name or a box handle")
     note.add_argument("text", nargs="?", help="Location guidance, e.g. 'Preferred for builds'")
@@ -1244,6 +1555,7 @@ def parser():
     recovery = commands.add_parser("recover", help="Import a portable backup as a new stopped box")
     recovery.add_argument("source")
     recovery.add_argument("--location", required=True)
+    note_options(recovery)
     for action in [
         "info",
         "stop",
@@ -1276,6 +1588,7 @@ def parser():
             command.add_argument("--memory", type=gib_size)
         if action == "fork":
             command.add_argument("--disposable", action="store_true")
+            note_options(command)
         if action == "exec":
             command.add_argument("--detach", action="store_true")
             command.add_argument("command", nargs="+")
@@ -1307,6 +1620,21 @@ def dispatch(args):
     if args.action == "host":
         host_add(args)
         return 0
+    if args.action == "config":
+        if args.config_action is None:
+            report = {"file": str(DEFAULTS_CONFIG), "defaults": effective_defaults(), "policy": {}}
+            for location in configuration():
+                try:
+                    report["policy"][location] = note_policy(location)
+                except RuntimeError as error:
+                    raise RuntimeError(f"{location}: {error}") from error
+            print(json.dumps(report, indent=2))
+        else:
+            set_default(args.key, args.value if args.config_action == "set" else None)
+        return 0
+    if args.action == "policy":
+        set_policy(args.location, None if args.clear else note_fields(args.require))
+        return 0
     if args.action == "note":
         fields = box_note(args)
         # Location names cannot contain ":", so a colon always means a box handle.
@@ -1323,9 +1651,22 @@ def dispatch(args):
             raise ValueError("Give --purpose (with optional --owner and --next) or --clear")
         location, name = parse_handle(args.target)
         instance(location, name)
+        require_note(
+            location,
+            fields,
+            f"note {args.target}",
+            " Clearing would leave the box without them." if args.clear else "",
+        )
         # Each call replaces the whole note; an empty value removes the key.
-        value = "" if args.clear else json.dumps(fields)
-        incus(location, "config", "set", name, "user.raft.note=" + value, locked=True)
+        transaction(
+            location,
+            'note="$2"\n'
+            + READ_NOTE_POLICY
+            + CHECK_NOTE
+            + '\nincus --project raft config set "$1" user.raft.note="$note"',
+            name,
+            "" if args.clear else json.dumps(fields),
+        )
         return 0
     if args.action == "locations":
         for index, (location, entry) in enumerate(configuration().items()):
@@ -1396,6 +1737,8 @@ def dispatch(args):
                         )
                     )
         return 0
+    # Only fork accepts note flags here; check them before contacting the host.
+    fields = box_note(args)
     location, name = parse_handle(args.box)
     box = instance(location, name)
     if args.action == "info":
@@ -1525,6 +1868,14 @@ def dispatch(args):
             args.name,
         )
     elif args.action == "fork":
+        # Note flags replace the whole note, as with raft note; without them the
+        # fork keeps the source note, which must then satisfy the host policy.
+        require_note(
+            location,
+            fields or read_box_note(box),
+            f"fork {args.box} --ttl {args.ttl}",
+            "" if fields else " Forks keep the source note unless you give a new one.",
+        )
         child = "rf-" + uuid.uuid4().hex[:16]
         transaction(
             location,
@@ -1532,13 +1883,18 @@ def dispatch(args):
             + REQUIRE_STOPPED
             + fits_host(args)
             + reserve_box_disk(location, None, name)
-            + 'name="$2"; lifetime="$3"; '
-            'source="$1"; shift 3; incus --project raft copy "$source" "$name" --instance-only "$@"; '
+            + 'name="$2"; lifetime="$3"; source="$1"; note="$4"; shift 4\n'
+            # Read the source note under the lock, so the check sees what the copy keeps.
+            'if [ -z "$note" ]; then note=$(incus --project raft config get "$source" user.raft.note); fi\n'
+            + READ_NOTE_POLICY
+            + CHECK_NOTE
+            + '\nincus --project raft copy "$source" "$name" --instance-only "$@" -c user.raft.note="$note"; '
             'incus --project raft start "$name"; '
             'incus --project raft config set "$name" user.raft.expires="$(( $(date +%s) + lifetime ))"',
             name,
             child,
             str(args.ttl),
+            json.dumps(fields) if fields else "",
             "-c",
             "user.raft.expires=",
             "-c",
