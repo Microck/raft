@@ -40,18 +40,19 @@ Create and launch a new workspace container.
 
 - `--location LOCATION`: Target host location in `~/.config/raft/incus.json`. Defaults to first configured location.
 - `--ttl TTL`: Lifetime in seconds before automatic stop (`60` to `2592000`). Default: `600`.
-- `--cpu N`: CPU limit, any whole number from `1` up to the host's CPU count. Default: `1`.
-- `--memory SIZE`: Memory limit in whole GiB, for example `16GiB`, up to the host's RAM. Default: `2GiB`.
-- `--disk SIZE`: Give the box its own disk of SIZE in whole GiB, for example `20GiB`, instead of the shared pool. The box, and Docker inside it, cannot write past SIZE, and the space is set aside when the box is created. Without `--disk` the box uses the shared pool, or with `--from` keeps the snapshot's disk. See [Box sizing and own disks](./capacity.mdx#own-box-disks).
+- `--cpu N`: CPU limit, any whole number from `1` up to the host's CPU count. Default: `1`, or the snapshot's with `--from`.
+- `--memory SIZE`: Memory limit in whole GiB, for example `16GiB`, up to the host's RAM. Default: `2GiB`, or the snapshot's with `--from`.
+- `--disk SIZE`: Give the box its own disk of SIZE in whole GiB, for example `20GiB`, instead of the shared pool. Needs a host deployed with `--disk-pool`. The box, and Docker inside it, cannot write past SIZE, and the pool reserves SIZE when the box is created. Without `--disk` the box uses the shared pool, or with `--from` keeps the snapshot's disk. See [Box sizing and own disks](./capacity.mdx#own-box-disks).
 
 - `--disposable`: Delete the box and snapshots on stop or expiry. Off by default.
-- `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. Normal CPU and RAM defaults apply; the source can be running. Cannot target a different location.
+- `--from LOCATION:BOX/SNAPSHOT`: Copy a named snapshot on its source host instead of the configured image. The box keeps the snapshot's CPU, RAM and disk unless `--cpu`, `--memory` or `--disk` overrides them; the source can be running. Cannot target a different location.
 - `--purpose TEXT`, `--owner TEXT`, `--next TEXT`: Record a [box note](#note). `--owner` and `--next` need `--purpose`. Without them the box starts with no note, including boxes created `--from` a noted snapshot.
 
 Returns the qualified workspace handle. If the location has a note, `new` prints
 it to stderr; stdout still contains only the handle. Raft limits neither the
-number of boxes nor their size; requests larger than the whole host, or own
-disks larger than the free `raft-disks` space, fail with the reason.
+number of boxes nor their size; requests larger than the whole host, own disks
+on a host without `raft-disks`, or own disks larger than the unreserved
+`raft-disks` space, fail with the reason before anything is created.
 
 ### `stop`
 
@@ -179,6 +180,8 @@ Create a named point-in-time snapshot of a stopped workspace. Names use alphanum
 
 `raft snapshot <box> <name>`
 
+A snapshot of a box with its own disk is a thin snapshot that reserves the box's disk size in `raft-disks`; it fails before anything is created when the pool lacks unreserved space.
+
 ### `snapshots`
 
 List existing snapshots and creation timestamps for a workspace.
@@ -205,7 +208,7 @@ Clone a stopped workspace into an independent container on the same host and sta
 
 - `--ttl TTL`: Lifetime in seconds for the clone. Required.
 
-Omitted CPU/RAM values inherit the source limits. The clone keeps the source's disk: the shared pool, or an own disk of the same size. To copy a box onto a disk of another size, snapshot it and use `new --from BOX/SNAPSHOT --disk SIZE`. The clone is persistent unless `--disposable` is supplied, regardless of the source policy.
+Omitted CPU/RAM values inherit the source limits. The clone keeps the source's disk: the shared pool, or an own disk of the same size as a thin snapshot, which reserves that size in `raft-disks`. To copy a box onto a disk of another size, snapshot it and use `new --from BOX/SNAPSHOT --disk SIZE`. The clone is persistent unless `--disposable` is supplied, regardless of the source policy.
 
 Returns the qualified handle of the clone.
 
@@ -249,7 +252,7 @@ Import a portable backup archive onto a host as a fresh stopped workspace.
 - `<source>`: Path to archive file on controller.
 - `--location LOCATION`: Target host location. Required.
 
-Returns the qualified handle of the imported stopped workspace. A backup of a box with its own disk is recovered onto an own disk of the same size in `raft-disks`; any other backup lands in the shared pool.
+Returns the qualified handle of the imported stopped workspace. A backup of a box with its own disk is recovered onto an own disk of the same size in `raft-disks`, which must exist on the destination and have room to reserve that size for the box and each of its snapshots; any other backup lands in the shared pool.
 
 ## Location commands
 
@@ -264,13 +267,13 @@ Check, provision and register a new workspace host, then prove it works.
 - `--image-release TAG`: Download `raft-dev-<arch>.tar.gz` from this release on the host and verify it against the release `SHA256SUMS`. Default: the CLI's own version.
 - `--image-archive PATH`: Upload and import a local image archive instead.
 - `--build`: Build the image on the host from Debian 13 instead.
-- `--disk-pool SIZE`: Size of the `raft-disks` pool for [own box disks](./capacity.mdx#own-box-disks), in whole GiB. Default: `40GiB`. The pool's file takes its full size on the host disk when created. An existing pool keeps its size; a different explicit value is refused.
+- `--disk-pool SIZE`: Enable [own box disks](./capacity.mdx#own-box-disks) with a `raft-disks` thin pool of SIZE, in whole GiB. Default: not enabled. The pool's file takes its full size on the host disk when created. To enable them on a host that is already deployed, run `python3 deploy/deploy.py --location LOCATION --disk-pool SIZE`. An existing pool keeps its size; a different explicit value is refused.
 - `--dry-run`: Probe the host and print the plan without changing anything.
 - `--yes`: Apply the plan without the interactive prompt. Without a terminal, `--yes` is required.
 
 Before any change, a read-only probe checks SSH, passwordless sudo, Ubuntu 22.04 or
 24.04, ARM64 or AMD64, python3, at least 2 CPUs, 8 GiB RAM and, for a fresh host,
-80 GiB plus the `--disk-pool` size of free disk (120 GiB by default). Unsupported targets, including macOS, fail with the reasons and
+80 GiB of free disk, plus the `--disk-pool` size when given. Unsupported targets, including macOS, fail with the reasons and
 no changes. The command then runs the deployer, imports the image only if its
 checksum and architecture match, adds the location with the pinned fingerprint,
 and runs `doctor` plus a disposable create/exec/destroy smoke test. If the final
@@ -341,7 +344,7 @@ if any. See [Box sizing and capacity](./capacity.mdx) for the fields.
 
 ### `doctor`
 
-Inspect host connectivity, Incus version, expiry-worker compatibility, active systemd units (`incus`, `raft-expire.timer`, `raft-network.service`), root filesystem usage, status of the shared `raft-data` and own-disk `raft-disks` pools, and saved box count across configured hosts. A missing `raft-disks` pool fails with redeploy guidance. An incompatible worker returns a nonzero exit status and names the failing location without running expiry or modifying boxes.
+Inspect host connectivity, Incus version, expiry-worker compatibility, active systemd units (`incus`, `raft-expire.timer`, `raft-network.service`), root filesystem usage, status of the shared `raft-data` pool and, when own box disks are enabled, the `raft-disks` pool, and saved box count across configured hosts. Without `raft-disks` it prints `own box disks: not enabled (redeploy with --disk-pool SIZE)` and does not fail. An incompatible worker returns a nonzero exit status and names the failing location without running expiry or modifying boxes.
 
 `raft doctor`
 

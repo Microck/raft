@@ -63,16 +63,23 @@ limit and no size budget. Decide what the task needs and why, then ask for it:
   The box and Docker inside it cannot write past SIZE, and other boxes cannot
   take its space. Use it for Docker builds, large datasets or anything that
   could fill the shared pool. The image needs about 5 GiB, so use at least
-  `8GiB`. Space is taken in full at creation; snapshots take the same again.
+  `8GiB`; 10 GiB or more starts fastest. Only hosts deployed with
+  `--disk-pool` have own disks; elsewhere `--disk` fails and names the command
+  that enables them. Own disks, their snapshots, forks and templates are
+  copy-on-write, so copying one is fast, but each reserves its full size in
+  the pool.
 
 ```sh
 box=$(raft new --cpu 4 --memory 16GiB --disk 20GiB --ttl 3600 --purpose "Build and test the monorepo" --owner "codex task 123" --next "Destroy when CI passes")
 ```
 
 Defaults are the first configured location, one CPU, 2 GiB RAM, the shared pool
-and 600 seconds. TTL accepts 60 seconds to 30 days. A request larger than the
-whole host fails with the host's real size; retry with what it reports. If
-the own-disk pool lacks space for `--disk`, pick a smaller disk or the shared pool.
+and 600 seconds. `new --from` and `fork` keep the source's CPU, RAM and disk
+instead; each flag overrides only its own value. TTL accepts 60 seconds to 30
+days. A request larger than the whole host fails with the host's real size;
+retry with what it reports. If the own-disk pool has too little unreserved
+space for `--disk`, a snapshot or a copy, destroy own-disk boxes or snapshots
+the task no longer needs, or pick a smaller disk or the shared pool.
 `raft list` shows each box's `disk` (`"shared"` or its size).
 
 `raft capacity --location lab --json` is an advisory estimate of host CPU/RAM
@@ -112,8 +119,11 @@ only when the user requested that rollback. A fork copies filesystem data, inclu
 credentials installed there. Forks stay on the same host. `new --from "$box/prepared"` starts from a named
 snapshot; `snapshot-delete "$box" prepared` removes it. Resume and fork accept
 optional `--cpu` and `--memory` overrides. Omitted values retain the source limits.
-Forks and `new --from` keep the source disk; `new --from "$box/prepared" --disk 60GiB`
-copies the snapshot onto a bigger own disk when a box runs out of space.
+Forks and `new --from` keep the source's CPU, RAM and disk unless a flag
+overrides them; `new --from "$box/prepared" --disk 60GiB` copies the snapshot onto
+a bigger own disk when a box runs out of space. To spawn many agents from one
+prepared own-disk snapshot, run `new --from` once per agent: each copy is a thin
+snapshot created in seconds.
 Forks default to persistent; use `--disposable` explicitly for temporary clones.
 
 `upload/download --recursive` copy directory trees into new destinations without
@@ -154,7 +164,8 @@ raft resume "$recovered" --ttl 600
 
 Recovery creates a fresh stopped handle and clears the inherited deadline. It
 never overwrites another box. A box with its own disk comes back on an own disk
-of the same size. Only import trusted Raft exports; archives retain
+of the same size, so the destination needs own box disks enabled and room for the
+box and each of its snapshots. Only import trusted Raft exports; archives retain
 native configuration and guest secrets. Store them privately and check free
 space on the controller and destination host. Large backups hold the host
 lifecycle lock and delay expiry checks. A controller crash can leave an owned

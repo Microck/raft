@@ -22,11 +22,11 @@ raft doctor
 - Compatibility of the installed expiry worker with the CLI
 - Active status of host systemd services (`incus`, `raft-expire.timer`, `raft-network.service`)
 - Host root filesystem disk usage (`df -h /`)
-- Status and usage of the shared `raft-data` Btrfs pool and the `raft-disks` LVM pool for own box disks
+- Status and usage of the shared `raft-data` Btrfs pool, and of the `raft-disks` LVM thin pool when own box disks are enabled (otherwise `own box disks: not enabled (redeploy with --disk-pool SIZE)`)
 - Count of existing saved containers
 
 <Callout type="info" title="Doctor scope">
-`raft doctor` reports runtime daemon, expiry-worker compatibility, and storage status. It does not validate image fingerprints, inspect nftables bridge rules, or emit 5 GiB low-disk warnings. It fails when `raft-disks` is missing; deploy the current checkout to create it.
+`raft doctor` reports runtime daemon, expiry-worker compatibility, and storage status. It does not validate image fingerprints, inspect nftables bridge rules, or emit 5 GiB low-disk warnings. A host without `raft-disks` is healthy: own box disks are opt-in.
 </Callout>
 
 ### Expiry worker differs from the CLI
@@ -128,11 +128,11 @@ request itself or from the host:
 #### "Requested N CPUs, but this host has M" or "Requested SIZE RAM, but this host has N GiB"
 The request is larger than the whole host. Ask for at most the host's CPUs and RAM; `raft capacity` shows both.
 
-#### "This location has no raft-disks pool for own box disks"
-The host was deployed before own box disks existed. Redeploy it with `python3 deploy/deploy.py --location <location>`, optionally with `--disk-pool SIZE`. Boxes without `--disk` keep working meanwhile.
+#### "LOCATION has no raft-disks pool, so own box disks are not enabled there"
+Own box disks are opt-in and this host was deployed without them. Nothing was created. Enable them with `python3 deploy/deploy.py --location <location> --disk-pool SIZE`, which needs SIZE plus 20 GiB free on the host, or create the box without `--disk`. Boxes without `--disk` keep working meanwhile.
 
-#### Volume group has insufficient free space
-An own disk takes its full size from `raft-disks` when created, and each snapshot takes the same again. Destroy unused own-disk boxes or snapshots, choose a smaller `--disk`, or use the shared pool. `raft capacity` shows the free space.
+#### "own box disks would need N GiB more of raft-disks"
+Each own disk, each snapshot of one, and the cached image reserve their full size in `raft-disks`, so Raft refused the request before creating anything. Destroy own-disk boxes or snapshots you no longer need, choose a smaller `--disk`, or use the shared pool. `raft capacity` shows the unreserved space. See [Reservation accounting](../reference/capacity.mdx#reservation-accounting).
 
 #### "No space left on device" inside an own-disk box
 The box filled its own disk. Delete files or Docker data inside the box, or snapshot it and create a larger copy with `raft new --from "$box/<snapshot>" --disk <larger size>`.

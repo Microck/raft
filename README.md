@@ -36,7 +36,7 @@ up hosts or download workspace images.
 
 | requirement | minimum |
 | --- | --- |
-| host | dedicated ARM64 or AMD64 Ubuntu host, 2 CPUs, 8 GiB RAM, 120 GiB free disk (80 GiB plus the default 40 GiB own-disk pool) |
+| host | dedicated ARM64 or AMD64 Ubuntu host, 2 CPUs, 8 GiB RAM, 80 GiB free disk, plus the pool size if you enable own box disks |
 | host access | SSH and passwordless sudo |
 | controller | Linux, Python 3.11.8+, SSH and SCP; npm or uv for installation |
 
@@ -65,8 +65,9 @@ disposable creation and retention cleanup require the current host worker;
 redeploy from the current checkout before using them.
 
 size boxes for the job: `--cpu`, `--memory` and `--disk` take any whole number
-up to the host. `--disk 20GiB` gives a box its own disk that it, and Docker
-inside it, cannot grow past. raft does not cap how many boxes you keep.
+up to the host. on hosts deployed with `--disk-pool SIZE`, `--disk 20GiB` gives a
+box its own disk that it, and Docker inside it, cannot grow past; forks and
+templates of it are copy-on-write. raft does not cap how many boxes you keep.
 `raft capacity` prints an advisory estimate of what fits; it never blocks a box.
 see [box sizing and capacity](docs/reference/capacity.mdx).
 
@@ -149,7 +150,7 @@ records differences, sources and test coverage.
 | Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides; disks keep their size |
 | CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft list/info/usage/capacity plus prune JSONL |
 | Snapshot file browsing/download | ✅ | ❌ | Whole-box backup only |
-| Strict per-box disk quotas | ✅ | ✅ | `new --disk SIZE` gives a box its own fixed-size disk; the default shared pool has none |
+| Strict per-box disk quotas | ✅ | ✅ | On hosts deployed with `--disk-pool`, `new --disk SIZE` gives a box its own fixed-size, copy-on-write disk; the default shared pool has none |
 | Separate-kernel VM isolation | ✅ | ❌ | Container runtime |
 | Named environments and managed secrets | ✅ | ❌ | Manual configuration |
 | Organizations and webhooks | ✅ | ❌ | Raft is single-operator; no event API |

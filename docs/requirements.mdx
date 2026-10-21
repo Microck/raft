@@ -17,7 +17,7 @@ Each workspace host must be a dedicated physical machine or virtual instance:
 | **Operating system** | Ubuntu 22.04 LTS or 24.04 LTS | The deployer installs Incus 6.0 LTS and nftables bridge isolation rules. |
 | **CPU** | At least 2 CPU cores | Capacity calculations reserve 1 CPU core for the host OS and services (an advisory estimate, not an enforced host reservation). |
 | **RAM** | At least 8 GiB | Sizing calculations reserve the larger of 2 GiB or 10% of host RAM (an advisory estimate, not an enforced host reservation). |
-| **Free disk** | At least 120 GiB on host disk | 80 GiB for the 60 GiB shared Btrfs pool (`raft-data`), images and the host, plus the `raft-disks` pool for own box disks: 40 GiB by default, set with `--disk-pool`. |
+| **Free disk** | At least 80 GiB on host disk | For the 60 GiB shared Btrfs pool (`raft-data`), images and the host. [Own box disks](./reference/capacity.mdx#own-box-disks) are optional: `--disk-pool SIZE` adds a `raft-disks` pool of SIZE, so a fresh host then needs 80 GiB plus SIZE, and an existing host SIZE plus 20 GiB. |
 
 `raft host add` checks these requirements read-only before it changes a host.
 

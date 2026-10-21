@@ -54,7 +54,7 @@ echo "Recovered workspace: $recovered"
 - **Architecture compatibility**: Target host must match the native CPU architecture (ARM64 to ARM64, AMD64 to AMD64). Cross-architecture recovery is not supported.
 - **Fresh network identity**: The container receives a new name in project `raft`, a new MAC address on `rfbr0`, and no inherited TTL deadline.
 - **Stopped initial state**: Recovered workspaces remain stopped until started with `raft resume "$recovered" --ttl <SECONDS>`.
-- **Disk placement**: A backup of a box with its own disk returns to an own disk of the same size in `raft-disks`, so the destination needs that much free pool space for the box and each of its snapshots. Other backups land in the shared pool.
+- **Disk placement**: A backup of a box with its own disk returns to an own disk of the same size in `raft-disks`. The destination needs own box disks enabled and enough unreserved pool space for the box and each of its snapshots; otherwise recovery fails before importing. Other backups land in the shared pool.
 - **Interrupted recovery**: Follow [Host crash during recovery](./troubleshooting.mdx#host-crash-during-recovery). Inspect the reported handle and container state before deleting any staging file.
 
 Start and verify the recovered workspace:

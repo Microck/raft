@@ -39,8 +39,8 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Desktop | ✅ | ✅ | On-demand noVNC, framebuffer, pointer and browser transport checks. See verification for desktop interaction coverage |
 | Browser-only streaming | ✅ | ❌ | Missing. Full desktop only; browser confinement deferred |
 | Network separation | ❓ | ✅ | Raft tests host/private/metadata and IPv4/IPv6 peer restrictions with startup-gated filtering. Boat's equivalent filtering policy is not established; its VM boundary is listed separately |
-| Bounded host storage pools | ❓ | ✅ | Raft configures a shared 60 GiB Btrfs pool and a fully allocated LVM pool for own box disks, and rejects size drift. Boat does not document an operator-managed host storage pool |
-| Strict per-box disk allocation | ✅ | ✅ | `new --disk SIZE` gives a box a fixed-size ext4 disk that guest and Docker writes cannot exceed. Shared-pool boxes, the default, have no per-box quota |
+| Bounded host storage pools | ❓ | ✅ | Raft configures a shared 60 GiB Btrfs pool and, when enabled, a fully allocated LVM thin pool for own box disks that it never overcommits, and rejects size drift. Boat does not document an operator-managed host storage pool |
+| Strict per-box disk allocation | ✅ | ✅ | On hosts with own box disks enabled, `new --disk SIZE` gives a box a fixed-size, copy-on-write ext4 disk that guest and Docker writes cannot exceed. Shared-pool boxes, the default, have no per-box quota |
 | VM kernel isolation | ✅ | ❌ | VM deployment not implemented |
 | Nested KVM / Android emulator acceleration | ✅ | ❌ | Boat documents KVM on standard hosts; overflow cloud VMs lack it. Raft has no guest KVM device or VM mode |
 | External guest SSH | ✅ | ❌ | Boat supports a public IP or an SSH endpoint; public IPv4 is not guaranteed. Raft uses host-mediated private access |

@@ -75,7 +75,7 @@ echo "Created fork: $copy"
 - **Instance-only copy**: Uses Incus `--instance-only`. Filesystem data, installed packages, and `/workspace` files are copied; source snapshots are not inherited.
 - **Immediate start**: `raft fork` launches the new container immediately with the specified TTL while the source remains stopped.
 - **Fresh network identity**: The fork receives a new container name, a fresh MAC address on `rfbr0`, and an independent IP address.
-- **Disk**: The fork keeps the source disk. A shared-pool source forks into the shared 60 GiB Btrfs pool instantly; an own-disk source forks into a new own disk of the same size, copied file by file.
+- **Disk**: The fork keeps the source disk. Both kinds fork in seconds as copy-on-write snapshots: a shared-pool source within the shared 60 GiB Btrfs pool, an own-disk source as a thin snapshot that reserves its full size in `raft-disks`.
 
 Destroy the clone when finished to release capacity:
 
@@ -89,7 +89,7 @@ raft destroy "$copy"
 copy=$(raft new --from "$box/pre-upgrade" --ttl 600)
 ```
 
-The source box can be running because Raft copies the saved snapshot. The new box stays on the same host, uses normal CPU and RAM defaults, keeps the snapshot's disk and has a fresh network identity. Filesystem secrets are copied too.
+The source box can be running because Raft copies the saved snapshot. The new box stays on the same host, keeps the snapshot's CPU, RAM and disk unless `--cpu`, `--memory` or `--disk` overrides them, and has a fresh network identity. Copies are copy-on-write snapshots, so starting many boxes from one prepared snapshot is fast; on own disks each copy still reserves its full size. Filesystem secrets are copied too.
 
 Add `--disk SIZE` to copy the snapshot onto an own disk of a new size, for example to give a full box more room:
 

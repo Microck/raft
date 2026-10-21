@@ -19,8 +19,8 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | Create/list/info/delete | Qualified handle, native state, ownership and cleanup |
 | Root terminal/exec | Real PTY, workspace directory, literal arguments and exit code |
 | Resource sizing | Effective CPU affinity and cgroup memory limit for free-form sizes, and refusal of CPU or RAM beyond the host |
-| Host capacity | Advisory notice, arbitrary sizes, no box count limit, example shapes, stopped/frozen boxes, low RAM/disk and a missing own-disk pool; live create/stop/resume/destroy changes in CPU/memory allocations |
-| Own box disks | Guest and Docker writes stop at the disk size without taking shared or own-disk pool space; too-small disks fail cleanly; fork, template, resized template, snapshot and backup/recover keep the disk |
+| Host capacity | Advisory notice, arbitrary sizes, no box count limit, example shapes, stopped/frozen boxes, low RAM/disk, hosts without own box disks and thin pool metadata warnings; live create/stop/resume/destroy changes in CPU/memory allocations |
+| Own box disks | Guest and Docker writes stop at the disk size without changing pool reservations or taking shared-pool space; too-small disks and requests beyond the unreserved pool space fail before leaving anything behind; new boxes, forks and templates are thin snapshots of their source, and a template copy writes under 1 GiB; each reserves exactly its size; fork, template, resized template, snapshot and backup/recover keep the disk; on a fresh host, own box disks are off until a redeploy with `--disk-pool` enables them |
 | Background jobs | Journal output, nonzero exit status, cancellation of child processes, inspection after cancellation or log rotation, and rejection of unknown job IDs |
 | TTL/extend/resume | Host-enforced stop, manual `gc`, retained files, uninterrupted lifetime extension and 30-day resume |
 | Usage | Real cgroup counters and shared-pool or own-disk scope |
@@ -88,7 +88,7 @@ The source-race fix also passed a real concurrent writer test that swaps files a
 Test commands require configured hosts and immutable image fingerprints. Suites destroy only the fixtures they create.
 
 Allocation and archive inspection:
-- `python3 deploy/verify-limits.py`: Checks advisory capacity policies without a host. Add `--location lab` to verify live create, stop, resume, and destroy reporting, oversized-request refusal, and own box disks (needs about 24 GiB free in `raft-disks`).
+- `python3 deploy/verify-limits.py`: Checks advisory capacity policies without a host. Add `--location lab` to verify live create, stop, resume, and destroy reporting, oversized-request refusal, and own box disks (needs a `raft-disks` pool with 42 GiB unreserved).
 - `python3 deploy/verify-image-tests.py`: Inspects archive structures, including symlinks, hardlinks, FIFOs, and credential detection.
 
 Live host suites (expand the check you need):
@@ -211,9 +211,9 @@ In the [release-validation run](https://github.com/Microck/raft/actions/runs/374
 
 The [release run](https://github.com/Microck/raft/actions/runs/37469540182) validated fresh-host setup on a disposable AMD64 KVM instance running Ubuntu 24. The test verified canonical deployment, repeat deployment, image import, and lifecycle execution.
 
-Following a VM reboot, changed kernel boot IDs and active services were verified alongside retained files, snapshots, container states, Docker, and bridge isolation. The host test now uses a sparse 160 GiB virtual disk and accessible KVM.
+Following a VM reboot, changed kernel boot IDs and active services were verified alongside retained files, snapshots, container states, Docker, and bridge isolation. The host test uses a sparse 100 GiB virtual disk and accessible KVM.
 
-It preserves the production deployer's free-disk check, now 120 GiB with the default own-disk pool, and checks that the pool's file is fully allocated, but does not prove physical storage capacity. ARM64 host reboot, host loss, and cross-architecture recovery remain unverified. The VM, SSH keys, and controller configuration were disposable; existing operator hosts were not rebooted or reconfigured.
+It preserves the production deployer's 80 GiB free-disk check, and after enabling own box disks by redeploy checks that the pool is thin, does not pass discards to its file and has that file fully allocated, but does not prove physical storage capacity. ARM64 host reboot, host loss, and cross-architecture recovery remain unverified. The VM, SSH keys, and controller configuration were disposable; existing operator hosts were not rebooted or reconfigured.
 
 </details>
 
