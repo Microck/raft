@@ -1,0 +1,179 @@
+---
+title: Defaults and note policies
+description: Set controller defaults for new boxes and require box note fields on a host.
+---
+
+# Defaults and note policies
+
+Raft has two kinds of settings:
+
+| Setting | Stored in | Applies to | Change with |
+| --- | --- | --- | --- |
+| Defaults for `new` | `~/.config/raft/config.json` on the controller | That controller only | `raft config set` and `raft config unset` |
+| Required box note fields | Incus project `raft` on each host | Every controller that uses the host | `raft policy` |
+
+`raft config` prints both: the effective defaults with their source, and each
+location's policy.
+
+```sh title="CONTROLLER: Inspect defaults and policies"
+raft config
+```
+
+```json title="Example output"
+{
+  "file": "/root/.config/raft/config.json",
+  "defaults": {
+    "location": {
+      "value": "lab",
+      "source": "config"
+    },
+    "ttl": {
+      "value": 3600,
+      "source": "config"
+    },
+    "cpu": {
+      "value": 1,
+      "source": "built-in"
+    },
+    "memory": {
+      "value": "2GiB",
+      "source": "built-in"
+    },
+    "disk": {
+      "value": "shared",
+      "source": "built-in"
+    }
+  },
+  "policy": {
+    "lab": {
+      "require": [
+        "purpose",
+        "owner"
+      ],
+      "changed": "2026-10-21T09:12:44Z by ubuntu from me@laptop"
+    }
+  }
+}
+```
+
+`raft config` contacts every configured host to read its policy. It fails and
+names the location when a host is unreachable.
+
+## Defaults for new
+
+Set a default for any of `location`, `ttl`, `cpu`, `memory` and `disk`:
+
+```sh title="CONTROLLER: Prefer bigger, longer boxes on paris"
+raft config set location paris
+raft config set ttl 3600
+raft config set cpu 4
+raft config set memory 16GiB
+raft config set disk 20GiB
+raft config unset cpu
+```
+
+Each command prints the old and new value. `raft new` takes an explicit flag
+first, then the configured default, then the built-in default (first configured
+location, 600 seconds, 1 CPU, 2 GiB, the shared pool). `resume`, `fork`,
+`extend` and `recover` take no defaults: their TTL and target are deliberate
+choices, and omitted sizes on resume and fork keep the source limits.
+
+Size defaults (`cpu`, `memory`, `disk`) apply only where the built-in sizes do:
+to boxes created from the image. A box from `new --from` keeps the snapshot's
+location, CPU, RAM and disk, and a fork keeps its source's, whatever
+`config.json` says. Only a flag changes them:
+
+| Command | CPU and RAM | Disk |
+| --- | --- | --- |
+| `new` | Flag, then config, then 1 CPU / 2 GiB | Flag, then config, then the shared pool |
+| `new --from` | Flag, then the snapshot's | `--disk SIZE`, then the snapshot's |
+| `fork` | Flag, then the source's | The source's |
+
+A `disk` default needs own box disks on the target host. On a location without
+the `raft-disks` pool, or with too little unreserved space, `raft new` fails with
+the same error as `--disk` and names the configured value as the cause:
+
+```text
+$ raft new --purpose "Run the tests"
+raft: lab has no raft-disks pool, so own box disks are not enabled there; nothing was created. Enable them with python3 deploy/deploy.py --location lab --disk-pool SIZE. The 20GiB own disk comes from defaults.disk in /root/.config/raft/config.json; give --disk shared or --disk SIZE, or run raft config unset disk
+```
+
+`--disk shared` puts one box on the shared pool despite a `disk` default. It is
+refused with `--from`, which keeps the snapshot's disk.
+
+The file accepts a value exactly when the same text is accepted as the flag.
+An unknown key, a bad value or malformed JSON makes `raft new` fail with the file
+path and the key; Raft never ignores part of the file. Repair a bad key with
+`raft config set KEY VALUE` or `raft config unset KEY`. Writes are atomic, keep
+mode `0600` and remove the file when no default remains.
+
+Scripts and CI jobs that need stable sizing should pass `--location`, `--ttl`,
+`--cpu`, `--memory` and `--disk` explicitly, because defaults differ between
+controllers.
+
+## Required box note fields
+
+A host policy makes every box on that host carry the listed [box note](../reference/cli.md#note)
+fields. `purpose` is always part of a note, so a policy must include it:
+
+```sh title="CONTROLLER: Require an owner on lab"
+raft policy lab --require purpose,owner
+raft policy lab --clear
+```
+
+With that policy, a command that would leave a box without an owner fails before
+it changes anything and says how to fix it:
+
+```text
+$ raft new --location lab --purpose "Run the tests"
+raft: location lab requires --owner (host policy). Add it: raft new --purpose "..." --owner "..." [--next "..."]
+```
+
+The policy covers every command that creates a box or changes its note:
+
+| Command | Note checked |
+| --- | --- |
+| `new`, including `new --from` | The note given to `new`; a snapshot's note is never inherited |
+| `fork` | The note given to `fork`, otherwise the source box's note |
+| `recover` | The note given to `recover`, otherwise the note in the archive |
+| `note BOX` | The new note; `--clear` is rejected while a policy requires fields |
+
+On `fork` and `recover`, `--purpose`, `--owner` and `--next` replace the whole
+note, like `raft note`. Give all the fields the copy needs; omitted fields are
+not taken from the source. `recover` without note flags can only check the
+archived note after import. When it fails, Raft deletes the imported box in the
+same locked step and reports the error. Pass the note to `recover` to fail before
+the upload instead.
+
+The controller checks the policy first, so the error arrives before any work.
+The host checks it again in the same locked transaction that writes the note,
+so a policy change cannot race a creation. That transaction checks the
+requested size against the host and reserves own-disk space first; any refusal
+comes before Incus creates the box.
+
+## Audit trail
+
+`raft policy` prints the change, for example
+`lab: required note fields none -> purpose,owner`. The host records the last
+change in the project key `user.raft.require.changed` (UTC time, the SSH account
+and the controller's self-reported user and hostname) and writes a `raft` entry
+to the host journal:
+
+```sh title="HOST: Review policy changes"
+sudo incus project get raft user.raft.require
+sudo incus project get raft user.raft.require.changed
+sudo journalctl -t raft
+```
+
+## Limits
+
+Note policies are a guardrail for agents, not a security boundary:
+
+- Anyone with SSH and sudo on the host can change or remove the policy, or create
+  boxes with native `incus` commands that skip it.
+- Controllers older than the release that added policies do not check them.
+  Upgrade every controller that uses a host before relying on its policy.
+- The controller identity in `user.raft.require.changed` is reported by the
+  controller and is not verified. The SSH account comes from `sudo`.
+- Raft checks that required fields are present and nonempty, not that their text
+  is accurate.

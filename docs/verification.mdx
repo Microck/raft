@@ -58,7 +58,7 @@ The [final runtime validation](https://github.com/Microck/raft/actions/runs/3754
 
 ## New workspace controls
 
-`python3 deploy/verify-features.py --location lab` verifies `doctor` readiness against the installed worker, recursive trees and unsafe-archive rejection, templates from a running source, snapshot deletion, CPU/RAM overrides, disposable timer deletion, and retention preview/apply. It uses only its own fixtures. Run the archive checks without `--location` to avoid allocating boxes.
+`python3 deploy/verify-features.py --location lab` verifies `doctor` readiness against the installed worker, recursive trees and unsafe-archive rejection, templates from a running source, snapshot deletion, CPU/RAM overrides, disposable timer deletion, retention preview/apply, and host note policies for `new`, `fork`, `note` and `recover` (it sets a policy on the host and clears it at the end). It uses only its own fixtures. Run the archive, controller-default and policy-message checks without `--location` to avoid allocating boxes.
 
 The live suite also holds a controller stdin pipe open while running real remote
 readers through both captured and streamed lifecycle transactions. Both must
@@ -137,6 +137,8 @@ python3 deploy/verify-controls.py --source lab --target second-host --directory 
 ```
 
 </details>
+
+Recovery verification also sets a note policy on the target, proves that a backup without the required note is rejected and its imported box removed, recovers it with a note, then clears the policy.
 
 `verify-tools.py <qualified-box>` executes 31 tool checks as the unprivileged `developer` user inside a running workspace. It compiles and runs code across installed runtimes and package managers without external agent authentication.
 

@@ -71,6 +71,13 @@ templates of it are copy-on-write. raft does not cap how many boxes you keep.
 `raft capacity` prints an advisory estimate of what fits; it never blocks a box.
 see [box sizing and capacity](docs/reference/capacity.mdx).
 
+`raft config set` stores your defaults for `new`, such as location, TTL and
+size. size defaults apply only to boxes from the image: `new --from` and `fork`
+keep the source's size. `raft policy lab --require purpose,owner` makes the host
+reject boxes whose note lacks those fields, with an error that names the missing
+flags. it is a guardrail for agents: anyone with sudo on the host can change it.
+see [defaults and note policies](docs/guides/config-policy.mdx).
+
 ## image and workspace control
 
 the image builder starts with Debian 13 and installs language runtimes,
