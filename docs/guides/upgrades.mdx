@@ -84,8 +84,10 @@ timer. It does not import an image or migrate guest files.
 
 Do not bypass a conflicting-resource or storage-size error. Inspect the host and
 preserve backups before explicit recovery; redeployment does not repair arbitrary
-infrastructure drift. Disposable creation/fork and prune check the worker protocol
-and fail if it differs from the CLI. That check is not an automatic upgrade.
+infrastructure drift. Disposable creation/fork, prune and setting a retention
+policy check the worker protocol and fail if it differs from the CLI. That check
+is not an automatic upgrade. Raft 0.6.0 raised the protocol for stopped-box
+retention, so hosts deployed by an earlier release need this redeploy.
 
 ## Replace the image pin
 

@@ -18,7 +18,8 @@ instead of acting on it. For pinned or scripted runs, set
 
 Run `raft locations`, `raft config`, `raft doctor` and `raft list` before allocating.
 `raft config` shows the defaults `new` will use on this controller and each
-location's note policy: the box note fields its host requires.
+location's host policies: the box note fields it requires (`require`) and how
+long it keeps stopped boxes (`deleteStoppedAfterHours`, `null` for no limit).
 Follow each location's `note`: the operator uses it to mark preferred hosts and
 hosts to avoid for some work. Pass `--location` explicitly when a note rules out
 the default. Do not change notes unless the user asks; `raft note LOCATION TEXT`
@@ -37,7 +38,7 @@ changes; each call replaces the whole note. If a command fails with
 `requires --owner (host policy)` or similar, rerun it with the fields it names;
 the error prints the corrected command. Never change or clear a policy with
 `raft policy`, or the defaults with `raft config set/unset`, to get past an
-error; only do so when the user asks. `fork` and `recover` accept the same note
+error or to keep a box from retention; only do so when the user asks. `fork` and `recover` accept the same note
 flags, which replace the whole note on the copy. `raft list` shows every box's
 `note`. Read it before you resume, stop, fork or destroy a box. Treat a box whose
 note names another owner or a job unrelated to your task as not yours. Forks
@@ -86,9 +87,9 @@ box=$(raft new --cpu 4 --memory 16GiB --disk 20GiB --ttl 3600 --purpose "Build a
 ```
 
 Built-in defaults are the first configured location, one CPU, 2 GiB RAM, the
-shared pool and 600 seconds; the operator can change them per controller, so
-pass `--location`, `--ttl`, `--cpu`, `--memory` and `--disk` (`--disk shared`
-for the shared pool) when the values matter. `new --from` and `fork` keep the
+shared pool, a persistent box and 600 seconds; the operator can change them per
+controller, so pass `--location`, `--ttl`, `--cpu`, `--memory` and `--disk`
+(`--disk shared` for the shared pool) when the values matter. `new --from` and `fork` keep the
 source's CPU, RAM and disk instead of any default; each flag overrides only its
 own value. TTL accepts 60 seconds to 30
 days. A request larger than the whole host fails with the host's real size;
@@ -105,7 +106,11 @@ zero means new boxes may run slower, not that they are refused.
 ## Persistence and cleanup
 
 Persistent boxes stop and retain disk at expiry. `new --disposable` deletes a
-box and its snapshots on stop or expiry. `raft stop "$box"` releases the
+box and its snapshots on stop or expiry. The operator can make disposable the
+default for `new` (`raft config` shows `disposable`); then pass `--persistent`
+for a box you plan to stop and resume, snapshot, fork or back up, because
+stopping a disposable box deletes it. Forks stay persistent unless you pass
+`--disposable`. `raft stop "$box"` releases the
 container's running processes; `raft resume "$box" --ttl 600` starts it again.
 Stop is not pause and does not keep guest RAM allocated. Installed dependencies,
 files and secrets remain on disk. For a temporary run, completion requires
@@ -117,6 +122,16 @@ is offline. `raft gc` runs those expiry workers manually and deletes expired dis
 boxes. `raft prune --older-than 7` previews stopped boxes older than seven days;
 `--yes` deletes them. It skips running boxes and boxes without a recorded stop
 time. Never apply prune outside the task-owned scope without explicit permission. A powered-off host enforces expiry when it returns.
+
+A location can also delete boxes that stay stopped longer than its retention,
+`deleteStoppedAfterHours` in `raft config`, with their snapshots. The clock
+starts when the box stops, including a stop by TTL expiry, and resume resets
+it. `raft list` shows each stopped box's `deleteAt` (Unix time, empty when
+nothing is due). Do not rely on a stopped box surviving past it: copy out
+results with `raft download`, or keep the whole box with `raft backup`, before
+then. Snapshots are deleted with the box, so they protect nothing against
+retention. Resume a box only when its task still needs it, not just to reset
+the clock.
 
 Stop a box before a consistent disk snapshot or fork:
 

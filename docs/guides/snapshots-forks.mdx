@@ -110,4 +110,4 @@ copy=$(raft fork "$box" --ttl 600 --cpu 2 --memory 4GiB)
 raft resume "$box" --ttl 600 --memory 2GiB
 ```
 
-Omitted CPU and RAM values keep the source limits; the disk never changes on fork or resume. Forks are persistent by default; add `--disposable` to delete a clone when it stops or expires.
+Omitted CPU and RAM values keep the source limits; the disk never changes on fork or resume. Forks are persistent by default, even when `raft config` sets `disposable true`; add `--disposable` to delete a clone when it stops or expires.

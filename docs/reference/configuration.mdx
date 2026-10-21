@@ -80,7 +80,8 @@ controller and is separate from the location inventory:
     "ttl": 3600,
     "cpu": 2,
     "memory": "4GiB",
-    "disk": "20GiB"
+    "disk": "20GiB",
+    "disposable": true
   }
 }
 ```
@@ -92,15 +93,18 @@ controller and is separate from the location inventory:
 | `cpu` | A positive whole number | `1` |
 | `memory` | Whole GiB, e.g. `16GiB` | `2GiB` |
 | `disk` | Whole GiB for an own box disk, or `shared` | `shared` |
+| `disposable` | `true` or `false` | `false` (persistent) |
 
-Explicit flags win over these values. `cpu`, `memory` and `disk` size only boxes
-created from the image: `new --from` and `fork` keep the source's size unless a
-flag overrides it. A `disk` default needs the `raft-disks` pool on the target
+Explicit flags win over these values; `--persistent` overrides `disposable`.
+`cpu`, `memory` and `disk` size only boxes created from the image: `new --from`
+and `fork` keep the source's size unless a flag overrides it. `disposable`
+applies to `new` and `new --from`, never to `fork`. A `disk` default needs the `raft-disks` pool on the target
 host, like `--disk`. Unknown keys and invalid values make
 `raft new` fail with the file path and key. Edit the file with
 `raft config set KEY VALUE` and `raft config unset KEY`, and inspect it with
-`raft config`. Required box note fields are a host policy, not part of this
-file; see [Defaults and note policies](../guides/config-policy.mdx).
+`raft config`. Required box note fields and stopped-box retention are host
+policies, not part of this file; see
+[Defaults and host policies](../guides/config-policy.mdx).
 
 ## SSH configuration and connection behavior
 

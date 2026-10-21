@@ -24,13 +24,19 @@ Raft has no option to disable automatic expiry.
 | `resume --ttl SECONDS` | Starts the saved box with a new deadline | Only possible while the box still exists |
 | `destroy` | Deletes the box and snapshots | Deletes the box and snapshots |
 
-Use `raft new --disposable` for temporary work. A fork is persistent unless
+Use `raft new --disposable` for temporary work, or
+`raft config set disposable true` to make it the default on this controller;
+`raft new --persistent` then keeps one box. A fork is persistent unless
 `--disposable` is explicitly supplied; recovered boxes are persistent.
 Back up work before stopping a disposable box.
 
 Persistent stopped boxes still occupy storage. Raft does not cap how many boxes
 a host keeps. `raft prune --older-than 7` previews old stopped boxes;
-`--yes` applies deletion. There is no automatic persistent-box retention cleanup.
+`--yes` applies deletion. To delete them automatically, set a host retention
+policy: with `raft policy lab --delete-stopped-after 48`, the host deletes any
+box left stopped for 48 hours, and `raft list` shows each one's `deleteAt`.
+Resuming a box resets its clock. See
+[Defaults and host policies](./config-policy.mdx#delete-boxes-left-stopped).
 
 ## Read and reset the deadline
 
