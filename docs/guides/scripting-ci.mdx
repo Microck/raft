@@ -48,7 +48,9 @@ raft prune --location lab --older-than 7 | jq -r '.box'
 
 Do not redirect `2>&1` into machine-readable output. Recovery reports its allocated
 handle on stderr before import finishes; only a successful completion prints the
-final handle on stdout.
+final handle on stdout. Once a day Raft may also print a release notice on
+stderr. Set `RAFT_NO_UPDATE_CHECK=1` in jobs that pin a CLI version or compare
+stderr.
 
 ## Exit codes and job results
 
@@ -58,6 +60,7 @@ final handle on stdout.
 | Synchronous `exec` | Transport/command return code; preserves payload exit status when transport succeeds |
 | Recognized runtime/configuration failure | `1`, with `raft: ...` on stderr |
 | Argument parsing failure | `2`, with argparse diagnostics on stderr |
+| `self-update --check` finds a newer release | `100` |
 | Caught keyboard interruption | `130` |
 
 SSH transport failures may return SSH's status rather than the payload's result.
