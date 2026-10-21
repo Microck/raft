@@ -337,7 +337,8 @@ def host_add(args):
             f"Verify the host key interactively, then check `ssh -o BatchMode=yes {args.ssh} true`"
         )
     facts = dict(line.split("=", 1) for line in probe.stdout.splitlines() if "=" in line)
-    problems = host_problems(facts, args.disk_pool or DEFAULT_DISK_POOL)
+    disk_pool = args.disk_pool or DEFAULT_DISK_POOL
+    problems = host_problems(facts, disk_pool)
     if problems:
         raise ValueError(
             f"{args.ssh} cannot host Raft boxes; nothing was changed:\n- " + "\n- ".join(problems)
@@ -349,7 +350,6 @@ def host_add(args):
         image = f"upload and import {archive}"
     else:
         image = f"download raft-dev-{architecture}.tar.gz from release {args.image_release} and import it"
-    disk_pool = args.disk_pool or DEFAULT_DISK_POOL
     print(
         f"Plan for {args.location} ({args.ssh}: Ubuntu {facts['version']} {architecture}, "
         f"{facts['cpus']} CPUs, {int(facts['memory']) * 1024 / GIB:.1f} GiB RAM)\n"
