@@ -71,8 +71,12 @@ def enforce(box, policy, now):
         run("config", "unset", name, "user.raft.expires")
         print(f"Stopped expired box {name}; disk retained", flush=True)
         return
-    # Retention never touches a running box.
+    # Retention never touches a running box. A native incus start keeps the old
+    # stop time, so clear it here and the next stop starts a fresh clock. A start
+    # and stop between two worker runs still goes unnoticed.
     if box["status"] != "Stopped":
+        if box["status"] == "Running" and config.get("user.raft.stopped-at"):
+            run("config", "unset", name, "user.raft.stopped-at")
         return
     stopped_at = config.get("user.raft.stopped-at")
     if not stopped_at:

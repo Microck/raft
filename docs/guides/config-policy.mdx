@@ -240,9 +240,10 @@ Host policies are a guardrail for agents, not a security boundary:
 
 - Anyone with SSH and sudo on the host can change or remove a policy, or create
   boxes with native `incus` commands that skip the note policy.
-- Retention trusts `user.raft.stopped-at`. A box started with native
-  `incus start` keeps its old stop time; stopped again, it can be deleted on the
-  next worker run. Use `raft resume`, which clears the stop time.
+- Retention trusts `user.raft.stopped-at`. The worker clears it when it sees a
+  box running, but a native `incus start` and stop between two worker runs (15
+  seconds apart) keeps the old stop time, so the box can be deleted on the next
+  run. Use `raft resume`, which clears the stop time.
 - Controllers older than the release that added note policies do not check
   them. Upgrade every controller that uses a host before relying on one. The
   host worker enforces retention whatever the controller version.
