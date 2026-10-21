@@ -25,7 +25,7 @@ import uuid
 
 import raft_files
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 # Controller defaults for new live apart from the location inventory, so location
