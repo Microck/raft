@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -271,16 +272,18 @@ def disk_checks(location):
         live.execute(box, "rm", "/workspace/fill")
 
         # Docker layers live inside the same filesystem, so a container hits the same cap.
-        # Docker keeps its own state on that filesystem too, so once it is full the
-        # client may report a daemon error instead of dd's ENOSPC. The cap is proven
-        # from outside instead: the guest filesystem is full and has not grown.
+        # Docker keeps its own state on that filesystem too: once it is full the daemon
+        # can drop the client connection while dd still runs, so the container runs
+        # detached and the cap is proven from outside. The guest filesystem fills up
+        # and never grows past its size.
         live.execute(box, "docker", "pull", "-q", "alpine:3.22")
-        docker = live.raft(
-            "exec",
+        live.execute(
             box,
-            "--",
             "docker",
             "run",
+            "--detach",
+            "--log-driver",
+            "none",
             "--name",
             "raft-fill",
             "alpine:3.22",
@@ -288,13 +291,12 @@ def disk_checks(location):
             "if=/dev/zero",
             "of=/fill",
             "bs=1M",
-            check=False,
         )
-        assert docker.returncode != 0, docker
-        assert disk_size(box)[0] == total and disk_size(box)[1] < 64 * 1024**2, (
-            docker,
-            disk_size(box),
-        )
+        deadline = time.monotonic() + 300
+        while disk_size(box)[1] >= 64 * 1024**2:
+            assert time.monotonic() < deadline, disk_size(box)
+            time.sleep(2)
+        assert disk_size(box)[0] == total, disk_size(box)
         # Removing the container frees the space; restart Docker in case it lost state.
         live.raft("exec", box, "--", "docker", "rm", "-f", "raft-fill", check=False)
         live.execute(box, "systemctl", "restart", "docker")
