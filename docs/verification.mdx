@@ -34,7 +34,7 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | Development image | Real developer-user tool checks, immutable selection and credential-path archive rejection |
 | Deployment/firewall | Repeat deployment removes stale rules without restarting Incus; failed filtering blocks normal and socket startup; boot timestamps prove filtering precedes Incus |
 | Storage contract | Disposable oversized pool is rejected without automatic resizing |
-| CLI options and errors | Help for all 33 commands and `host add`; default location, TTL and desktop port; all eight sizing profiles; global and per-location reports; invalid TTLs, sizes, required arguments, handles, paths, snapshot names, jobs and ports |
+| CLI options and errors | Help for all 34 commands and `host add`; default location, TTL and desktop port; all eight sizing profiles; global and per-location reports; invalid TTLs, sizes, required arguments, handles, paths, snapshot names, jobs and ports |
 
 ## Command and option audit (2026-10-06)
 
@@ -90,6 +90,7 @@ Test commands require configured hosts and immutable image fingerprints. Suites 
 Allocation and archive inspection:
 - `python3 deploy/verify-limits.py`: Checks advisory capacity policies without a host. Add `--location lab` to verify live create, stop, resume, and destroy reporting, oversized-request refusal, and own box disks (needs a `raft-disks` pool with 42 GiB unreserved).
 - `python3 deploy/verify-image-tests.py`: Inspects archive structures, including symlinks, hardlinks, FIFOs, and credential detection.
+- `python3 deploy/verify-self-update.py`: Upgrades real npm and uv installs in temporary directories from a local release server and npm registry. Checks SHA256SUMS refusals, install-channel detection, version comparison and the passive notice. Needs npm and uv, but no network or host.
 
 Live host suites (expand the check you need):
 

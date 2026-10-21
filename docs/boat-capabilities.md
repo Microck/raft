@@ -52,7 +52,8 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | SDK/API keys | ✅ | ❌ | Host SSH authentication. No remote Raft service API |
 | CLI-wide JSON mode | ✅ | ❌ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides JSON for list/info/usage/capacity and JSONL for prune |
 | Snapshot file browsing/download | ✅ | ❌ | Full native archives only; no Raft snapshot tree or selected-file interface |
-| CLI self-update/completions | ✅ | ❌ | Standard npm or Python package installation/help. No CLI update command or dynamic shell completions |
+| CLI self-update | ✅ | ✅ | `raft self-update` upgrades npm global installs through the registry and uv tools from a release wheel checked against `SHA256SUMS`. A daily stderr notice reports new releases. Boat also updates itself after commands; Raft never installs without the command and never changes hosts |
+| Dynamic shell completions | ✅ | ❌ | Static `--help` only |
 | Managed agents | ✅ | ❌ | Not implemented. No prompt/events/steer/interrupt/conversation API |
 
 ## Reference check

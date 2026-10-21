@@ -11,6 +11,11 @@ The current deployment does not implement Incus VMs. Do not describe these boxes
 `raft host add` installs packages and services on a machine. Run it only when the
 user explicitly asks to onboard that host, and show its `--dry-run` plan first.
 
+Do not run `raft self-update` unless the user asks; an update in the middle of a
+task changes the CLI under it. Report a `raft X is available` stderr notice
+instead of acting on it. For pinned or scripted runs, set
+`RAFT_NO_UPDATE_CHECK=1` to suppress the notice.
+
 Run `raft locations`, `raft config`, `raft doctor` and `raft list` before allocating.
 `raft config` shows the defaults `new` will use on this controller and each
 location's note policy: the box note fields its host requires.
