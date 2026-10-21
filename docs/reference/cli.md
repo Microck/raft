@@ -14,6 +14,12 @@ Syntax:
 and `raft --version` prints the installed version without loading configuration.
 Output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
 
+At most once a day, after a command finishes, Raft checks GitHub for a newer
+release and prints one line on stderr, such as
+`raft 0.5.0 is available (you have 0.4.0). Run: raft self-update`. It never
+installs anything or changes stdout, and network failures stay silent. See
+[`self-update`](#self-update) to turn it off.
+
 Workspaces are referenced by location-qualified handles formatted as `<location>:<instance-name>` (for example `lab:rf-a1b2c3d4e5f60718`).
 
 ## Command index
@@ -29,6 +35,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Backup and recovery | [`backup`](#backup), [`recover`](#recover) |
 | Locations | [`host add`](#host-add), [`locations`](#locations), [`note`](#note) |
 | Host inspection and maintenance | [`capacity`](#capacity), [`doctor`](#doctor), [`list`](#list), [`gc`](#gc), [`prune`](#prune) |
+| CLI maintenance | [`self-update`](#self-update) |
 
 ## Workspace lifecycle commands
 
@@ -375,3 +382,39 @@ Preview deletion of persistent stopped boxes older than the selected number of d
 Days must be at least one. Without `--yes`, this only prints JSONL candidates. With `--yes`, it deletes matching boxes and their snapshots under the host lock. Running boxes and boxes without a recorded stop time are excluded. Stop timestamps come from Raft stop/expiry, not box creation. No automatic retention policy is enabled.
 
 Disposable creation/fork and prune require the current expiry worker installed through the deployer. A mismatch fails with deployment guidance; the CLI does not install or adapt an older worker.
+
+## CLI maintenance commands
+
+### `self-update`
+
+Upgrade the installed CLI to the latest GitHub release, or to a chosen one.
+
+`raft self-update [--check | --version X.Y.Z]`
+
+- `--check`: Report whether a newer release exists without installing it. Exits `0` when the CLI is current and `100` when an update is available.
+- `--version X.Y.Z`: Install this release instead of the latest, for example to roll back. Without it, `self-update` never downgrades.
+
+The latest release on GitHub decides what is current. `self-update` installs
+through the channel that installed the running copy and never switches channel:
+
+| Installed with | Detected by | Upgrade | Integrity |
+| --- | --- | --- | --- |
+| `npm install -g @microck/raft` | `PREFIX/lib/node_modules/@microck/raft`, linked from `PREFIX/bin/raft` | `npm install --global --prefix PREFIX @microck/raft@X.Y.Z` | npm checks the registry integrity hash; Raft publishes with npm provenance |
+| `uv tool install` of a release wheel | A uv tool environment named `raft` | Downloads the wheel and `SHA256SUMS` from the release, then `uv tool install --force` | Refuses a wheel whose SHA-256 differs from the release `SHA256SUMS` |
+
+Source checkouts, editable installs, pip and other layouts are refused with
+instructions. For a uv tool, `uv tool dir` must still name the original tool
+directory; set `UV_TOOL_DIR` if it moved.
+
+`self-update` prints `raft OLD -> NEW` and the release notes link. A current CLI
+is a no-op. Hosts are not changed: run [`doctor`](#doctor) next. If a host's
+worker differs from the new CLI, redeploy that host from the same release; see
+[Upgrades and image changes](../guides/upgrades.mdx). After an update,
+[`host add`](#host-add) downloads the new release's image by default. Existing
+image pins stay unchanged.
+
+Set `RAFT_NO_UPDATE_CHECK=1` to turn off the daily release notice, for example in
+pinned or scripted runs. The notice caches its last result in
+`$XDG_CACHE_HOME/raft/update.json` (default `~/.cache/raft/update.json`). It
+waits at most 2 seconds for GitHub and is skipped for `self-update` and
+`--version`.

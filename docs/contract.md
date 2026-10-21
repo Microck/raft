@@ -17,6 +17,8 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 - npm publishes `@microck/raft` with the same Python sources as the wheel and source archive. Its executable is `raft`; Linux and Python 3.11.8+ are required. Installation runs no scripts and downloads no workspace images.
 - `raft --version` reports the release version without reading host configuration. The Python package, npm metadata and release tag must agree before publication.
 - Releases include Python wheels, source archives, npm tarballs and both native images with checksums. The release workflow verifies installation outside the checkout and publishes npm with provenance before creating the GitHub release.
+- **Self-update**: `raft self-update [--check | --version X.Y.Z]` takes the latest version from the GitHub releases API and compares versions numerically. It upgrades only npm global installs (through the registry, at the same prefix) and uv tools (a release wheel verified against the release `SHA256SUMS`), and refuses checkouts and other layouts. It never downgrades without `--version`, never changes hosts, and prints `raft doctor` as the next step. `--check` exits `100` when a newer release exists.
+- **Release notice**: At most once per 24 hours a command checks the latest release in the background and, if it is newer, prints one stderr line after the command. It never installs, prompts, changes stdout or exit status, or waits more than 2 seconds; failures stay silent. `RAFT_NO_UPDATE_CHECK=1` disables it, and `self-update` and `--version` skip it.
 
 ## Infrastructure and deployment
 

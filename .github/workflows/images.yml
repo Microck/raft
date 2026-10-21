@@ -15,6 +15,9 @@ on:
         type: string
 permissions:
   contents: read
+# Real-host suites compare CLI stderr, so no release notice may join it.
+env:
+  RAFT_NO_UPDATE_CHECK: '1'
 jobs:
   image:
     strategy:

@@ -10,7 +10,7 @@ parts of Raft. Updating one does not automatically update the others.
 
 | Component | Update method | Effect on existing boxes |
 | --- | --- | --- |
-| Controller CLI | Install the chosen npm or Python release | Changes controller commands; does not rewrite guest files |
+| Controller CLI | `raft self-update`, or install the chosen npm or Python release | Changes controller commands; does not rewrite guest files |
 | Host worker and firewall | Run the chosen release's deployer per host | Replaces host policy code and reapplies filtering |
 | Pinned development image | Import an image and change the configuration fingerprint | Used for future image-based `new`; existing boxes keep their files |
 
@@ -33,7 +33,14 @@ stopping one. Schedule redeployment when interruptions are acceptable.
 
 ## Update the controller
 
-For an npm installation:
+`raft self-update` installs the latest release through the channel that
+installed the CLI, and `raft self-update --version 0.2.0` installs a chosen
+one. `raft self-update --check` only reports. For npm installs, npm checks the
+registry integrity hash of a package published with provenance. For uv tools,
+Raft downloads the release wheel and refuses it unless its SHA-256 matches the
+release `SHA256SUMS`. See [`self-update`](../reference/cli.md#self-update).
+
+To install a release by hand instead, for an npm installation:
 
 ```sh title="CONTROLLER: Install a pinned CLI release"
 npm install -g @microck/raft@0.2.0
@@ -54,7 +61,10 @@ and check which executable your shell uses with `command -v raft`.
 
 For an editable source installation, updating the checkout changes the installed
 tool's source. Keep uncommitted work separate and run `uv sync --locked` for the
-chosen checkout. Raft has no `self-update` command.
+chosen checkout. `self-update` refuses source checkouts.
+
+Updating the CLI changes no host. Continue below, and run `raft doctor` first: it
+reports each host whose worker differs from the new CLI.
 
 ## Redeploy each host
 
