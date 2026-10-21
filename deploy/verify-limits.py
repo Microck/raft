@@ -271,13 +271,18 @@ def disk_checks(location):
         live.execute(box, "rm", "/workspace/fill")
 
         # Docker layers live inside the same filesystem, so a container hits the same cap.
+        # Docker keeps its own state on that filesystem too, so once it is full the
+        # client may report a daemon error instead of dd's ENOSPC. The cap is proven
+        # from outside instead: the guest filesystem is full and has not grown.
+        live.execute(box, "docker", "pull", "-q", "alpine:3.22")
         docker = live.raft(
             "exec",
             box,
             "--",
             "docker",
             "run",
-            "--rm",
+            "--name",
+            "raft-fill",
             "alpine:3.22",
             "dd",
             "if=/dev/zero",
@@ -286,8 +291,15 @@ def disk_checks(location):
             check=False,
         )
         assert docker.returncode != 0, docker
-        assert "No space left" in docker.stdout + docker.stderr, docker
-        assert disk_size(box)[0] == total
+        assert disk_size(box)[0] == total and disk_size(box)[1] < 64 * 1024**2, (
+            docker,
+            disk_size(box),
+        )
+        # Removing the container frees the space; restart Docker in case it lost state.
+        live.raft("exec", box, "--", "docker", "rm", "-f", "raft-fill", check=False)
+        live.execute(box, "systemctl", "restart", "docker")
+        live.raft("exec", box, "--", "docker", "rm", "-f", "raft-fill", check=False)
+        assert disk_size(box)[1] > GIB, disk_size(box)
         assert own_pool(location)["reservedBytes"] == created["reservedBytes"]
         print(f"{location}: {size} own disk capped guest and Docker writes", flush=True)
 
