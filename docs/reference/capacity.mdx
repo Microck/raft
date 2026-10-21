@@ -1,0 +1,151 @@
+---
+title: Box sizing and capacity
+description: Size boxes for the task, give them their own disks, and read the advisory host capacity estimate.
+---
+
+# Box sizing and capacity
+
+<Callout type="info" title="Advisory estimate only">
+Raft enforces no box count or size budget. Create the boxes your task needs, sized for the work. `raft capacity` is planning advice, never a reason to skip a box.
+</Callout>
+
+## Sizing a box
+
+Choose CPU, RAM and disk when you run `raft new`:
+
+- `--cpu N`: any whole number of CPUs, from `1` up to the host's CPU count (default: `1`). Boxes share host CPUs, so a limit is a ceiling, not a reservation.
+- `--memory SIZE`: any whole number of GiB, such as `3GiB` or `32GiB`, up to the host's RAM (default: `2GiB`). This is the box's cgroup memory limit.
+- `--disk SIZE`: give the box its own disk instead of the shared pool. See [Own box disks](#own-box-disks).
+
+```sh
+box=$(raft new --cpu 4 --memory 16GiB --disk 40GiB --ttl 3600 --purpose "Large build")
+```
+
+A CPU or RAM request larger than the whole host fails before anything is
+created, because Incus would accept it and quietly give the box less:
+
+```text
+Requested 64 CPUs, but this host has 8
+```
+
+Change CPU and RAM when you resume a stopped box or fork one:
+
+```sh
+raft resume "$box" --ttl 1800 --cpu 2 --memory 4GiB
+copy=$(raft fork "$box" --ttl 1800 --memory 2GiB)
+```
+
+Resume requires a stopped box; fork requires a stopped source. Omitted values
+stay unchanged on resume and inherit the source limits on fork. Live resizing is
+not exposed by the CLI. See [Snapshots and forks](../guides/snapshots-forks.mdx).
+
+## Own box disks
+
+By default every box stores its files in the shared 60 GiB Btrfs pool
+`raft-data`. Boxes there grow until the pool is full, and Btrfs quotas cannot
+hold them back: Docker and other tools create nested subvolumes that escape
+Btrfs quotas.
+
+`raft new --disk SIZE` gives the box its own disk instead: a fixed-size LVM
+logical volume with an ext4 filesystem in the `raft-disks` pool. Everything the
+box writes, including Docker images, layers and container files, lands in that
+filesystem, so the box gets "No space left on device" at SIZE and cannot touch
+other boxes' space. The space is set aside when the box is created, so other
+boxes cannot take it either.
+
+- **Size**: whole GiB, such as `20GiB`. The development image holds about 5 GiB of files, so give boxes at least `8GiB`; a disk too small for the image fails at creation and leaves nothing behind. ext4 keeps a little of the volume for itself, so `df` shows slightly less than SIZE.
+- **Pool space**: an own disk takes its full size from `raft-disks` when created, and each snapshot of it takes the same size again. Creation fails with the Incus error when the pool has too little free space. `raft capacity` shows what is free.
+- **Speed**: creating an own-disk box unpacks the image into its disk, and forks and templates copy files, so they take longer than shared-pool boxes, which clone instantly.
+- **Forks, templates and backups**: `fork` and `new --from` keep the source disk, shared or own, with the same size. `new --from BOX/SNAPSHOT --disk SIZE` copies a snapshot onto an own disk of a new size. `recover` puts an own-disk backup back onto an own disk of the same size. Resume never changes the disk.
+- **Inspection**: `raft list` reports `disk` as `"shared"` or the size; `raft info` shows it in `expanded_devices.root`; `raft usage` reports the filesystem's space with a `filesystemScope` of `own SIZE box disk`.
+
+### The `raft-disks` pool
+
+Deployment creates `raft-disks` beside `raft-data`: a loop-backed LVM pool with
+thick volumes (`lvm.use_thinpool=false`). Its size defaults to 40 GiB and is set
+with `raft host add --disk-pool SIZE` or `python3 deploy/deploy.py --disk-pool SIZE`
+when the pool is created. The deployer then allocates the pool's file on the
+host disk in full, so every own disk is backed by real host space, and a fresh
+host needs 80 GiB plus the pool size free (120 GiB by default).
+
+Thick volumes are deliberate. A thin pool would let disks promise more space
+than the pool holds, and when a thin pool fills up every box in it fails at
+once. Thick volumes fail only at creation, with a clear message.
+
+Existing hosts get the pool on their next deploy. Redeploying never resizes it:
+an explicit `--disk-pool` that differs from the existing size is refused. To
+change the size, back up the own-disk boxes, delete them, remove the pool
+explicitly with Incus and redeploy.
+
+## Inspecting capacity with `raft capacity`
+
+```sh title="CONTROLLER: View the advisory capacity estimate"
+raft capacity
+
+# Output JSON for programmatic inspection
+raft capacity --location lab --json
+```
+
+```text
+Advisory estimate only. Raft enforces no box count or size budget; create the boxes your task needs.
+lab: 8 CPUs, 31.3 GiB RAM (27.9 GiB available)
+Boxes: 3 saved, 2 active
+Allocated to active boxes: 3 CPUs, 6.0 GiB; host reserve: 1 CPU, 3.1 GiB; headroom: 4 CPUs, 22.2 GiB
+Disk free: 41.5 of 60.0 GiB shared pool, 20.0 of 40.0 GiB for own box disks, 48.2 GiB host
+CPU  RAM GiB  Fit on empty host  Fit now
+  1        2                  7        4
+  2        4                  3        2
+  4        8                  1        1
+Counts assume every box uses its full CPU and RAM at once. Boxes share host CPUs, so more can run when they are not all busy. Any whole CPU count and GiB size works.
+```
+
+The table lists example shapes that double from the 1 CPU / 2 GiB default at
+2 GiB per CPU, up to the largest that fits the host. For any other size, divide
+`headroom` by the box's CPU and RAM.
+
+### JSON fields
+
+| Field | Meaning |
+| --- | --- |
+| `notice` | The advisory sentence above |
+| `host` | CPUs, total and available RAM, free host disk, and `sharedPool` / `boxDiskPool` space (`null` when `raft-disks` is missing) |
+| `boxes`, `activeBoxes` | Saved boxes, and those not `Stopped` |
+| `allocated` | CPU and RAM limits of active boxes |
+| `reserve` | Host share left out of the estimates |
+| `headroom` | CPU and RAM left for more active boxes after the reserve |
+| `estimates` | Example shapes with `fitEmptyHost` and `fitNow` counts |
+| `warnings` | Low RAM or disk, overcommitted boxes, or a missing `raft-disks` pool |
+
+### Calculations
+
+| Value | Calculation |
+| --- | --- |
+| CPU reserve | 1 CPU for the host OS |
+| Memory reserve | The larger of 2 GiB or 10% of host RAM |
+| Fit on empty host | `min(floor((CPUs - 1) / box CPUs), floor((RAM - reserve) / box RAM))` |
+| Fit now | The same with `headroom`, which also subtracts active allocations and keeps `MemAvailable - reserve` |
+
+All non-`Stopped` states, such as `Running` or `Frozen`, count as active.
+Stopped boxes use no CPU or RAM and keep their disk. Reserves are planning
+margins, not cgroup locks.
+
+### Illustrative hosts
+
+Fit on empty host for 1 CPU / 2 GiB boxes, using exact usable RAM values:
+
+| Host CPUs | Host RAM | Fit on empty host |
+| ---: | ---: | ---: |
+| 2 | 8 GiB | 1 |
+| 4 | 8 GiB | 3 |
+| 4 | 16 GiB | 3 |
+| 8 | 32 GiB | 7 |
+
+Operating systems report less usable RAM than the hardware size, so near
+boundaries the estimate can be one lower. Available RAM and host processes can
+lower it further. These are point-in-time estimates, not reservations.
+
+## Disk warnings
+
+`raft capacity` warns when free host disk or the shared pool falls below 5 GiB,
+and when a host has no `raft-disks` pool yet. Warnings do not block anything.
+`raft doctor` reports both pools and fails when `raft-disks` is missing.

@@ -19,10 +19,10 @@ Raft does not have a global `--json` option. Parse each command's actual format:
 | --- | --- |
 | `new`, `fork`, `recover` | One location-qualified handle |
 | `exec --detach` | One `rfcmd-` job ID |
-| `list` | JSONL: one object per box, with `box`, `state`, `stopAt`, `note` |
+| `list` | JSONL: one object per box, with `box`, `state`, `stopAt`, `disk`, `note` |
 | `info` | One pretty-printed native Incus metadata JSON object |
 | `usage` | One JSON object containing running resource counters |
-| `limits --json` | One JSON object per location (JSONL across multiple hosts) |
+| `capacity --json` | One JSON object per location (JSONL across multiple hosts) |
 | `locations` | One JSON object per configured location (JSONL) |
 | `prune` | JSONL candidates or deleted records with `box`, `action` |
 | `status` | systemd `ActiveState`, `SubState`, `ExecMainStatus` property lines |
@@ -31,18 +31,20 @@ Raft does not have a global `--json` option. Parse each command's actual format:
 | Other inspection/maintenance commands | Human-readable text or no output |
 
 `list` emits nothing when there are no boxes. `stopAt` is the host Unix deadline
-as a string, or an empty string when absent. `note` is the box note object with
+as a string, or an empty string when absent. `disk` is `"shared"` or the box's
+own disk size, such as `"20GiB"`. `note` is the box note object with
 `purpose` and optional `owner` and `next`, or `null`. `info` uses native Incus keys rather
 than a normalized Raft schema. `usage` includes `memoryBytes`, `memoryLimit`,
 `cpuTime`, `effectiveCpus`, `filesystemUsedBytes`, `filesystemAvailableBytes`, and
-`filesystemScope`; disk values describe the shared pool, not an individual box.
-See [Capacity limits](../reference/capacity-limits.mdx) for capacity calculations.
+`filesystemScope`; disk values describe the shared pool, or the box's own disk
+when it has one. See [Box sizing and capacity](../reference/capacity.mdx) for the
+advisory capacity fields.
 
 These examples require `jq` on the controller:
 
 ```sh title="CONTROLLER: Parse records without mixing stderr"
 raft list --location lab | jq -r 'select(.state == "Running") | .box'
-raft limits --location lab --json | jq '{location, savedSlots, warnings}'
+raft capacity --location lab --json | jq '{location, headroom, warnings}'
 raft prune --location lab --older-than 7 | jq -r '.box'
 ```
 
@@ -73,7 +75,7 @@ running job's initial `ExecMainStatus=0` as completion. See
 ready. Probe a harmless command before running setup. This Bash example waits up
 to about a minute plus transport time, executes an uploaded project check, and
 attempts to stop the persistent box on exit. It assumes `./my-project/check.sh`
-exists and the configured host has a free saved slot:
+exists:
 
 ```bash title="CONTROLLER or trusted Linux CI runner"
 set -euo pipefail
@@ -110,10 +112,10 @@ raft upload "$box" ./my-project /workspace/my-project --recursive
 raft exec "$box" -- bash -lc 'cd /workspace/my-project && bash ./check.sh'
 ```
 
-The stopped box remains available for inspection and still consumes a saved slot.
+The stopped box remains available for inspection and still uses disk space.
 Destroy it after collecting needed files, or preview old stopped boxes with prune.
 For disposable CI boxes, deletion on stop/expiry removes artifacts and snapshots;
-download results before cleanup. A new box or a retry still consumes a saved slot.
+download results before cleanup. A new box or a retry uses its own disk space.
 
 Command readiness does not mean Docker or a web application is ready. Probe the
 specific dependency (`docker info`, an HTTP health endpoint, or systemd status)

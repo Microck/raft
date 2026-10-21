@@ -607,8 +607,8 @@ def print_capacity(report):
             f"{size['fitNow']:>7}"
         )
     print(
-        "Counts assume every box uses its full CPU and RAM; idle boxes use less. "
-        "Any whole CPU count and GiB size works."
+        "Counts assume every box uses its full CPU and RAM at once. Boxes share host CPUs, "
+        "so more can run when they are not all busy. Any whole CPU count and GiB size works."
     )
     for warning in report["warnings"]:
         print("Warning: " + warning)

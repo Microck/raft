@@ -28,8 +28,8 @@ Use `raft new --disposable` for temporary work. A fork is persistent unless
 `--disposable` is explicitly supplied; recovered boxes are persistent.
 Back up work before stopping a disposable box.
 
-Persistent stopped boxes still occupy a saved slot and storage. Each host allows
-four saved boxes. `raft prune --older-than 7` previews old stopped boxes;
+Persistent stopped boxes still occupy storage. Raft does not cap how many boxes
+a host keeps. `raft prune --older-than 7` previews old stopped boxes;
 `--yes` applies deletion. There is no automatic persistent-box retention cleanup.
 
 ## Read and reset the deadline

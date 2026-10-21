@@ -40,7 +40,7 @@ The configuration file maps location names to host definition objects:
 ### Location keys
 
 - **Naming format**: Matches `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Starts with an alphanumeric character and contains ASCII letters, digits, underscores, or hyphens.
-- **Default location**: The first location listed is the default for `raft new`. `raft list`, `raft limits`, `raft gc`, and `raft prune` accept `--location` filters. Without a filter they check all configured hosts; `raft doctor` always checks all configured hosts.
+- **Default location**: The first location listed is the default for `raft new`. `raft list`, `raft capacity`, `raft gc`, and `raft prune` accept `--location` filters. Without a filter they check all configured hosts; `raft doctor` always checks all configured hosts.
 
 ### Host entry fields
 
@@ -60,7 +60,7 @@ raft note spare --clear
 ```
 
 `raft note` rewrites the file with two-space indentation, keeps location order and
-mode `0600`. `raft locations`, `raft limits` and `raft new` show the note.
+mode `0600`. `raft locations`, `raft capacity` and `raft new` show the note.
 
 <Callout type="warn" title="Replace placeholder image fingerprint">
 The `image` field requires the full 64-character hash for `raft new`; aliases such as `raft-dev` are rejected. Replace the example hash with the actual imported image fingerprint for that host.

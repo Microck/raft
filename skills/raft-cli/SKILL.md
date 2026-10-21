@@ -11,7 +11,7 @@ The current deployment does not implement Incus VMs. Do not describe these boxes
 `raft host add` installs packages and services on a machine. Run it only when the
 user explicitly asks to onboard that host, and show its `--dry-run` plan first.
 
-Run `raft locations`, `raft doctor`, `raft limits` and `raft list` before allocating.
+Run `raft locations`, `raft doctor` and `raft list` before allocating.
 Follow each location's `note`: the operator uses it to mark preferred hosts and
 hosts to avoid for some work. Pass `--location` explicitly when a note rules out
 the default. Do not change notes unless the user asks; `raft note LOCATION TEXT`
@@ -50,14 +50,35 @@ Exec passes literal arguments; use `bash -lc` for shell syntax. A failed command
 retains its exit status. `raft ssh "$box"` opens a root terminal through native
 Incus execution over verified host SSH. It does not expose a guest SSH port.
 
-Defaults are the first configured location, one CPU, 2 GiB RAM and 600 seconds. TTL accepts 60 seconds
-to 30 days. The controller admits at most four saved boxes per host; stopped
-boxes count because their disk still occupies space. Use `--memory 4GiB` or `--memory 8GiB`
-and `--cpu 2` when needed. Btrfs bounds workspace storage to a 60 GiB pool per host.
-It does not guarantee strict per-box disk quotas with nested subvolumes. Check host disk before large builds or forks. `raft limits --location lab --json`
-reports CPU/RAM recommendations for all supported sizes, active allocations and
-free saved slots. Recommendations reserve host resources and remain advisory;
-only the four-saved-box cap is enforced. Disk growth is not included in the counts.
+## Sizing boxes
+
+Create the boxes your task needs, sized for the work. Raft has no box count
+limit and no size budget. Decide what the task needs and why, then ask for it:
+
+- `--cpu N`: any whole number of CPUs up to the host's count (default 1). Use
+  more for parallel builds and test suites.
+- `--memory SIZE`: any whole GiB up to the host's RAM, e.g. `8GiB` or `32GiB`
+  (default `2GiB`). Use more for large compiles, browsers or databases.
+- `--disk SIZE`: its own disk, e.g. `30GiB`, instead of the shared 60 GiB pool.
+  The box and Docker inside it cannot write past SIZE, and other boxes cannot
+  take its space. Use it for Docker builds, large datasets or anything that
+  could fill the shared pool. The image needs about 5 GiB, so use at least
+  `8GiB`. Space is taken in full at creation; snapshots take the same again.
+
+```sh
+box=$(raft new --cpu 4 --memory 16GiB --disk 20GiB --ttl 3600 --purpose "Build and test the monorepo" --owner "codex task 123" --next "Destroy when CI passes")
+```
+
+Defaults are the first configured location, one CPU, 2 GiB RAM, the shared pool
+and 600 seconds. TTL accepts 60 seconds to 30 days. A request larger than the
+whole host fails with the host's real size; retry with what it reports. If
+the own-disk pool lacks space for `--disk`, pick a smaller disk or the shared pool.
+`raft list` shows each box's `disk` (`"shared"` or its size).
+
+`raft capacity --location lab --json` is an advisory estimate of host CPU/RAM
+headroom and free disk. It is advice, never a reason to skip creating a box or
+to shrink one below what the task needs. Boxes share host CPUs; an estimate of
+zero means new boxes may run slower, not that they are refused.
 
 ## Persistence and cleanup
 
@@ -91,6 +112,8 @@ only when the user requested that rollback. A fork copies filesystem data, inclu
 credentials installed there. Forks stay on the same host. `new --from "$box/prepared"` starts from a named
 snapshot; `snapshot-delete "$box" prepared` removes it. Resume and fork accept
 optional `--cpu` and `--memory` overrides. Omitted values retain the source limits.
+Forks and `new --from` keep the source disk; `new --from "$box/prepared" --disk 60GiB`
+copies the snapshot onto a bigger own disk when a box runs out of space.
 Forks default to persistent; use `--disposable` explicitly for temporary clones.
 
 `upload/download --recursive` copy directory trees into new destinations without
@@ -105,7 +128,8 @@ status and output. `raft cancel "$box" <job>` stops the job and its child proces
 terminates running jobs; this is not automatic checkpointing of processes.
 `raft extend "$box" --ttl 1800` resets a running box's deadline without
 restarting its work. Use resume for stopped boxes. `raft usage "$box"` reports
-cgroup memory/CPU and shared-pool disk space, not a per-box disk quota.
+cgroup memory/CPU and disk space; `filesystemScope` says whether that is the
+shared pool or the box's own disk.
 
 `raft forward "$box" --remote 8080 --local 8080` opens a foreground private
 tunnel. `raft desktop "$box" --local 6080` starts the desktop on demand and
@@ -129,7 +153,8 @@ raft resume "$recovered" --ttl 600
 ```
 
 Recovery creates a fresh stopped handle and clears the inherited deadline. It
-never overwrites another box. Only import trusted Raft exports; archives retain
+never overwrites another box. A box with its own disk comes back on an own disk
+of the same size. Only import trusted Raft exports; archives retain
 native configuration and guest secrets. Store them privately and check free
 space on the controller and destination host. Large backups hold the host
 lifecycle lock and delay expiry checks. A controller crash can leave an owned

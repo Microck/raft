@@ -49,7 +49,7 @@ try {
     '/docs/guides/troubleshooting',
     '/docs/reference/cli',
     '/docs/reference/configuration',
-    '/docs/reference/capacity-limits',
+    '/docs/reference/capacity',
     '/docs/contract',
     '/docs/boat-capabilities',
     '/docs/boot-performance',
@@ -134,7 +134,7 @@ try {
   }
   const full = await get('/llms-full.txt');
   const fullText = await full.text();
-  assert.match(fullText, /raft limits/);
+  assert.match(fullText, /raft capacity/);
   assert.match(fullText, /Snapshots, restores and forks require a stopped source/);
   assert.ok(!fullText.includes('Full-code review:'), 'Review reports must not enter the site');
 
@@ -149,9 +149,9 @@ try {
   await searchIndex.arrayBuffer();
   assert.equal(searchIndex.status, 200);
   const client = staticClient({ from: `${base}/search.json` });
-  const matches = await client.search('limits');
+  const matches = await client.search('capacity');
   assert.ok(matches.length > 0, 'Static search must find real page content');
-  assert.ok(matches.some((match) => match.url.startsWith('/docs/reference/capacity-limits')), 'Capacity guide missing from search');
+  assert.ok(matches.some((match) => match.url.startsWith('/docs/reference/capacity')), 'Capacity guide missing from search');
   for (const path of ['/docs/incus.example.json', '/docs/benchmarks/arm64-native-ci.json', '/docs/benchmarks/amd64-native-ci.json']) {
     const response = await get(path);
     assert.equal(response.status, 200, path);

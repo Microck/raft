@@ -36,7 +36,7 @@ up hosts or download workspace images.
 
 | requirement | minimum |
 | --- | --- |
-| host | dedicated ARM64 or AMD64 Ubuntu host, 2 CPUs, 8 GiB RAM, 80 GiB free disk |
+| host | dedicated ARM64 or AMD64 Ubuntu host, 2 CPUs, 8 GiB RAM, 120 GiB free disk (80 GiB plus the default 40 GiB own-disk pool) |
 | host access | SSH and passwordless sudo |
 | controller | Linux, Python 3.11.8+, SSH and SCP; npm or uv for installation |
 
@@ -64,9 +64,11 @@ the box with a new lifetime. `raft destroy` deletes the box and its snapshots.
 disposable creation and retention cleanup require the current host worker;
 redeploy from the current checkout before using them.
 
-each host allows four saved boxes, including stopped ones. `raft limits` reports
-current allocations, free disk space and recommended running counts for each
-size. see [host capacity](docs/reference/capacity-limits.mdx).
+size boxes for the job: `--cpu`, `--memory` and `--disk` take any whole number
+up to the host. `--disk 20GiB` gives a box its own disk that it, and Docker
+inside it, cannot grow past. raft does not cap how many boxes you keep.
+`raft capacity` prints an advisory estimate of what fits; it never blocks a box.
+see [box sizing and capacity](docs/reference/capacity.mdx).
 
 ## image and workspace control
 
@@ -131,8 +133,8 @@ records differences, sources and test coverage.
 | Create/list/inspect/delete | ✅ | ✅ | Single operator |
 | Persistent stop/resume | ✅ | ✅ | Shared host kernel |
 | TTL and lifetime extension | ✅ | ✅ | Persistent boxes retain disk; disposable boxes delete |
-| CPU/memory sizing and usage | ✅ | ✅ | 1 or 2 CPUs, 1, 2, 4 or 8 GiB RAM. Disk usage covers the shared pool |
-| Host capacity recommendations | ❌ | ✅ | Raft recommends running capacity and enforces four saved boxes. Boat reports plan limits |
+| CPU/memory sizing and usage | ✅ | ✅ | Any whole CPU count and GiB size up to the host. Usage covers the shared pool or the box's own disk |
+| Host capacity estimates | ❌ | ✅ | Advisory only; Raft has no box count limit. Boat reports plan limits |
 | Root terminal and command execution | ✅ | ✅ | Host SSH transport |
 | Background jobs, logs and cancellation | ✅ | ✅ | No process checkpoints |
 | File upload/download | ✅ | ✅ | Files and recursive trees; new directory destinations only |
@@ -144,10 +146,10 @@ records differences, sources and test coverage.
 | Desktop access | ✅ | ✅ | noVNC; see verification limits |
 | Reverse forwarding | ✅ | ❌ | Not implemented |
 | Public workspace hosting and browser-only streaming | ✅ | ❌ | Not implemented |
-| Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides within supported sizes |
-| CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft list/info/usage/limits plus prune JSONL |
+| Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides; disks keep their size |
+| CLI-wide JSON mode | ✅ | ❌ | Boat JSON/JSONL; Raft list/info/usage/capacity plus prune JSONL |
 | Snapshot file browsing/download | ✅ | ❌ | Whole-box backup only |
-| Strict per-box disk quotas | ✅ | ❌ | Shared 60 GiB Btrfs pool |
+| Strict per-box disk quotas | ✅ | ✅ | `new --disk SIZE` gives a box its own fixed-size disk; the default shared pool has none |
 | Separate-kernel VM isolation | ✅ | ❌ | Container runtime |
 | Named environments and managed secrets | ✅ | ❌ | Manual configuration |
 | Organizations and webhooks | ✅ | ❌ | Raft is single-operator; no event API |

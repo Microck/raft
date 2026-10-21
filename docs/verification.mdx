@@ -18,11 +18,12 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | --- | --- |
 | Create/list/info/delete | Qualified handle, native state, ownership and cleanup |
 | Root terminal/exec | Real PTY, workspace directory, literal arguments and exit code |
-| Resource sizing | Effective CPU affinity and cgroup memory limit |
-| Host capacity | Mixed-size budgets, stopped/frozen boxes, low RAM/disk and four saved slots; live create/stop/resume/destroy changes in CPU/memory allocations |
+| Resource sizing | Effective CPU affinity and cgroup memory limit for free-form sizes, and refusal of CPU or RAM beyond the host |
+| Host capacity | Advisory notice, arbitrary sizes, no box count limit, example shapes, stopped/frozen boxes, low RAM/disk and a missing own-disk pool; live create/stop/resume/destroy changes in CPU/memory allocations |
+| Own box disks | Guest and Docker writes stop at the disk size without taking shared or own-disk pool space; too-small disks fail cleanly; fork, template, resized template, snapshot and backup/recover keep the disk |
 | Background jobs | Journal output, nonzero exit status, cancellation of child processes, inspection after cancellation or log rotation, and rejection of unknown job IDs |
 | TTL/extend/resume | Host-enforced stop, manual `gc`, retained files, uninterrupted lifetime extension and 30-day resume |
-| Usage | Real cgroup counters and explicitly shared-pool disk scope |
+| Usage | Real cgroup counters and shared-pool or own-disk scope |
 | File transfer | Binary content, paths containing spaces, stopped-workspace transfers, preservation of the destination after a failed download, and real controller write-error rejection |
 | Docker | Real image build and container execution |
 | Snapshot/restore/fork | File rollback, independent copy, retained network identity and deterministic concurrent-resume rejection under the real host lock |
@@ -87,7 +88,7 @@ The source-race fix also passed a real concurrent writer test that swaps files a
 Test commands require configured hosts and immutable image fingerprints. Suites destroy only the fixtures they create.
 
 Allocation and archive inspection:
-- `python3 deploy/verify-limits.py`: Checks allocation policies without a host. Add `--location lab` to verify live create, stop, resume, and destroy reporting.
+- `python3 deploy/verify-limits.py`: Checks advisory capacity policies without a host. Add `--location lab` to verify live create, stop, resume, and destroy reporting, oversized-request refusal, and own box disks (needs about 24 GiB free in `raft-disks`).
 - `python3 deploy/verify-image-tests.py`: Inspects archive structures, including symlinks, hardlinks, FIFOs, and credential detection.
 
 Live host suites (expand the check you need):
@@ -152,6 +153,8 @@ Desktop testing validated keyboard input, exact clipboard synchronization, point
 
 **Admission and backup runs**
 
+These runs predate the removal of the saved-box admission cap.
+
 The four-saved-box admission test passed, including rejection of a fifth create, fork, or recovery attempt. Full development-image recovery succeeded with a 5,254,224,965-byte archive, verifying inventories, tool checks, permissions, fresh MACs, and snapshot rollback.
 
 The execution wrapper reported exit 143 after the success message; independent native inventory and archive checks confirmed that all fixtures and temporary archives were removed.
@@ -208,9 +211,9 @@ In the [release-validation run](https://github.com/Microck/raft/actions/runs/374
 
 The [release run](https://github.com/Microck/raft/actions/runs/37469540182) validated fresh-host setup on a disposable AMD64 KVM instance running Ubuntu 24. The test verified canonical deployment, repeat deployment, image import, and lifecycle execution.
 
-Following a VM reboot, changed kernel boot IDs and active services were verified alongside retained files, snapshots, container states, Docker, and bridge isolation. The host test uses a sparse 100 GiB virtual disk and accessible KVM.
+Following a VM reboot, changed kernel boot IDs and active services were verified alongside retained files, snapshots, container states, Docker, and bridge isolation. The host test now uses a sparse 160 GiB virtual disk and accessible KVM.
 
-It preserves the production deployer's 80 GiB free-disk check but does not prove physical storage capacity. ARM64 host reboot, host loss, and cross-architecture recovery remain unverified. The VM, SSH keys, and controller configuration were disposable; existing operator hosts were not rebooted or reconfigured.
+It preserves the production deployer's free-disk check, now 120 GiB with the default own-disk pool, and checks that the pool's file is fully allocated, but does not prove physical storage capacity. ARM64 host reboot, host loss, and cross-architecture recovery remain unverified. The VM, SSH keys, and controller configuration were disposable; existing operator hosts were not rebooted or reconfigured.
 
 </details>
 
@@ -230,7 +233,7 @@ Packaging workflows passed on Python 3.11 and 3.14. Guidelines for visibility ch
 <details>
 <summary>Test evidence and run details</summary>
 
-On 2026-10-06, `raft limits` passed read-only text and JSON inspection and live lifecycle tests on two ARM64 Ubuntu hosts. Tests verified allocation adjustments during create, stop, resume, and destroy cycles.
+On 2026-10-06, `raft limits` (since renamed `raft capacity`, with the admission cap removed) passed read-only text and JSON inspection and live lifecycle tests on two ARM64 Ubuntu hosts. Tests verified allocation adjustments during create, stop, resume, and destroy cycles.
 
 Allocation fixtures validated mixed sizing budgets, frozen containers, low RAM and disk conditions, host reserves, and admission limits. The four-stopped-box admission test verified that creation, forking, and recovery reject a fifth container when slots are exhausted. These are conservative allocation checks, not workload saturation benchmarks.
 

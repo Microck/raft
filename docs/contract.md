@@ -21,10 +21,10 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 ## Infrastructure and deployment
 
 - **Strict infrastructure validation**: Deployment refuses conflicting storage or network names and incomplete infrastructure rather than overwriting or repairing state.
-- **Storage pool sizing**: Existing owned Btrfs pools must retain the configured 60 GiB size; drift is rejected without automatic resizing.
+- **Storage pool sizing**: The shared Btrfs pool `raft-data` must retain its configured 60 GiB size. The own-disk pool `raft-disks` is a loop-backed thick LVM pool (`lvm.use_thinpool=false`) created at `--disk-pool SIZE` (default 40 GiB) and allocated in full on the host disk; a fresh host needs 80 GiB plus that size free. An existing `raft-disks` keeps its size, a different explicit `--disk-pool` is refused, and a pool with another driver or a thin pool is rejected. Deployment never resizes either pool.
 - **Firewall precedence**: Redeployment reapplies firewall rules. Incus startup requires successful firewall application before the daemon starts, including socket activation.
 - **Guided onboarding**: `raft host add LOCATION --ssh TARGET` probes the target read-only and refuses unsupported hosts, including macOS, before any change. It prints the exact plan and applies it only after an interactive yes or `--yes`; `--dry-run` stops after the plan. It runs the same deployer as `deploy/deploy.py`, imports an image only after its SHA-256 matches (release `SHA256SUMS` or the local archive digest) and its architecture matches the host, then registers the location with the image fingerprint. It finishes with `doctor` and a disposable create/exec/destroy smoke test; if either fails, it removes the new location from the configuration and leaves host changes for a rerun. It uses existing key-based SSH and never collects passwords or changes SSH, other firewall rules or IP configuration. It requires the deployment files from the npm package or a source checkout.
-- **CLI coverage**: The single-operator workflow spans lifecycle, execution, files, snapshots, jobs, tunnels, backup, and capacity inspection; see the [command reference](./reference/cli.md).
+- **CLI coverage**: The single-operator workflow spans lifecycle, execution, files, snapshots, jobs, tunnels, backup, and advisory capacity inspection; see the [command reference](./reference/cli.md).
 
 ## Configuration and lifecycle defaults
 
@@ -33,24 +33,23 @@ Raft manages persistent unprivileged native-architecture Incus system containers
 | Host identification | Configuration requires named SSH targets using letters, digits, underscores, or hyphens. |
 | Qualified handles | Every handle includes location and instance name (`<location>:<name>`). |
 | Image pinning | Workspace creation requires the immutable 64-hex image fingerprint, not an updating alias. |
-| Lifecycle defaults | Defaults to first configured location, 1 CPU, 2 GiB RAM, and 600-second lifetime. Supported choices are 1 or 2 CPUs, 1/2/4/8 GiB RAM, and 60 to 2,592,000 seconds (30 days) TTL. |
-| Admission limit | Hard ceiling of four saved boxes per host, including stopped boxes. |
+| Lifecycle defaults | Defaults to first configured location, 1 CPU, 2 GiB RAM, the shared pool, and 600-second lifetime. `--cpu` takes any positive whole number, `--memory` and `--disk` any positive whole GiB (`16GiB`), and TTL 60 to 2,592,000 seconds (30 days). |
+| Box count and size | Raft limits neither how many boxes a host holds nor their size. CPU or RAM limits larger than the whole host (CPU count, or `MemTotal` rounded up to whole GiB) are refused under the host lock before any change, because Incus would clip them silently. Other failures come from Incus, such as too little pool space. |
 | TTL calculation | Running TTL begins after launch completes, using the host clock. Cold image preparation does not consume TTL. |
 | Host locking | Creation, lifecycle transitions, and expiry are serialized by host file lock (`/run/lock/raft-incus.lock`). Noninteractive transactions close controller stdin so commands cannot wait for piped input while holding this lock. Exec, SSH, and file-transfer paths remain unchanged. Piped input to `raft exec` is unsupported. Native Incus admin calls bypass CLI policy. |
 
-## Capacity and admission inspection
+## Locations, notes and capacity inspection
 
-`raft locations` lists configured locations as JSONL with `location`, `default` and `note` fields without contacting hosts. `raft note LOCATION TEXT` and `raft note LOCATION --clear` edit the optional `note` field in the controller configuration atomically, preserving location order and mode `0600`. Notes are advisory guidance; Raft shows them in `locations`, `limits` and on stderr from `new`, and never enforces them.
+`raft locations` lists configured locations as JSONL with `location`, `default` and `note` fields without contacting hosts. `raft note LOCATION TEXT` and `raft note LOCATION --clear` edit the optional `note` field in the controller configuration atomically, preserving location order and mode `0600`. Notes are advisory guidance; Raft shows them in `locations`, `capacity` and on stderr from `new`, and never enforces them.
 
-Boxes accept an optional note with a fixed template: `purpose` (required), `owner` and `next`, all nonempty strings. `raft new --purpose TEXT [--owner TEXT] [--next TEXT]` and `raft note BOX ...` store it as JSON in the box's `user.raft.note` Incus key; `raft note BOX --clear` removes it. Each edit replaces the whole note. `raft list` reports it as `note`, or `null`. `new` always writes the key, so `new --from` never inherits a snapshot's note; forks and recovered backups keep it. Box notes are advisory and never change lifecycle policy.
+Boxes accept an optional note with a fixed template: `purpose` (required), `owner` and `next`, all nonempty strings. `raft new --purpose TEXT [--owner TEXT] [--next TEXT]` and `raft note BOX ...` store it as JSON in the box's `user.raft.note` Incus key; `raft note BOX --clear` removes it. Each edit replaces the whole note. `raft list` reports it as `note`, or `null`, and reports each box's `disk` as `"shared"` or its own disk size. `new` always writes the key, so `new --from` never inherits a snapshot's note; forks and recovered backups keep it. Box notes are advisory and never change lifecycle policy.
 
-`raft limits [--location NAME] [--json]` inspects hosts without modifying state. It reports effective CPUs, total and available RAM, saved and active box counts, active resource limits, and disk space.
+`raft capacity [--location NAME] [--json]` inspects hosts without modifying state. Text and JSON (`notice`) lead with: "Advisory estimate only. Raft enforces no box count or size budget; create the boxes your task needs." It reports effective CPUs, total and available RAM, saved and active box counts, active resource limits, headroom, and free space in the host disk, the shared pool and `raft-disks` (`null` when missing).
 
-- **Reserve calculations**: Recommends running boxes after reserving 1 CPU and the larger of 2 GiB or 10% host RAM.
-- **Total capacity**: Assumes an empty dedicated host, capped at four boxes.
-- **Additional running**: Subtracts active configured limits and evaluates available RAM minus host reserves. Every non-`Stopped` state (including `Frozen`) counts as active.
-- **New box capacity**: Bounded by remaining saved-box slots: `min(more running, max(0, 4 - saved boxes))`.
-- **Advisory estimates**: CPU and memory calculations are advisory planning estimates, not admission guarantees. Disk space below 5 GiB triggers diagnostic warnings. The four-saved-box admission cap is strictly enforced.
+- **Reserve calculations**: Estimates leave out 1 CPU and the larger of 2 GiB or 10% host RAM.
+- **Example shapes**: `estimates` lists shapes doubling from 1 CPU / 2 GiB at 2 GiB per CPU while they fit an empty host, with `fitEmptyHost` and `fitNow` counts. No count is capped.
+- **Headroom**: Subtracts active configured limits and keeps available RAM above the reserve. Every non-`Stopped` state (including `Frozen`) counts as active.
+- **Advisory only**: Nothing in the report blocks creation, resume or fork. Disk space below 5 GiB and a missing `raft-disks` pool trigger warnings.
 
 ## Container lifecycle and execution
 
@@ -59,12 +58,12 @@ Boxes accept an optional note with a fixed template: `purpose` (required), `owne
 - **Host worker contract**: `doctor`, disposable creation/fork, and retention cleanup require the current worker protocol. `doctor` checks it without running expiry or changing boxes, and reports the failing location. A mismatch fails before executing deletion policy or creating a disposable box; deploy the current checkout explicitly. Installing a new CLI does not update host workers.
 - **Disposable lifecycle**: `new --disposable` opts a box into deletion on stop or TTL expiry, including its snapshots. Clones and recovered boxes default to persistent; fork accepts an explicit `--disposable`.
 - **Retention cleanup**: `prune --older-than DAYS` previews persistent stopped boxes with a recorded stop timestamp. `--yes` deletes matching boxes under the host lifecycle lock. Running boxes and boxes without a recorded stop time are excluded. No automatic persistent-box deletion is enabled.
-- **Resizing**: Resume and fork accept optional supported CPU/RAM overrides, preserving omitted values. Resume validates stopped state under the lock before changing sizing.
+- **Resizing**: Resume and fork accept optional CPU/RAM overrides, preserving omitted values. Resume validates stopped state under the lock before changing sizing. Neither changes a box's disk.
 - **Expiration cleanup**: The host timer checks expirations every 15 seconds, stopping expired persistent containers and deleting expired disposable containers. Expiry may be delayed by graceful shutdown, long locked transactions, and host outage until startup.
 - **Destroy**: Removes the container instance and its snapshots, releasing storage. Destroy confirms absence; SSH failure is not proof of deletion. Disposable boxes created with `new --disposable` are deleted on explicit stop or expiry. Persistent boxes still require explicit destroy for deletion.
 - **Execution transport**: Incus exec and file APIs travel over authenticated host SSH without a public Incus listener or injected credentials. Interactive SSH runs a PTY over host SSH and Incus exec.
 - **State inspection and tunnels**: `raft list` and `raft info` read native metadata without guest process counters during shutdown; tunnels use the managed NIC.
-- **Resource reporting**: `raft usage` reports running cgroup memory, CPU microseconds, CPU affinity, and shared pool space. It does not provide per-box disk accounting or billing.
+- **Resource reporting**: `raft usage` reports running cgroup memory, CPU microseconds, CPU affinity, and filesystem space with `filesystemScope`: the shared pool, or `own SIZE box disk`. It provides no billing.
 - **Recursive transfers**: `upload/download --recursive` require a running workspace and Python 3.11.8+ in the guest. They stream a tar archive and publish a new destination directory atomically without overwriting or merging. Relative links contained within the tree, regular files, directories and internal hardlinks are supported; escaping paths/links and special files are rejected. Source entries are pinned with no-follow descriptors before metadata inspection, file reads or directory descent, so pathname replacement cannot redirect access outside the selected tree. Failed transfers leave existing destinations unchanged.
 - **Directory transfer completion**: The receiver verifies the sender's exact archive byte count before publication. A truncated stream, including one ending between complete entries, is rejected without publishing a partial tree.
 - **File transfer failures**: Controller write errors return an error before replacing a download destination or publishing a backup archive.
@@ -79,10 +78,11 @@ Boxes accept an optional note with a fixed template: `purpose` (required), `owne
 
 ## Storage, snapshots, and cloning
 
-- **Storage pool**: A dedicated 60 GiB Btrfs pool per host supports snapshots and clones. Nested container subvolumes prevent strict per-box quota enforcement. The native compressed image cache resides outside the shared pool, so host disk space still matters.
+- **Shared pool**: Boxes default to a dedicated 60 GiB Btrfs pool per host with instant snapshots and clones. Btrfs quotas cannot bound a box there, because nested subvolumes (Docker's, for example) escape them. The native compressed image cache resides outside both pools, so host disk space still matters.
+- **Own box disks**: `new --disk SIZE` puts the box's root on a thick LVM logical volume of SIZE in `raft-disks`, formatted ext4. All guest writes, including Docker data, land in that filesystem, so writes fail with ENOSPC at SIZE. The volume takes its full size at creation and each snapshot reserves the same size again; creation fails if the pool lacks the space. Creation unpacks the image and copies use rsync, so they are slower than shared-pool clones. `fork` and `new --from` keep the source disk; `new --from ... --disk SIZE` copies onto an own disk of SIZE. A disk too small for its contents fails creation.
 - **Stopped-state requirement**: Snapshots, restores and forks require a stopped source for consistent disk contents. Operations run under the host lifecycle lock.
 - **Snapshot restore**: `raft restore` rolls back disk blocks via `--diskonly`, retaining container configuration, limits, and MAC address.
-- **Snapshot management**: `snapshot-delete <box> <name>` removes one named snapshot under the lock. `new --from LOCATION:BOX/SNAPSHOT` creates a same-host box from that snapshot, with normal creation defaults and a fresh network identity. The source may run; the named snapshot is immutable. Templates retain filesystem secrets.
+- **Snapshot management**: `snapshot-delete <box> <name>` removes one named snapshot under the lock. `new --from LOCATION:BOX/SNAPSHOT` creates a same-host box from that snapshot, with normal CPU and RAM defaults, the snapshot's disk unless `--disk` is given, and a fresh network identity. The source may run; the named snapshot is immutable. Templates retain filesystem secrets.
 - **Workspace forks**: `raft fork` copies filesystem data and secrets to a new container with an independent Incus name, fresh MAC address, and renewed TTL. Source snapshots are not inherited.
 
 ## Background jobs and desktop
@@ -94,5 +94,5 @@ Boxes accept an optional note with a fixed template: `purpose` (required), `owne
 
 - **Export safeguards**: `raft backup` exports stopped containers and snapshots to a local archive. Destination path must not exist, requires mode `0600`, and uses atomic hard-link publication.
 - **Host locking**: Export holds the host lifecycle lock, temporarily delaying expiry checks on the source host.
-- **Recovery admission**: `raft recover` imports archives into a stopped container with a fresh name, new MAC address, and cleared TTL, while enforcing the four-box admission limit. Recovery never overwrites existing boxes.
+- **Recovery**: `raft recover` imports archives into a stopped container with a fresh name, new MAC address, and cleared TTL. It reads the archive's recorded pool: own-disk backups return to `raft-disks` with their size, and other archives land in `raft-data`. Recovery never overwrites existing boxes.
 - **Archive security**: Archives contain full container filesystems, including credentials. Native archive configuration is not sanitized; backups do not imply scheduled off-host uploads. Store archives privately and import only trusted exports.
