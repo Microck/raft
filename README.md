@@ -30,6 +30,9 @@ npm install -g @microck/raft
 raft --version
 ```
 
+`raft self-update` upgrades the CLI later. Raft prints a one-line stderr notice
+when a new release exists; set `RAFT_NO_UPDATE_CHECK=1` to turn it off.
+
 Python wheels and source archives are also available in
 [releases](https://github.com/Microck/raft/releases). npm installation does not set
 up hosts or download workspace images.
@@ -154,7 +157,7 @@ records differences, sources and test coverage.
 | Dashboard, remote API and SDK | ✅ | ❌ | CLI only |
 | Managed agent conversations | ✅ | ❌ | Not implemented |
 | Automatic deletion and retention | ✅ | ✅ | Disposable deletion; opt-in age-based prune with preview |
-| CLI self-update | ✅ | ❌ | Standard npm or Python package installation |
+| CLI self-update | ✅ | ✅ | Explicit `raft self-update` for npm and uv installs plus a daily stderr notice. Boat also updates itself after commands; Raft only notifies |
 
 ## verification and development
 

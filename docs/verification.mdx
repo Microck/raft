@@ -89,6 +89,7 @@ Test commands require configured hosts and immutable image fingerprints. Suites 
 Allocation and archive inspection:
 - `python3 deploy/verify-limits.py`: Checks allocation policies without a host. Add `--location lab` to verify live create, stop, resume, and destroy reporting.
 - `python3 deploy/verify-image-tests.py`: Inspects archive structures, including symlinks, hardlinks, FIFOs, and credential detection.
+- `python3 deploy/verify-self-update.py`: Upgrades real npm and uv installs in temporary directories from a local release server and npm registry. Checks SHA256SUMS refusals, install-channel detection, version comparison and the passive notice. Needs npm and uv, but no network or host.
 
 Live host suites (expand the check you need):
 

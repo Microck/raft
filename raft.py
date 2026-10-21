@@ -3,6 +3,7 @@
 
 import argparse
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -14,7 +15,10 @@ import subprocess
 import sys
 import tempfile
 import tarfile
+import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
 
 import raft_files
@@ -876,6 +880,233 @@ def ttl(value):
     return seconds
 
 
+# GitHub releases are the one source of version truth. The release workflow
+# publishes npm before it creates the GitHub release, so every version this API
+# reports is already installable from both supported channels.
+RELEASES_API = "https://api.github.com/repos/Microck/raft/releases"
+# Matches the user agent deploy/deploy.py sends for release downloads.
+USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
+# self-update --check exit status when a newer release exists, as dnf check-update uses.
+UPDATE_AVAILABLE = 100
+UPDATE_CHECK_INTERVAL = 24 * 3600
+UPDATE_CHECK_TIMEOUT = 2
+
+
+def parse_version(text):
+    """Return an X.Y.Z release version, optionally v-prefixed, as a comparable tuple."""
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", text)
+    if match is None:
+        raise ValueError(f"Not a release version: {text}")
+    return tuple(int(part) for part in match.groups())
+
+
+def release_version(value):
+    """Parser type for self-update --version; returns the version without its v."""
+    parse_version(value)
+    return value.removeprefix("v")
+
+
+def fetch(url, timeout):
+    request = urllib.request.Request(
+        url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
+    )
+    return urllib.request.urlopen(request, timeout=timeout)
+
+
+def release(api, version=None, timeout=30):
+    """Return GitHub metadata for the latest release, or for release vVERSION."""
+    try:
+        with fetch(f"{api}/tags/v{version}" if version else api + "/latest", timeout) as response:
+            metadata = json.load(response)
+    except urllib.error.HTTPError as error:
+        if version and error.code == 404:
+            raise ValueError(f"No published Raft release v{version}") from error
+        raise
+    metadata["version"] = metadata["tag_name"].removeprefix("v")
+    parse_version(metadata["version"])
+    return metadata
+
+
+def update_message(latest):
+    return f"raft {latest} is available (you have {__version__}). Run: raft self-update"
+
+
+def update_cache():
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "raft/update.json"
+
+
+def save_update_check():
+    """Record a release check. A torn write only makes the next command check again."""
+    path = update_cache()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"checkedAt": time.time()}))
+    except OSError:
+        pass
+
+
+def update_check(action, api=RELEASES_API):
+    """Start the passive release check for a command; the returned function prints its notice.
+
+    At most once per UPDATE_CHECK_INTERVAL, a background thread asks GitHub for
+    the latest release while the command runs, and only that command can print
+    the notice, so a controller sees it at most once per interval. The notice is
+    one stderr line, so stdout stays parseable. It never installs anything, and
+    network, thread or cache failures stay silent. RAFT_NO_UPDATE_CHECK=1
+    disables it.
+    """
+    if action == "self-update" or os.environ.get("RAFT_NO_UPDATE_CHECK"):
+        return lambda: None
+    try:
+        checked = float(json.loads(update_cache().read_text())["checkedAt"])
+    except (OSError, ValueError, KeyError, TypeError):
+        checked = 0
+    # A timestamp in the future, e.g. after a clock change, counts as stale.
+    if 0 <= time.time() - checked < UPDATE_CHECK_INTERVAL:
+        return lambda: None
+    # Record the attempt first: an offline controller then waits for at most one
+    # timeout per interval instead of one per command.
+    save_update_check()
+    found = {}
+
+    def check():
+        try:
+            found["latest"] = release(api, timeout=UPDATE_CHECK_TIMEOUT)["version"]
+        except Exception:
+            # A best-effort notice must not print tracebacks or fail commands.
+            pass
+
+    thread = threading.Thread(target=check, daemon=True)
+    try:
+        thread.start()
+    except RuntimeError:
+        # The runtime could not create the thread; skip this interval's notice.
+        return lambda: None
+
+    def notice():
+        # Commands usually outlast the request; otherwise wait a bounded time.
+        thread.join(UPDATE_CHECK_TIMEOUT)
+        latest = found.get("latest")
+        if latest is not None and parse_version(latest) > parse_version(__version__):
+            print(update_message(latest), file=sys.stderr)
+
+    return notice
+
+
+def install_channel(source, prefix):
+    """Return (channel, root) for the installation holding source, the resolved raft.py.
+
+    self-update manages npm global installs and uv tools. Any other layout raises
+    ValueError with instructions, so an update never moves to another channel.
+    """
+    package = source.parent
+    if (package / ".git").exists():
+        raise ValueError(
+            f"raft runs from the source checkout {package}; update it with "
+            "`git fetch --tags && git checkout vX.Y.Z` and `uv sync --locked`"
+        )
+    # A global install puts the package at PREFIX/lib/node_modules/@microck/raft and
+    # links PREFIX/bin/raft to raft.py. Project-local node_modules have no such link.
+    if package.parts[-4:] == ("lib", "node_modules", "@microck", "raft"):
+        npm_prefix = package.parents[3]
+        if (npm_prefix / "bin/raft").resolve() == source:
+            return "npm", npm_prefix
+    # uv names each tool environment after its package and leaves a receipt in it.
+    # Editable installs keep raft.py outside the environment and are excluded.
+    if prefix.name == "raft" and (prefix / "uv-receipt.toml").exists():
+        if source.is_relative_to(prefix):
+            return "uv", prefix
+    raise ValueError(
+        f"self-update manages npm global installs and uv tools; {source} is neither. "
+        "Reinstall with the tool you used, from a release verified against its SHA256SUMS: "
+        "https://github.com/Microck/raft/releases"
+    )
+
+
+def verified_wheel(metadata, directory):
+    """Download the release wheel and check it against the release SHA256SUMS."""
+    name = f"raft-{metadata['version']}-py3-none-any.whl"
+    assets = {asset["name"]: asset["browser_download_url"] for asset in metadata["assets"]}
+    for asset in [name, "SHA256SUMS"]:
+        if asset not in assets:
+            raise ValueError(
+                f"Release {metadata['tag_name']} has no {asset}; nothing was installed"
+            )
+        with fetch(assets[asset], 60) as response, (directory / asset).open("wb") as file:
+            shutil.copyfileobj(response, file)
+    expected = [
+        line.split()[0]
+        for line in (directory / "SHA256SUMS").read_text().splitlines()
+        if line.split()[1:] == [name]
+    ]
+    with (directory / name).open("rb") as file:
+        digest = hashlib.file_digest(file, "sha256").hexdigest()
+    if expected != [digest]:
+        raise ValueError(f"{name} does not match the release SHA256SUMS; nothing was installed")
+    return directory / name
+
+
+def self_update(args, api=RELEASES_API):
+    """Install the latest or the requested release through the channel that installed raft."""
+    if args.check:
+        latest = release(api)["version"]
+        save_update_check()
+        if parse_version(latest) > parse_version(__version__):
+            print(update_message(latest))
+            return UPDATE_AVAILABLE
+        print(f"raft {__version__} is up to date (latest release: {latest})")
+        return 0
+    if args.version is not None and parse_version(args.version) == parse_version(__version__):
+        print(f"raft {__version__} is already installed")
+        return 0
+    # Refuse unmanaged layouts before any download.
+    channel, root = install_channel(Path(__file__).resolve(), Path(sys.prefix).resolve())
+    tool = shutil.which(channel)
+    if tool is None:
+        raise ValueError(f"{channel} installed raft but is not on PATH")
+    metadata = release(api, args.version)
+    target = metadata["version"]
+    # Without --version, never downgrade a build that is newer than the latest release.
+    if args.version is None and parse_version(target) <= parse_version(__version__):
+        print(f"raft {__version__} is up to date (latest release: {target})")
+        return 0
+    # Installer output goes to stderr; stdout carries only the result below.
+    if channel == "npm":
+        # An explicit prefix keeps the update in this install even when another
+        # Node.js installation provides npm. The registry checks package integrity.
+        subprocess.run(
+            [tool, "install", "--global", "--prefix", str(root), f"@microck/raft@{target}"],
+            stdout=sys.stderr,
+            check=True,
+        )
+    else:
+        tools = subprocess.run([tool, "tool", "dir"], capture_output=True, text=True, check=True)
+        if Path(tools.stdout.strip()).resolve() != root.parent:
+            raise ValueError(
+                f"uv now installs tools in {tools.stdout.strip()}, not {root.parent}; "
+                "set UV_TOOL_DIR to the original directory, then retry"
+            )
+        with tempfile.TemporaryDirectory(prefix="raft-update-") as work:
+            wheel = verified_wheel(metadata, Path(work))
+            print(f"Verified {wheel.name} against the release SHA256SUMS", file=sys.stderr)
+            subprocess.run(
+                [tool, "tool", "install", "--force", str(wheel)], stdout=sys.stderr, check=True
+            )
+    installed = subprocess.run(
+        [str(root / "bin/raft"), "--version"], capture_output=True, text=True, check=True
+    )
+    if installed.stdout.strip() != target:
+        raise RuntimeError(f"{channel} installed {installed.stdout.strip()}, not {target}")
+    print(f"raft {__version__} -> {target}")
+    print("Release notes: " + metadata["html_url"])
+    print(
+        "Hosts were not changed. Run `raft doctor`: if a host's worker differs from this CLI, "
+        f"redeploy that host from release {metadata['tag_name']}. "
+        f"`raft host add` now imports {metadata['tag_name']} images by default."
+    )
+    return 0
+
+
 def note_options(command):
     """Add the box note template flags shared by new and note."""
     command.add_argument(
@@ -944,6 +1175,21 @@ def parser():
     recovery = commands.add_parser("recover", help="Import a portable backup as a new stopped box")
     recovery.add_argument("source")
     recovery.add_argument("--location", required=True)
+    update = commands.add_parser(
+        "self-update", help="Upgrade this CLI to the latest or a chosen release"
+    )
+    target = update.add_mutually_exclusive_group()
+    target.add_argument(
+        "--check",
+        action="store_true",
+        help=f"Only report whether a newer release exists; exit {UPDATE_AVAILABLE} if one does",
+    )
+    target.add_argument(
+        "--version",
+        type=release_version,
+        metavar="X.Y.Z",
+        help="Install this release instead of the latest, e.g. to roll back",
+    )
     for action in [
         "info",
         "stop",
@@ -998,6 +1244,8 @@ def parser():
 
 
 def dispatch(args):
+    if args.action == "self-update":
+        return self_update(args)
     if args.action == "recover":
         recover(args)
         return 0
@@ -1293,8 +1541,11 @@ def main():
         print("raft: Python 3.11.8 or newer is required", file=sys.stderr)
         return 1
     os.umask(0o077)
+    # Parsing exits for --version, --help and usage errors, before any release check.
+    args = parser().parse_args()
+    notice = update_check(args.action, RELEASES_API)
     try:
-        return dispatch(parser().parse_args())
+        status = dispatch(args)
     except (
         OSError,
         ValueError,
@@ -1303,9 +1554,11 @@ def main():
         subprocess.CalledProcessError,
     ) as error:
         print(f"raft: {error}", file=sys.stderr)
-        return 1
+        status = 1
     except KeyboardInterrupt:
         return 130
+    notice()
+    return status
 
 
 if __name__ == "__main__":
