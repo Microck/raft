@@ -195,7 +195,14 @@ def box_disk(box):
 # guardrail for agents: SSH and sudo on the host bypass it, and controllers
 # older than this check never run it.
 POLICY_KEY = "user.raft.require"
-POLICY_CHANGED_KEY = "user.raft.require.changed"
+# Stopped-box retention, the second host policy: the host expiry worker deletes
+# raft boxes that have been stopped for this many hours. Its .since key holds
+# when the policy was last set, in epoch seconds: the retention clock starts at
+# the later of a box's stop and that time, so setting or shortening a policy
+# never deletes a box sooner than the given hours after the change. Mirrors
+# RETENTION_KEY in deploy/raft-expire.py, which enforces it.
+RETENTION_KEY = "user.raft.delete-stopped-after"
+RETENTION_SINCE_KEY = RETENTION_KEY + ".since"
 
 # Host half of the check, run with the required fields and the note the box
 # will carry. Kept short; the controller builds the detailed message.
@@ -218,20 +225,48 @@ READ_NOTE_POLICY = f"require=$(incus project get raft {POLICY_KEY})\n"
 CHECK_NOTE = "python3 -c " + shlex.quote(CHECK_NOTE_CODE) + ' "$require" "$note"'
 
 
-def note_policy(location):
-    """Return a location's required note fields and its last recorded policy change."""
+def host_policy(location):
+    """Return a location's host policies and their last recorded changes, as raft config shows them."""
     # `incus query` rejects the --project flag that remote() always passes.
     projects = json.loads(incus(location, "project", "list", "--format", "json"))
-    project = next(item for item in projects if item["name"] == PROJECT)
-    stored = project["config"].get(POLICY_KEY, "")
+    config = next(item for item in projects if item["name"] == PROJECT)["config"]
+    stored = config.get(POLICY_KEY, "")
     required = [field for field in stored.split(",") if field]
     unknown = [field for field in required if field not in BOX_NOTE_FIELDS]
     if unknown:
         raise ValueError(
             f"{location}: host policy {POLICY_KEY}={stored!r} names unknown note fields; "
-            f"fix it with raft policy {location} --require FIELDS or --clear"
+            f"fix it with raft policy {location} --require FIELDS or --require none"
         )
-    return {"require": required, "changed": project["config"].get(POLICY_CHANGED_KEY, "")}
+    hours = config.get(RETENTION_KEY, "")
+    since = config.get(RETENTION_SINCE_KEY, "")
+    # Raft writes both as whole numbers; anything else came from a native Incus edit.
+    if hours and not (re.fullmatch(r"[1-9][0-9]*", hours) and re.fullmatch(r"[0-9]+", since)):
+        raise ValueError(
+            f"{location}: host policy {RETENTION_KEY}={hours!r} ({RETENTION_SINCE_KEY}={since!r}) "
+            f"is not a whole number of hours; fix it with raft policy {location} "
+            "--delete-stopped-after HOURS or --delete-stopped-after never"
+        )
+    return {
+        "require": required,
+        "requireChanged": config.get(POLICY_KEY + ".changed", ""),
+        "deleteStoppedAfterHours": int(hours) if hours else None,
+        "deleteStoppedAfterSince": int(since) if hours else None,
+        "deleteStoppedAfterChanged": config.get(RETENTION_KEY + ".changed", ""),
+    }
+
+
+def delete_at(box, policy):
+    """When the host worker deletes a stopped box under the retention policy, or None.
+
+    Must match the deletion rule in deploy/raft-expire.py. A stopped box without
+    a recorded stop time has no deadline until the worker records one.
+    """
+    hours = policy["deleteStoppedAfterHours"]
+    stopped = box["config"].get("user.raft.stopped-at")
+    if box["status"] != "Stopped" or hours is None or not stopped:
+        return None
+    return max(int(stopped), policy["deleteStoppedAfterSince"]) + hours * 3600
 
 
 def note_problem(location, required, note, command, hint=""):
@@ -252,13 +287,15 @@ def note_problem(location, required, note, command, hint=""):
 
 def require_note(location, note, command, hint=""):
     """Fail before any host change when note lacks a field the location requires."""
-    problem = note_problem(location, note_policy(location)["require"], note, command, hint)
+    problem = note_problem(location, host_policy(location)["require"], note, command, hint)
     if problem:
         raise ValueError(problem)
 
 
 def note_fields(text):
-    """Parse --require FIELDS into BOX_NOTE_FIELDS order."""
+    """Parse --require FIELDS into BOX_NOTE_FIELDS order; none means no required fields."""
+    if text == "none":
+        return []
     fields = [field.strip() for field in text.split(",") if field.strip()]
     unknown = [field for field in fields if field not in BOX_NOTE_FIELDS]
     if unknown or not fields:
@@ -271,23 +308,69 @@ def note_fields(text):
     return [field for field in BOX_NOTE_FIELDS if field in fields]
 
 
-def set_policy(location, fields):
-    """Set (fields) or clear (None) a location's note policy and record the change on the host."""
-    settings(location)
-    value = ",".join(fields or [])
+def retention_hours(text):
+    """Parse --delete-stopped-after HOURS: a positive whole number, or never for no retention."""
+    if text == "never":
+        return None
+    if not re.fullmatch(r"[1-9][0-9]*", text):
+        raise ValueError(
+            "Give a positive whole number of hours, e.g. --delete-stopped-after 48, or never"
+        )
+    return int(text)
+
+
+def set_policy(location, key, value, journal, check=""):
+    """Set one host policy key to value, empty to clear it, and record the change.
+
+    Returns the previous value. journal names the policy in the host journal entry;
+    check is shell that must pass first, under the same lock.
+    """
     # Who and when is recorded on the host beside the policy and in its journal.
     # The controller identity is self-reported; SUDO_USER is the SSH account.
-    before = transaction(
+    # Retention also records when it was set, for the worker's clock (see RETENTION_KEY).
+    since = f' {RETENTION_SINCE_KEY}="$([ -z "$1" ] || date +%s)"' if key == RETENTION_KEY else ""
+    return transaction(
         location,
-        f"before=$(incus project get raft {POLICY_KEY})\n"
+        check + f"before=$(incus project get raft {key})\n"
         'changed="$(date -u +%Y-%m-%dT%H:%M:%SZ) by ${SUDO_USER:-root} from $2"\n'
-        f'incus project set raft {POLICY_KEY}="$1" {POLICY_CHANGED_KEY}="$changed"\n'
-        "logger -t raft \"Box note policy: required fields '$before' -> '$1' ($changed)\"\n"
+        f'incus project set raft {key}="$1" {key}.changed="$changed"{since}\n'
+        f"logger -t raft \"{journal}: '$before' -> '$1' ($changed)\"\n"
         "printf '%s\\n' \"$before\"",
         value,
         f"{getpass.getuser()}@{socket.gethostname()}",
     ).strip()
-    print(f"{location}: required note fields {before or 'none'} -> {value or 'none'}")
+
+
+def change_policy(args):
+    """Apply raft policy: each given option sets or clears its own policy independently."""
+    if args.require is None and args.delete_stopped_after is None:
+        raise ValueError("Give --require FIELDS|none, --delete-stopped-after HOURS|never, or both")
+    settings(args.location)
+    # Parse every option before the first host change. Retention goes first: its
+    # worker check is the one step that can still refuse.
+    fields = None if args.require is None else note_fields(args.require)
+    hours = (
+        None if args.delete_stopped_after is None else retention_hours(args.delete_stopped_after)
+    )
+    if args.delete_stopped_after is not None:
+        value = "" if hours is None else str(hours)
+        before = set_policy(
+            args.location,
+            RETENTION_KEY,
+            value,
+            "Stopped-box retention: hours",
+            # Only a current worker enforces retention; clearing is safe on any worker.
+            check=CHECK_WORKER if hours else "",
+        )
+
+        def shown(stored):
+            return "never" if not stored else stored + (" hour" if stored == "1" else " hours")
+
+        print(f"{args.location}: delete stopped boxes after {shown(before)} -> {shown(value)}")
+    if fields is not None:
+        value = ",".join(fields)
+        before = set_policy(args.location, POLICY_KEY, value, "Box note policy: required fields")
+        print(f"{args.location}: required note fields {before or 'none'} -> {value or 'none'}")
 
 
 def receive(command, destination, *, stdin=None):
@@ -576,12 +659,15 @@ test "$state" = Stopped || { echo 'Stop the source box before resume, snapshot, 
 """
 
 
+# Refuses a host whose expiry worker speaks another PROTOCOL than this CLI. Bump
+# PROTOCOL here and in deploy/raft-expire.py together whenever the CLI starts to
+# rely on new worker behavior; protocol 2 added stopped-box retention.
 CHECK_WORKER = (
     "python3 -c "
     + shlex.quote(
         "import runpy; "
         "worker = runpy.run_path('/usr/local/lib/raft/expire-worker'); "
-        "\nif worker.get('PROTOCOL') != 1:\n"
+        "\nif worker.get('PROTOCOL') != 2:\n"
         " raise SystemExit('Host expiry worker differs from this CLI; deploy the current Raft checkout first')"
     )
     + "\n"
@@ -1308,6 +1394,18 @@ def location_name(value):
     return value
 
 
+def boolean(value):
+    """Parse a true or false setting, e.g. raft config set disposable true."""
+    if value not in {"true", "false"}:
+        raise argparse.ArgumentTypeError("Use true or false")
+    return value == "true"
+
+
+def shown_default(value):
+    """Print a default as it is typed: true and false, not Python's True and False."""
+    return json.dumps(value) if isinstance(value, bool) else value
+
+
 # Options of new that ~/.config/raft/config.json can default, with their built-in
 # defaults and value checks. Values go through str() first, so a configured value
 # is accepted exactly when the same text passed as the flag would be. Adding a
@@ -1319,6 +1417,9 @@ NEW_DEFAULTS = {
     "cpu": (DEFAULT_CPU, cpu_count),
     "memory": (DEFAULT_MEMORY, gib_size),
     "disk": ("shared", disk_size),
+    # new --disposable and --persistent override it. Unlike the sizes it applies
+    # to new --from too: a snapshot carries no lifecycle, new always sets one.
+    "disposable": (False, boolean),
 }
 # A box from a snapshot keeps the snapshot's size, so these defaults, configured
 # or built-in, apply only to boxes created from the image.
@@ -1333,7 +1434,8 @@ def default_value(key, value):
             "supported keys: " + ", ".join(NEW_DEFAULTS)
         )
     try:
-        return NEW_DEFAULTS[key][1](str(value))
+        # JSON true and false read back as the true and false text the CLI accepts.
+        return NEW_DEFAULTS[key][1](str(shown_default(value)))
     except (ValueError, argparse.ArgumentTypeError) as error:
         raise ValueError(
             f"{DEFAULTS_CONFIG}: defaults.{key}={value!r} is invalid: {error}"
@@ -1445,8 +1547,10 @@ def set_default(key, value):
             document.pop("defaults")
 
     edit_json(DEFAULTS_CONFIG, lambda: {"defaults": configured_defaults(key)}, change)
-    before = previous.get(key, "built-in default")
-    print(f"defaults.{key}: {before} -> {'built-in default' if value is None else value}")
+    before = shown_default(previous.get(key, "built-in default"))
+    print(
+        f"defaults.{key}: {before} -> {'built-in default' if value is None else shown_default(value)}"
+    )
 
 
 # GitHub releases are the one source of version truth. The release workflow
@@ -1717,7 +1821,21 @@ def parser():
         "or shared for the shared pool "
         "(default: config, else shared; with --from, the snapshot's disk)",
     )
-    create.add_argument("--disposable", action="store_true", help="Delete on stop or expiry")
+    lifecycle = create.add_mutually_exclusive_group()
+    lifecycle.add_argument(
+        "--disposable",
+        dest="disposable",
+        action="store_const",
+        const=True,
+        help="Delete on stop or expiry (default: config, else persistent)",
+    )
+    lifecycle.add_argument(
+        "--persistent",
+        dest="disposable",
+        action="store_const",
+        const=False,
+        help="Keep the disk on stop or expiry, despite a disposable default",
+    )
     create.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
     note_options(create)
     commands.add_parser("locations", help="List configured locations and their notes")
@@ -1731,12 +1849,20 @@ def parser():
     default_unset = default_commands.add_parser("unset", help="Restore a built-in default")
     default_unset.add_argument("key", choices=list(NEW_DEFAULTS))
     policy = commands.add_parser(
-        "policy", help="Set or clear the box note fields a location's host requires"
+        "policy",
+        help="Set a location's required box note fields and stopped-box retention",
     )
     policy.add_argument("location")
-    rule = policy.add_mutually_exclusive_group(required=True)
-    rule.add_argument("--require", metavar="FIELDS", help="Note fields, e.g. purpose,owner")
-    rule.add_argument("--clear", action="store_true", help="Stop requiring note fields")
+    policy.add_argument(
+        "--require",
+        metavar="FIELDS|none",
+        help="Note fields every box must carry, e.g. purpose,owner; none stops requiring them",
+    )
+    policy.add_argument(
+        "--delete-stopped-after",
+        metavar="HOURS|never",
+        help="Delete boxes stopped for HOURS, e.g. 48; never keeps them",
+    )
     note = commands.add_parser("note", help="Set or clear the note of a location or a box")
     note.add_argument("target", metavar="LOCATION|BOX", help="A location name or a box handle")
     note.add_argument("text", nargs="?", help="Location guidance, e.g. 'Preferred for builds'")
@@ -1777,7 +1903,9 @@ def parser():
     report.add_argument("--location")
     report.add_argument("--json", action="store_true")
     commands.add_parser("doctor")
-    gc = commands.add_parser("gc", help="Enforce deadlines, including disposable deletion")
+    gc = commands.add_parser(
+        "gc", help="Enforce deadlines and retention, including disposable deletion"
+    )
     gc.add_argument("--location")
     prune = commands.add_parser("prune", help="Preview deletion of old stopped boxes")
     prune.add_argument("--location")
@@ -1873,7 +2001,7 @@ def dispatch(args):
             report = {"file": str(DEFAULTS_CONFIG), "defaults": effective_defaults(), "policy": {}}
             for location in configuration():
                 try:
-                    report["policy"][location] = note_policy(location)
+                    report["policy"][location] = host_policy(location)
                 except RuntimeError as error:
                     raise RuntimeError(f"{location}: {error}") from error
             print(json.dumps(report, indent=2))
@@ -1881,7 +2009,7 @@ def dispatch(args):
             set_default(args.key, args.value if args.config_action == "set" else None)
         return 0
     if args.action == "policy":
-        set_policy(args.location, None if args.clear else note_fields(args.require))
+        change_policy(args)
         return 0
     if args.action == "note":
         fields = box_note(args)
@@ -1972,13 +2100,17 @@ def dispatch(args):
             elif args.action == "doctor":
                 doctor(location)
             else:
+                policy = host_policy(location)
                 for box in inventory(location):
+                    deletion = delete_at(box, policy)
                     print(
                         json.dumps(
                             {
                                 "box": location + ":" + box["name"],
                                 "state": box["status"],
                                 "stopAt": box["config"].get("user.raft.expires", ""),
+                                # Epoch text like stopAt; empty when no retention deletion is due.
+                                "deleteAt": "" if deletion is None else str(deletion),
                                 "disk": box_disk(box),
                                 "note": read_box_note(box),
                             }

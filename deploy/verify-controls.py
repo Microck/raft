@@ -155,7 +155,7 @@ def verify(source, target, directory, development_image=False):
                 ).stdout.strip()
                 fixtures.append(restored)
             finally:
-                live.raft("policy", target, "--clear")
+                live.raft("policy", target, "--require", "none")
             print(f"{target}: recovered stopped workspace", flush=True)
             note = json.loads(live.raft("info", restored).stdout)["config"]["user.raft.note"]
             assert json.loads(note) == {

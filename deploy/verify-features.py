@@ -28,6 +28,8 @@ from raft import (  # noqa: E402
     CHECK_NOTE_CODE,
     READ_NOTE_POLICY,
     RESERVE_BOX_DISK,
+    RETENTION_KEY,
+    RETENTION_SINCE_KEY,
     disk_origin,
     host_problems,
     incus,
@@ -265,7 +267,7 @@ def verify_controller_defaults():
                 "import json, sys; import raft; args = raft.parser().parse_args(sys.argv[1:]); "
                 "used = raft.apply_new_defaults(args); "
                 "print(json.dumps([args.location, args.ttl, args.cpu, args.memory, args.disk, "
-                "sorted(used)]))"
+                "args.disposable, sorted(used)]))"
             )
             response = subprocess.run(
                 [sys.executable, "-c", program, *arguments],
@@ -279,13 +281,14 @@ def verify_controller_defaults():
             return json.loads(response.stdout)
 
         # No disk is the shared pool.
-        assert resolved("new") == ["lab", 600, 1, "2GiB", None, []]
+        assert resolved("new") == ["lab", 600, 1, "2GiB", None, False, []]
         for arguments, printed in [
             (["set", "cpu", "2"], "defaults.cpu: built-in default -> 2"),
             (["set", "memory", "4GiB"], "defaults.memory: built-in default -> 4GiB"),
             (["set", "ttl", "3600"], "defaults.ttl: built-in default -> 3600"),
             (["set", "location", "spare"], "defaults.location: built-in default -> spare"),
             (["set", "disk", "20GiB"], "defaults.disk: built-in default -> 20GiB"),
+            (["set", "disposable", "true"], "defaults.disposable: built-in default -> true"),
             (["set", "cpu", "1"], "defaults.cpu: 2 -> 1"),
         ]:
             response = cli("config", *arguments)
@@ -297,29 +300,48 @@ def verify_controller_defaults():
                 "ttl": 3600,
                 "location": "spare",
                 "disk": "20GiB",
+                "disposable": True,
             }
         }
         assert config.stat().st_mode & 0o777 == 0o600, "Default editing widened permissions"
         # Explicit flags win over config.json, which wins over built-in defaults.
-        everything = ["cpu", "disk", "location", "memory", "ttl"]
-        assert resolved("new") == ["spare", 3600, 1, "4GiB", "20GiB", everything]
+        everything = ["cpu", "disk", "disposable", "location", "memory", "ttl"]
+        assert resolved("new") == ["spare", 3600, 1, "4GiB", "20GiB", True, everything]
         assert resolved("new", "--location", "lab", "--ttl", "60", "--cpu", "2") == [
             "lab",
             60,
             2,
             "4GiB",
             "20GiB",
-            ["disk", "memory"],
+            True,
+            ["disk", "disposable", "memory"],
         ]
-        # --disk shared beats a configured own disk.
-        assert resolved("new", "--disk", "shared")[4:] == [
+        # --disk shared beats a configured own disk, and --persistent a disposable default.
+        assert resolved("new", "--disk", "shared", "--persistent")[4:] == [
             None,
+            False,
             ["cpu", "location", "memory", "ttl"],
         ]
+        assert resolved("new", "--disposable")[5:] == [
+            True,
+            ["cpu", "disk", "location", "memory", "ttl"],
+        ]
+        rejected = cli("new", "--disposable", "--persistent")
+        assert rejected.returncode == 2 and "not allowed with" in rejected.stderr, rejected
         # A box from a snapshot keeps the snapshot's location, CPU, RAM and disk:
         # defaults, configured or built-in, never override them; flags still do.
+        # A snapshot has no lifecycle, so the TTL and disposable defaults apply.
         template = "lab:rf-0123456789abcdef/snap"
-        assert resolved("new", "--from", template) == [None, 3600, None, None, None, ["ttl"]]
+        assert resolved("new", "--from", template) == [
+            None,
+            3600,
+            None,
+            None,
+            None,
+            True,
+            ["disposable", "ttl"],
+        ]
+        assert resolved("new", "--from", template, "--persistent")[5] is False
         assert resolved("new", "--from", template, "--cpu", "4", "--disk", "30GiB")[2:5] == [
             4,
             None,
@@ -328,24 +350,30 @@ def verify_controller_defaults():
         assert "--from keeps the snapshot's disk" in resolved(
             "new", "--from", template, "--disk", "shared"
         )
-        # fork has no defaults at all: omitted sizes stay the source's.
+        # fork has no defaults at all: omitted sizes stay the source's, and a fork
+        # is persistent without --disposable even under a disposable default.
         forked = subprocess.check_output(
             [
                 sys.executable,
                 "-c",
                 "import raft; args = raft.parser().parse_args(['fork', 'lab:rf-0123456789abcdef', "
-                "'--ttl', '600']); print(raft.sizing(args), hasattr(args, 'disk'))",
+                "'--ttl', '600']); print(raft.sizing(args), hasattr(args, 'disk'), args.disposable)",
             ],
             cwd=ROOT,
             env={**os.environ, "HOME": home},
             text=True,
         )
-        assert forked == "[] False\n", forked
+        assert forked == "[] False False\n", forked
         for arguments, error in [
             (["set", "cpu", "0"], "defaults.cpu='0' is invalid"),
             (["set", "memory", "3GB"], "defaults.memory='3GB' is invalid"),
             (["set", "disk", "20"], "defaults.disk='20' is invalid"),
             (["set", "ttl", "59"], "TTL must be 60 seconds to 30 days"),
+            (
+                ["set", "disposable", "yes"],
+                "defaults.disposable='yes' is invalid: Use true or false",
+            ),
+            (["set", "disposable", "True"], "defaults.disposable='True' is invalid"),
             (["set", "location", "missing"], "Unknown location"),
             (["set", "location", "bad name"], "Location names"),
         ]:
@@ -359,6 +387,7 @@ def verify_controller_defaults():
             ({"defaults": {"cpu": 0}}, "defaults.cpu=0 is invalid"),
             ({"defaults": {"cpu": True}}, "defaults.cpu=True is invalid"),
             ({"defaults": {"disk": 20}}, "defaults.disk=20 is invalid"),
+            ({"defaults": {"disposable": 1}}, "defaults.disposable=1 is invalid"),
             ({"defaults": {"colour": "red"}}, "unknown key defaults.colour"),
             ({"defaults": []}, '{"defaults"'),
             ({"lab": {"ssh": "x"}}, '{"defaults"'),
@@ -389,6 +418,7 @@ def verify_controller_defaults():
                 ("ttl", "120"),
                 ("location", "lab"),
                 ("disk", "shared"),
+                ("disposable", "false"),
             ]
         ]
         assert all(writer.wait() == 0 for writer in writers)
@@ -398,8 +428,25 @@ def verify_controller_defaults():
             "ttl": 120,
             "location": "lab",
             "disk": "shared",
+            "disposable": False,
         }
-        for key in ["cpu", "memory", "ttl", "location", "disk"]:
+        # JSON booleans read back as the CLI's true and false.
+        assert cli("config", "set", "disposable", "true").stdout == (
+            "defaults.disposable: false -> true\n"
+        )
+        # raft config reports it with its source; the report's host half needs SSH.
+        effective = subprocess.check_output(
+            [
+                sys.executable,
+                "-c",
+                "import json, raft; print(json.dumps(raft.effective_defaults()['disposable']))",
+            ],
+            cwd=ROOT,
+            env={**os.environ, "HOME": home},
+            text=True,
+        )
+        assert json.loads(effective) == {"value": True, "source": "config"}, effective
+        for key in ["cpu", "memory", "ttl", "location", "disk", "disposable"]:
             assert cli("config", "unset", key).returncode == 0
         assert not config.exists(), "Removing every default left an empty file"
         assert not list(directory.glob(".raft-*")), "Staged configuration left behind"
@@ -409,13 +456,21 @@ def verify_controller_defaults():
             (["policy", "lab", "--require", "owner"], "always need purpose"),
             (["policy", "lab", "--require", "purpose,colour"], "Give note fields from"),
             (["policy", "lab", "--require", ","], "Give note fields from"),
-            (["policy", "missing", "--clear"], "Unknown location"),
+            (["policy", "missing", "--require", "none"], "Unknown location"),
+            (["policy", "lab"], "Give --require FIELDS|none, --delete-stopped-after"),
+            (["policy", "lab", "--delete-stopped-after", "0"], "positive whole number of hours"),
+            (["policy", "lab", "--delete-stopped-after", "48h"], "positive whole number of hours"),
+            # Both options are parsed before either changes the host.
+            (
+                ["policy", "lab", "--require", "none", "--delete-stopped-after", "-1"],
+                "positive whole number of hours",
+            ),
             (["fork", handle, "--ttl", "600", "--owner", "agent"], "need --purpose"),
             (["recover", "archive", "--location", "lab", "--next", "x"], "need --purpose"),
         ]:
             rejected = cli(*arguments)
             assert rejected.returncode == 1 and error in rejected.stderr, (arguments, rejected)
-        assert cli("policy", "lab").returncode == 2
+        assert cli("policy", "lab", "--clear").returncode == 2
     # The controller message names the missing flags and a complete command.
     program = (
         "import raft; print(raft.note_problem('lab', ['purpose', 'owner'], "
@@ -465,6 +520,110 @@ def verify_controller_defaults():
     assert configured == flag + ". " + disk_origin("20GiB"), configured
     assert "defaults.disk in " in configured and "raft config unset disk" in configured
     print("Controller defaults, precedence, validation and note policy messages passed", flush=True)
+
+
+# Stands in for incus and logger on PATH for the real host worker. It answers the
+# worker's two reads from the state file and appends every call to the log file.
+FAKE_HOST_TOOL = """import json, os, sys
+from pathlib import Path
+arguments = [Path(sys.argv[0]).name, *sys.argv[1:]]
+with open(os.environ["RAFT_FAKE_LOG"], "a") as log:
+    log.write(json.dumps(arguments) + "\\n")
+state = json.loads(Path(os.environ["RAFT_FAKE_STATE"]).read_text())
+if arguments[1:] == ["--project", "raft", "list", "--fast", "--format", "json"]:
+    print(json.dumps(state["instances"]))
+elif arguments[1:] == ["--project", "raft", "project", "list", "--format", "json"]:
+    print(json.dumps([{"name": "default", "config": {}}, {"name": "raft", "config": state["project"]}]))
+"""
+
+
+def verify_retention_worker():
+    """Run the real host worker against fake incus fixtures and check what it changes."""
+    now = int(time.time())
+
+    def box(name, status, stopped_at=None, raft="true"):
+        config = {"user.raft": raft}
+        if stopped_at is not None:
+            config["user.raft.stopped-at"] = str(stopped_at)
+        return {"name": name, "status": status, "config": config}
+
+    instances = [
+        # Running boxes are never touched, even with an old stop time left behind.
+        box("rf-running", "Running", now - 30 * 86400),
+        box("rf-old", "Stopped", now - 3 * 3600),
+        box("rf-recent", "Stopped", now - 3600),
+        box("rf-unrecorded", "Stopped"),
+        box("unrelated", "Stopped", now - 30 * 86400, raft="false"),
+    ]
+
+    def run_worker(project, *arguments):
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work)
+            for tool in ["incus", "logger"]:
+                (root / tool).write_text(f"#!{sys.executable}\n" + FAKE_HOST_TOOL)
+                (root / tool).chmod(0o755)
+            (root / "state.json").write_text(
+                json.dumps({"instances": instances, "project": project})
+            )
+            started = int(time.time())
+            response = subprocess.run(
+                [sys.executable, "-I", str(ROOT / "deploy/raft-expire.py"), *arguments],
+                env={
+                    **os.environ,
+                    "PATH": f"{root}:{os.environ['PATH']}",
+                    "RAFT_FAKE_STATE": str(root / "state.json"),
+                    "RAFT_FAKE_LOG": str(root / "calls.jsonl"),
+                },
+                capture_output=True,
+                text=True,
+            )
+            calls = [json.loads(line) for line in (root / "calls.jsonl").read_text().splitlines()]
+        # Leave out the two reads; normalize the recorded stop time to "now".
+        changes = []
+        for call in calls:
+            if call[-2:] == ["--format", "json"]:
+                continue
+            if call[-1].startswith("user.raft.stopped-at="):
+                assert started <= int(call[-1].partition("=")[2]) <= int(time.time()), call
+                call[-1] = "user.raft.stopped-at=now"
+            changes.append(call)
+        return response, changes
+
+    record = ["incus", "--project", "raft", "config", "set", "rf-unrecorded"]
+    record.append("user.raft.stopped-at=now")
+    two_hours = {"user.raft.delete-stopped-after": "2", "user.raft.delete-stopped-after.since": ""}
+    # A 2-hour policy set long ago deletes the box stopped 3 hours ago and logs it.
+    response, changes = run_worker({**two_hours, "user.raft.delete-stopped-after.since": "0"})
+    assert response.returncode == 0, response
+    assert changes[0] == ["incus", "--project", "raft", "delete", "rf-old"], changes
+    assert changes[1][:3] == ["logger", "-t", "raft"] and "rf-old" in changes[1][3], changes
+    assert "under the 2-hour retention" in changes[1][3] and changes[2:] == [record], changes
+    assert changes[1][3] in response.stdout, response
+    # Set an hour ago, the policy's clock starts then: nothing is deleted yet.
+    since = str(now - 3600)
+    response, changes = run_worker({**two_hours, "user.raft.delete-stopped-after.since": since})
+    assert response.returncode == 0 and changes == [record], (response, changes)
+    # Without a policy nothing is deleted, but stop times are still recorded.
+    response, changes = run_worker({})
+    assert response.returncode == 0 and changes == [record], (response, changes)
+    # Prune mode only selects; it records and retains nothing else.
+    response, changes = run_worker(
+        {**two_hours, "user.raft.delete-stopped-after.since": "0"}, "--prune-days", "1"
+    )
+    assert response.returncode == 0 and changes == [], (response, changes)
+    # An invalid policy deletes nothing, still enforces deadlines, and fails the run.
+    instances.append(
+        {
+            "name": "rf-expired",
+            "status": "Running",
+            "config": {"user.raft": "true", "user.raft.expires": "1"},
+        }
+    )
+    response, changes = run_worker({**two_hours, "user.raft.delete-stopped-after": "48h"})
+    assert response.returncode == 1 and "Invalid retention" in response.stderr, response
+    assert ["incus", "--project", "raft", "stop", "rf-expired", "--timeout", "30"] in changes
+    assert not any("delete" in call for call in changes), changes
+    print("Host worker retention, stop-time recording and grace period passed", flush=True)
 
 
 def verify_host_preflight():
@@ -588,7 +747,7 @@ def verify_note_policy(location, create, listed_note, fixtures):
         assert changed.stdout == f"{location}: required note fields none -> purpose,owner\n"
         report = json.loads(live.raft("config").stdout)
         assert report["policy"][location]["require"] == ["purpose", "owner"], report
-        assert " by " in report["policy"][location]["changed"], report
+        assert " by " in report["policy"][location]["requireChanged"], report
         saved = len(inventory(location))
         for arguments, error in [
             (["new", "--location", location, "--purpose", "x"], "requires --owner (host policy)"),
@@ -632,13 +791,124 @@ def verify_note_policy(location, create, listed_note, fixtures):
         live.raft("note", source, "--purpose", "Policy fork source", "--owner", "verify")
         assert listed_note(source) == {"purpose": "Policy fork source", "owner": "verify"}
     finally:
-        cleared = live.raft("policy", location, "--clear")
+        cleared = live.raft("policy", location, "--require", "none")
     assert cleared.stdout == f"{location}: required note fields purpose,owner -> none\n"
     assert json.loads(live.raft("config").stdout)["policy"][location]["require"] == []
     live.raft("note", source, "--clear")
     live.raft("destroy", source)
     fixtures.remove(source)
     print(f"{location}: host note policy for new, fork, note and recover passed", flush=True)
+
+
+def verify_retention(location, create, exists, worker):
+    """Set a 1-hour stopped-box retention, prove the worker deletes only a box stopped
+    past it, records stop times Raft missed and logs to the journal, then clear it."""
+    host = settings(location)["ssh"]
+    started = int(time.time())
+    running = create("--memory", "1GiB", "--purpose", "Retention: running box")
+    kept = create("--memory", "1GiB", "--purpose", "Retention: recently stopped box")
+    expired = create("--memory", "1GiB", "--purpose", "Retention: long stopped box")
+    unrecorded = create("--memory", "1GiB", "--purpose", "Retention: box stopped outside Raft")
+    live.raft("stop", kept)
+    live.raft("stop", expired)
+    # A native stop records no stop time; the worker starts that box's clock.
+    incus(location, "stop", parse_handle(unrecorded)[1], "--timeout", "30", locked=True)
+
+    def stopped_at(handle):
+        return incus(
+            location, "config", "get", parse_handle(handle)[1], "user.raft.stopped-at"
+        ).strip()
+
+    def tick(done):
+        # The staged worker runs once; the installed one runs on its 15-second timer.
+        if worker:
+            transaction(location, 'exec python3 "$1"', worker)
+        deadline = time.monotonic() + 50
+        while not done():
+            if time.monotonic() > deadline:
+                raise RuntimeError("Host expiry worker did not apply the retention policy")
+            time.sleep(1)
+
+    def listed():
+        lines = live.raft("list", "--location", location).stdout.splitlines()
+        return {record["box"]: record for record in map(json.loads, lines)}
+
+    if worker:
+        # Older workers ignore retention, so the CLI refuses to set it for them.
+        rejected = live.raft("policy", location, "--delete-stopped-after", "1", check=False)
+        assert rejected.returncode and "deploy the current Raft checkout" in rejected.stderr
+        incus(
+            location,
+            "project",
+            "set",
+            "raft",
+            f"{RETENTION_KEY}=1",
+            f"{RETENTION_SINCE_KEY}={int(time.time())}",
+            locked=True,
+        )
+    else:
+        changed = live.raft("policy", location, "--delete-stopped-after", "1")
+        assert changed.stdout == f"{location}: delete stopped boxes after never -> 1 hour\n"
+    try:
+        policy = json.loads(live.raft("config").stdout)["policy"][location]
+        assert policy["deleteStoppedAfterHours"] == 1, policy
+        since = policy["deleteStoppedAfterSince"]
+        assert started <= since <= time.time(), policy
+        # A box stopped before the policy gets the full hour from the change.
+        records = listed()
+        assert records[kept]["deleteAt"] == str(since + 3600), records[kept]
+        assert records[running]["deleteAt"] == "", records[running]
+        # Hours are the smallest unit, so backdate the policy and one stop by two
+        # hours instead of waiting: only that box is then past the retention.
+        backdated = int(time.time()) - 2 * 3600
+        incus(location, "project", "set", "raft", f"{RETENTION_SINCE_KEY}={backdated}", locked=True)
+        incus(
+            location,
+            "config",
+            "set",
+            parse_handle(expired)[1],
+            f"user.raft.stopped-at={backdated}",
+            locked=True,
+        )
+        tick(lambda: not exists(expired) and stopped_at(unrecorded))
+        assert exists(kept) and exists(running) and exists(unrecorded)
+        # The clock of a box stopped outside Raft starts when the worker sees it.
+        assert int(stopped_at(unrecorded)) >= started
+        assert listed()[unrecorded]["deleteAt"] == str(int(stopped_at(unrecorded)) + 3600)
+        deleted = f"Deleted box {parse_handle(expired)[1]}, stopped since "
+        command = ["sudo", "-n", "journalctl", "-t", "raft", "--since", f"@{started}", "-o", "cat"]
+        deadline = time.monotonic() + 10
+        while True:
+            journal = subprocess.check_output(["ssh", "-T", host, shlex.join(command)], text=True)
+            if deleted in journal or time.monotonic() > deadline:
+                break
+            time.sleep(1)
+        assert deleted in journal, journal
+        if not worker:
+            assert "Stopped-box retention: hours: '' -> '1'" in journal, journal
+    finally:
+        if worker:
+            incus(
+                location,
+                "project",
+                "set",
+                "raft",
+                f"{RETENTION_KEY}=",
+                f"{RETENTION_SINCE_KEY}=",
+                locked=True,
+            )
+        else:
+            cleared = live.raft("policy", location, "--delete-stopped-after", "never")
+    if not worker:
+        assert cleared.stdout == f"{location}: delete stopped boxes after 1 hour -> never\n"
+    policy = json.loads(live.raft("config").stdout)["policy"][location]
+    assert policy["deleteStoppedAfterHours"] is None, policy
+    assert listed()[kept]["deleteAt"] == ""
+    print(
+        f"{location}: stopped-box retention deleted only the expired box, "
+        "recorded missing stop times, logged and cleared",
+        flush=True,
+    )
 
 
 def verify(location, isolated_worker=False):
@@ -681,7 +951,7 @@ def verify(location, isolated_worker=False):
             ],
             text=True,
         ).strip()
-        if protocol == "1":
+        if protocol == "2":
             raise RuntimeError(
                 "--isolated-worker targets older deployments; use normal verification on a current host"
             )
@@ -965,6 +1235,7 @@ def verify(location, isolated_worker=False):
             f"{location}: disposable deletion, preview/apply retention and exclusions passed",
             flush=True,
         )
+        verify_retention(location, create, exists, worker)
     finally:
         for handle in reversed(fixtures):
             if exists(handle):
@@ -996,6 +1267,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     verify_location_notes()
     verify_controller_defaults()
+    verify_retention_worker()
     verify_host_preflight()
     verify_archives()
     if args.location:

@@ -7,6 +7,7 @@ import os
 import pty
 import select
 import shlex
+import shutil
 from pathlib import Path
 import socket
 import subprocess
@@ -19,11 +20,24 @@ ROOT = Path(__file__).resolve().parent.parent
 CLI = [sys.executable, str(ROOT / "raft.py")]
 USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
 sys.path.insert(0, str(ROOT))
-from raft import configuration, incus, remote, settings, transaction  # noqa: E402
+from raft import CONFIG, configuration, incus, remote, settings, transaction  # noqa: E402
+
+# Suites run the CLI in a private HOME that holds only the location inventory, so
+# this controller's defaults for new (config.json) never reach them: a disposable
+# default would delete boxes a suite stops and expects to keep, and size defaults
+# would change asserted limits. OpenSSH reads keys and aliases from the passwd
+# home, not HOME. The inventory is copied once; suites that edit it use their own.
+CONTROLLER_HOME = tempfile.TemporaryDirectory(prefix="raft-verify-home-")
+if CONFIG.exists():
+    (Path(CONTROLLER_HOME.name) / ".config/raft").mkdir(parents=True)
+    shutil.copy2(CONFIG, Path(CONTROLLER_HOME.name) / ".config/raft/incus.json")
+CONTROLLER_ENV = {**os.environ, "HOME": CONTROLLER_HOME.name}
 
 
 def raft(*arguments, check=True, env=None):
-    response = subprocess.run([*CLI, *arguments], capture_output=True, text=True, env=env)
+    response = subprocess.run(
+        [*CLI, *arguments], capture_output=True, text=True, env=env or CONTROLLER_ENV
+    )
     if check and response.returncode:
         raise RuntimeError(f"Raft {arguments!r} failed: {response.stderr.strip()}")
     return response
