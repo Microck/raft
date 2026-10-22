@@ -8,12 +8,12 @@ Public releases must contain only reusable code, examples, and documentation. Ke
 
 ## Release assets and image publishing
 
-Release `main` through the `native images` workflow with a semantic `release_tag`, such as `v0.2.0`. The tag must match both Python and npm versions. Clean upstream Debian bases provide the images.
+Release `main` through the `native images` workflow with a semantic `release_tag`, such as `v0.7.0`. The tag must match both Python and npm versions. Clean upstream Debian bases provide the images.
 
 The workflow builds and inspects Python and npm packages, tests their installed executables outside the checkout, and publishes `@microck/raft` using the repository's `NPM_TOKEN` secret with npm provenance. Only then does it create the GitHub release with the wheel, source archive, npm tarball and verified image assets. Published versions are immutable; after partial publication, fix the failure and use a new patch version.
 
 ```sh
-gh workflow run images.yml --ref main -f release_tag=v0.2.0
+gh workflow run images.yml --ref main -f release_tag=v0.7.0
 ```
 
 - **Validation gating**: Publication requires native lifecycle and full-image recovery jobs alongside fresh AMD64 KVM provisioning and reboot verification.
@@ -30,15 +30,24 @@ Scan **all Git history**, branches, and tags before changing repository visibili
 
 ## Release verification commands
 
+Install `gitleaks`, `uv`, Node.js with `npm`, and the OpenSSH client providing `ssh-keygen` before running these checks. Ensure they are available on `PATH`; `uv sync --locked` does not install these tools.
+
 Run security scanning, linting, formatting checks, and package builds before tagging:
 
 ```sh
 gitleaks dir --redact --no-banner .
 gitleaks git --redact --no-banner .
 uv sync --locked
-uvx ruff check raft.py deploy/*.py
-uvx ruff format --check raft.py deploy/*.py
+uvx ruff check raft.py raft_files.py raft_run.py deploy/*.py
+uvx ruff format --check raft.py raft_files.py raft_run.py deploy/*.py
+uv run python -m compileall -q raft.py raft_files.py raft_run.py deploy
+uv run python deploy/verify-limits.py
+uv run python deploy/verify-image-tests.py
+uv run python deploy/verify-run.py
+uv run python deploy/verify-features.py
+uv run python deploy/verify-self-update.py
 uv build
+uv run python deploy/verify-release.py
 ```
 
 ## Image distribution rules
