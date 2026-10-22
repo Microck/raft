@@ -7,6 +7,7 @@ import json
 import os
 import re
 import select
+import shlex
 from pathlib import Path
 import signal
 import subprocess
@@ -63,8 +64,13 @@ class Transport:
         if self.fault == args.action or (self.fault == "first-pull" and args.source == "/first"):
             raise RuntimeError(args.action + " failed")
 
-    def transaction(self, _location, _script, name, token, code):
+    def transaction(self, _location, _script, name, token, creation, code):
         self.events.append("cleanup")
+        assert creation == (
+            "pending"
+            if self.fault in {"create", "timeout-create", "signal-create"}
+            else "acknowledged"
+        )
         assert name == "rf-fixture" and token == self.token and code == raft_run.CLEANUP
         self.wait("cleanup")
         if self.fault == "cleanup":
@@ -197,7 +203,7 @@ class RunTests(unittest.TestCase):
         ):
             allocated = []
             handle = raft.new(
-                args, run_id="owner-token", on_allocate=lambda *args: allocated.append(args)
+                args, run_id="1" * 32, on_allocate=lambda *args: allocated.append(args)
             )
         self.assertEqual(handle, ":".join(allocated[0]))
         script = calls[0][1]
@@ -205,7 +211,8 @@ class RunTests(unittest.TestCase):
             script.index('user.raft.expires="$(( '), script.index("incus --project raft start")
         )
         self.assertEqual(script.count("user.raft.expires="), 1)
-        self.assertIn("user.raft.run=owner-token", calls[0])
+        self.assertTrue(script.startswith(raft_run.creation_guard("1" * 32)))
+        self.assertIn("user.raft.run=" + "1" * 32, calls[0])
         self.assertIn("user.raft.disposable=true", calls[0])
 
 
@@ -315,12 +322,69 @@ else:
             ]:
                 state.write_text(json.dumps({"boxes": boxes, "fail": fail}))
                 result = subprocess.run(
-                    [sys.executable, "-c", raft_run.CLEANUP, "rf-fixture", "token"],
+                    [sys.executable, "-c", raft_run.CLEANUP, "rf-fixture", "token", "acknowledged"],
                     env=environment,
                     capture_output=True,
                 )
                 self.assertEqual(bool(result.returncode), bool(expected), result.stderr)
                 self.assertEqual(json.loads(state.read_text()).get("deleted", False), deleted)
+
+            isolated = raft_run.CLEANUP.replace(
+                '"/run/raft-ci-cancelled"', repr(str(root / "cancelled"))
+            )
+            for fail, token in [(False, "a" * 32), (True, "b" * 32)]:
+                state.write_text(json.dumps({"boxes": [], "fail": fail}))
+                result = subprocess.run(
+                    [sys.executable, "-c", isolated, "rf-fixture", token, "pending"],
+                    env=environment,
+                    capture_output=True,
+                )
+                self.assertEqual(bool(result.returncode), fail, result.stderr)
+                self.assertTrue((root / "cancelled" / token).exists())
+
+    def test_cancelled_creation_cannot_start_later(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            markers = root / "cancellations"
+            token = "a" * 32
+            common = raft_run.CANCELLATIONS.replace('"/run/raft-ci-cancelled"', repr(str(markers)))
+            # Isolated runtime state; the actual CLEANUP pending path is tested above.
+            cleanup = common + "\ncancellation(sys.argv[1], record=True)\n"
+            guard_command = shlex.split(raft_run.creation_guard(token))
+            guard_command[2] = guard_command[2].replace(
+                '"/run/raft-ci-cancelled"', repr(str(markers))
+            )
+            guard = guard_command[2]
+            subprocess.run([sys.executable, "-c", cleanup, token], check=True)
+            self.assertEqual(markers.stat().st_mode & 0o777, 0o700)
+            self.assertTrue((markers / token).exists())
+            created = root / "late-created"
+            late = (
+                "set -e\n" + shlex.join(guard_command) + "\n" + shlex.join(["touch", str(created)])
+            )
+            result = subprocess.run(
+                ["flock", str(root / "lifecycle.lock"), "sh", "-c", late], capture_output=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(created.exists(), "A queued creation must honor earlier cancellation")
+            self.assertEqual(subprocess.run([sys.executable, "-c", guard, "b" * 32]).returncode, 0)
+            # Do not follow or truncate a marker symlink, even in tampered private state.
+            victim = root / "victim"
+            victim.write_text("preserve")
+            (markers / ("c" * 32)).symlink_to(victim)
+            subprocess.run([sys.executable, "-c", cleanup, "c" * 32], check=True)
+            self.assertEqual(victim.read_text(), "preserve")
+            markers.chmod(0o755)
+            refused = subprocess.run([sys.executable, "-c", cleanup, "d" * 32], capture_output=True)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertFalse((markers / ("d" * 32)).exists())
+            markers.chmod(0o700)
+            link = root / "linked"
+            link.symlink_to(markers, target_is_directory=True)
+            unsafe = cleanup.replace(repr(str(markers)), repr(str(link)))
+            refused = subprocess.run([sys.executable, "-c", unsafe, "e" * 32], capture_output=True)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertFalse((markers / ("e" * 32)).exists())
 
 
 def native(location):

@@ -4,6 +4,8 @@ import argparse
 import os
 from pathlib import Path, PurePosixPath
 import signal
+import re
+import shlex
 import subprocess
 import sys
 import time
@@ -13,9 +15,76 @@ import uuid
 GRACE = 30
 LEASE_MARGIN = 120
 
+# Host-only state. /run is cleared on reboot, when queued SSH processes also die.
+# Never put root-created markers in world-writable /run/lock or follow symlinks.
+CANCELLATIONS = """import os, re, stat, sys
+CANCEL_ROOT = "/run/raft-ci-cancelled"
+def cancel_directory(create=False):
+    if create:
+        try:
+            os.mkdir(CANCEL_ROOT, 0o700)
+        except FileExistsError:
+            pass
+    try:
+        directory = os.open(CANCEL_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        if create:
+            raise
+        return None
+    metadata = os.fstat(directory)
+    if metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+        os.close(directory)
+        raise RuntimeError('Unsafe CI cancellation directory; refusing to use it')
+    return directory
+
+def cancellation(token, record=False):
+    if not re.fullmatch('[a-f0-9]{32}', token):
+        raise ValueError('Invalid CI run identity')
+    directory = cancel_directory(record)
+    if directory is None:
+        return False
+    try:
+        if record:
+            try:
+                marker = os.open(token, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                 0o600, dir_fd=directory)
+            except FileExistsError:
+                pass
+            else:
+                os.close(marker)
+        try:
+            os.stat(token, dir_fd=directory, follow_symlinks=False)
+            return True
+        except FileNotFoundError:
+            return False
+    finally:
+        os.close(directory)
+"""
+
+CHECK_CANCELLED = (
+    CANCELLATIONS
+    + """
+if cancellation(sys.argv[1]):
+    sys.exit('CI run was cancelled before creation')
+"""
+)
+
+
+def creation_guard(token):
+    if not re.fullmatch("[a-f0-9]{32}", token):
+        raise ValueError("Invalid CI run identity")
+    return shlex.join(["python3", "-c", CHECK_CANCELLED, token]) + "\n"
+
+
 # The caller holds the existing host lifecycle lock around this entire program.
-CLEANUP = """import json, subprocess, sys
-name, token = sys.argv[1:]
+CLEANUP = (
+    CANCELLATIONS
+    + """import json, subprocess, sys
+name, token, creation = sys.argv[1:]
+if creation not in ("pending", "acknowledged"):
+    sys.exit("Invalid CI creation state")
+if creation == "pending":
+    cancellation(token, record=True)
 def boxes():
     result = subprocess.run(['incus', '--project', 'raft', 'list', name, '--format', 'json'],
                             check=True, stdout=subprocess.PIPE)
@@ -30,6 +99,7 @@ subprocess.run(['incus', '--project', 'raft', 'delete', name, '--force'], check=
 if boxes():
     sys.exit('Run cleanup deletion was not confirmed')
 """
+)
 
 
 class Stopped(Exception):
@@ -140,6 +210,7 @@ def run(args, api):
     token = uuid.uuid4().hex
     allocated = None
     started = False
+    creation_acknowledged = False
     status = 1
     phase = "job"
     began = time.monotonic()
@@ -172,6 +243,7 @@ def run(args, api):
         try:
             include = git_files(source) if args.push else None
             api.new(args, run_id=token, on_allocate=record)
+            creation_acknowledged = True
             location, name = allocated
             while api.execute(location, name, ["true"], capture=True).returncode:
                 time.sleep(0.2)
@@ -228,7 +300,12 @@ def run(args, api):
                     signal.setitimer(signal.ITIMER_REAL, GRACE)
                     try:
                         api.transaction(
-                            location, 'exec python3 -c "$3" "$1" "$2"', name, token, CLEANUP
+                            location,
+                            'exec python3 -c "$4" "$1" "$2" "$3"',
+                            name,
+                            token,
+                            "acknowledged" if creation_acknowledged else "pending",
+                            CLEANUP,
                         )
                         print(f"raft run: cleanup confirmed for {location}:{name}", file=sys.stderr)
                     except Exception as error:

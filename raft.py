@@ -1139,7 +1139,8 @@ def new(args, *, run_id=None, on_allocate=None):
     # Initialize before starting, so a failed start still has its intended policy.
     transaction(
         args.location,
-        (CHECK_WORKER if args.disposable else "")
+        (raft_run.creation_guard(run_id) if run_id else "")
+        + (CHECK_WORKER if args.disposable else "")
         + fits_host(args)
         # Plain boxes from the image stay off raft-disks and skip the check.
         + (

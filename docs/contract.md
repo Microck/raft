@@ -115,6 +115,10 @@ optionally transfers a Git-filtered or explicitly complete source tree, collects
 result directories even after payload failure, then checks ownership and deletes
 under the lifecycle lock. The controller handles timeout and cancellation with
 bounded collection/cleanup attempts and reports unconfirmed cleanup as failure.
+Unacknowledged creation is cancelled under the same lock with a private host
+record; a queued creation checks it before allocation. These root-only records
+remain in `/run/raft-ci-cancelled` until reboot so late SSH requests cannot outlive
+their cancellation. Ordinary acknowledged runs leave no record.
 Host expiry is a backstop dependent on the worker and lock, not a strict deletion
 guarantee after transport failure. Existing nonzero payload status is preserved.
 This is not a registered runner, a scoped CI identity or VM-grade isolation.

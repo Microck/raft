@@ -76,12 +76,19 @@ host lifecycle lock and has a separate 30-second grace. Repeated cancellation is
 ignored during these bounded collection/cleanup attempts. No lease renewal or
 `--keep` mode is implemented.
 
-If the controller is killed, SSH is lost, or cleanup fails, inspect the exact
-handle printed on stderr. A disconnected create may still finish remotely; a
-cleanup observation is not proof that a delayed operation cannot finish later.
-The disposable expiry worker is a backstop, not a guarantee of instantaneous
-deletion: an unreachable host, stopped worker or held lifecycle lock can delay it.
-Do not blindly rerun an uncertain job or assume its side effects were rolled back.
+If creation was not acknowledged, cleanup first records that run's cancellation
+under the same host lifecycle lock. Creation checks that record before allocating,
+so a queued SSH request cannot start the box after cleanup has confirmed absence.
+These empty per-run records live in the root-only `/run/raft-ci-cancelled`
+directory, use no-follow operations, and remain until host reboot, when queued
+processes also disappear. Ordinary acknowledged runs leave no cancellation file.
+
+If the controller is killed before cleanup, SSH is lost, or cleanup fails, inspect
+the exact handle printed on stderr. A disconnected create may still finish when
+cancellation could not be recorded. The disposable expiry worker is a backstop,
+not a guarantee of instantaneous deletion: an unreachable host, stopped worker or
+held lifecycle lock can delay it. Do not blindly rerun an uncertain job or assume
+its side effects were rolled back.
 
 ## Prepared templates instead of shared mutable caches
 
