@@ -42,6 +42,7 @@ try {
     '/docs/guides/background-jobs',
     '/docs/guides/long-running-services',
     '/docs/guides/scripting-ci',
+    '/docs/guides/ci-jobs',
     '/docs/guides/config-policy',
     '/docs/guides/desktop-services',
     '/docs/guides/snapshots-forks',

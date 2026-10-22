@@ -118,4 +118,4 @@ bounded collection/cleanup attempts and reports unconfirmed cleanup as failure.
 Host expiry is a backstop dependent on the worker and lock, not a strict deletion
 guarantee after transport failure. Existing nonzero payload status is preserved.
 This is not a registered runner, a scoped CI identity or VM-grade isolation.
-See [Disposable CI jobs](guides/ci-jobs.mdx) for the full contract.
+See [Disposable CI jobs](./guides/ci-jobs.mdx) for the full contract.
