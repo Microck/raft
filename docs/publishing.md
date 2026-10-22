@@ -30,6 +30,8 @@ Scan **all Git history**, branches, and tags before changing repository visibili
 
 ## Release verification commands
 
+Install `gitleaks`, `uv`, Node.js with `npm`, and the OpenSSH client providing `ssh-keygen` before running these checks. Ensure they are available on `PATH`; `uv sync --locked` does not install these tools.
+
 Run security scanning, linting, formatting checks, and package builds before tagging:
 
 ```sh
