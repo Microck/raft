@@ -11,9 +11,10 @@ output, collects requested result directories, and attempts ownership-checked
 cleanup even after failure or cancellation. It does not register a GitHub
 self-hosted runner or replace your CI scheduler.
 
-This feature requires a CLI build containing `run`; it is not in the published
-0.6.0 CLI. For development, use `python3 /path/to/raft.py run` from this checkout.
-Pin a reviewed Raft commit or a release containing the command in CI.
+`raft run` is available in Raft 0.7.0 and later. Install the pinned controller
+with `npm install -g @microck/raft@0.7.0`, or use the verified release wheel.
+For development, use `python3 /path/to/raft.py run` from this checkout. Pin a
+reviewed release or full commit SHA in CI.
 
 ## Trust boundary
 
@@ -122,9 +123,8 @@ inventory JSON as `RAFT_INVENTORY`. The inventory's SSH target must use that key
 and its image fingerprint must be pinned. Never generate trust with an unchecked
 `ssh-keyscan` or disable host-key checking. Restrict access to these secrets.
 
-Replace `REVIEWED_RAFT_COMMIT` with a reviewed full commit SHA containing `run`.
-The pinned source installation below is for this unreleased feature; use a
-pinned released CLI version once available.
+The example pins the released controller to 0.7.0. Review a newer release before
+changing that version; do not silently install a moving branch or latest tag.
 
 ```yaml title="EXAMPLE: .github/workflows/trusted-build.yml"
 name: Trusted Raft build
@@ -147,8 +147,11 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.14'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
       - name: Install reviewed controller
-        run: python -m pip install 'git+https://github.com/Microck/raft.git@REVIEWED_RAFT_COMMIT'
+        run: npm install --global @microck/raft@0.7.0
       - name: Configure approved existing access
         env:
           SSH_KEY: ${{ secrets.RAFT_SSH_KEY }}
