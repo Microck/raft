@@ -24,6 +24,7 @@ import urllib.request
 import uuid
 
 import raft_files
+import raft_run
 
 __version__ = "0.6.0"
 
@@ -381,11 +382,11 @@ def receive(command, destination, *, stdin=None):
         ) as process:
             try:
                 shutil.copyfileobj(process.stdout, destination)
+                returncode = process.wait()
             except BaseException:
                 process.kill()
                 process.wait()
                 raise
-            returncode = process.wait()
         errors.seek(0)
         return subprocess.CompletedProcess(command, returncode, None, errors.read())
 
@@ -1104,7 +1105,7 @@ def own_disk(size):
     ]
 
 
-def new(args):
+def new(args, *, run_id=None, on_allocate=None):
     box_fields = box_note(args)
     # Sizes are filled here only for boxes from the image; a box from a snapshot
     # keeps the snapshot's CPU, RAM and disk unless a flag overrides them.
@@ -1133,10 +1134,13 @@ def new(args):
         print(f"{args.location} note: {note}", file=sys.stderr)
     require_note(args.location, box_fields, "new")
     name = "rf-" + uuid.uuid4().hex[:16]
+    if on_allocate is not None:
+        on_allocate(args.location, name)
     # Initialize before starting, so a failed start still has its intended policy.
     transaction(
         args.location,
-        (CHECK_WORKER if args.disposable else "")
+        (raft_run.creation_guard(run_id) if run_id else "")
+        + (CHECK_WORKER if args.disposable else "")
         + fits_host(args)
         # Plain boxes from the image stay off raft-disks and skip the check.
         + (
@@ -1155,10 +1159,15 @@ def new(args):
         + CHECK_NOTE
         # Always set the note, so a box created from a snapshot never inherits the
         # source note. The host checks the same value it writes.
-        + '\n"$@" -c user.raft.note="$note"; '
-        'incus --project raft start "$name"; '
-        'incus --project raft config set "$name" '
-        'user.raft.expires="$(( $(date +%s) + lifetime ))"',
+        + '\n"$@" -c user.raft.note="$note"'
+        + (' -c user.raft.expires="$(( $(date +%s) + lifetime ))"' if run_id else "")
+        + '; incus --project raft start "$name"; '
+        + (
+            ""
+            if run_id
+            else 'incus --project raft config set "$name" '
+            'user.raft.expires="$(( $(date +%s) + lifetime ))"'
+        ),
         str(args.ttl),
         name,
         json.dumps(box_fields) if box_fields else "",
@@ -1170,8 +1179,8 @@ def new(args):
         name,
         "-c",
         "user.raft=true",
-        "-c",
-        "user.raft.expires=",
+        *([] if run_id else ["-c", "user.raft.expires="]),
+        *(["-c", f"user.raft.run={run_id}"] if run_id else []),
         "-c",
         "user.raft.stopped-at=",
         "-c",
@@ -1187,15 +1196,15 @@ def new(args):
     return f"{args.location}:{name}"
 
 
-def execute(location, name, command, *, capture=False):
-    return remote(location, ["exec", name, "--cwd", "/workspace", "--", *command], capture=capture)
+def execute(location, name, command, *, capture=False, cwd="/workspace"):
+    return remote(location, ["exec", name, "--cwd", cwd, "--", *command], capture=capture)
 
 
 def transfer_tree(args, location, name):
     worker = Path(raft_files.__file__).read_text()
     with tempfile.TemporaryFile() as archive:
         if args.action == "upload":
-            raft_files.pack_directory(args.source, archive)
+            raft_files.pack_directory(args.source, archive, include=getattr(args, "include", None))
             size = archive.tell()
             archive.seek(0)
             response = remote(
@@ -1793,27 +1802,24 @@ def note_options(command):
     )
 
 
-def parser():
-    cli = argparse.ArgumentParser(description=__doc__)
-    cli.add_argument("--version", action="version", version=__version__)
-    commands = cli.add_subparsers(dest="action", required=True)
-    create = commands.add_parser("new")
-    create.add_argument("--location", default=None)
+def creation_options(command, *, lifecycle=True):
+    command.add_argument("--location", default=None)
     # Omitted options take ~/.config/raft/config.json defaults, then NEW_DEFAULTS.
     # With --from, every omitted size comes from the snapshot instead of a default.
-    create.add_argument("--ttl", type=ttl)
-    create.add_argument(
+    if lifecycle:
+        command.add_argument("--ttl", type=ttl)
+    command.add_argument(
         "--cpu",
         type=cpu_count,
         help=f"CPU limit (default: config, else {DEFAULT_CPU}; with --from, the snapshot's)",
     )
-    create.add_argument(
+    command.add_argument(
         "--memory",
         type=gib_size,
         help="RAM limit, e.g. 16GiB "
         f"(default: config, else {DEFAULT_MEMORY}; with --from, the snapshot's)",
     )
-    create.add_argument(
+    command.add_argument(
         "--disk",
         type=disk_size,
         metavar="SIZE",
@@ -1821,23 +1827,35 @@ def parser():
         "or shared for the shared pool "
         "(default: config, else shared; with --from, the snapshot's disk)",
     )
-    lifecycle = create.add_mutually_exclusive_group()
-    lifecycle.add_argument(
-        "--disposable",
-        dest="disposable",
-        action="store_const",
-        const=True,
-        help="Delete on stop or expiry (default: config, else persistent)",
-    )
-    lifecycle.add_argument(
-        "--persistent",
-        dest="disposable",
-        action="store_const",
-        const=False,
-        help="Keep the disk on stop or expiry, despite a disposable default",
-    )
-    create.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
-    note_options(create)
+    if lifecycle:
+        policy = command.add_mutually_exclusive_group()
+        policy.add_argument(
+            "--disposable",
+            dest="disposable",
+            action="store_const",
+            const=True,
+            help="Delete on stop or expiry (default: config, else persistent)",
+        )
+        policy.add_argument(
+            "--persistent",
+            dest="disposable",
+            action="store_const",
+            const=False,
+            help="Keep the disk on stop or expiry, despite a disposable default",
+        )
+    command.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
+    note_options(command)
+
+
+def parser():
+    cli = argparse.ArgumentParser(description=__doc__)
+    cli.add_argument("--version", action="version", version=__version__)
+    commands = cli.add_subparsers(dest="action", required=True)
+    create = commands.add_parser("new")
+    creation_options(create)
+    run = commands.add_parser("run", help="Run a command in a temporary CI box and clean up")
+    creation_options(run, lifecycle=False)
+    raft_run.add_options(run)
     commands.add_parser("locations", help="List configured locations and their notes")
     defaults = commands.add_parser(
         "config", help="Show defaults for new and each location's note policy, or change defaults"
@@ -1985,6 +2003,8 @@ def parser():
 
 
 def dispatch(args):
+    if args.action == "run":
+        return raft_run.run(args, sys.modules[__name__])
     if args.action == "self-update":
         return self_update(args)
     if args.action == "recover":

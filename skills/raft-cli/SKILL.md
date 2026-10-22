@@ -201,3 +201,19 @@ space on the controller and destination host. Large backups hold the host
 lifecycle lock and delay expiry checks. A controller crash can leave an owned
 staging archive or imported box; inspect the reported recovery handle before
 cleanup. This is manual recovery, not a scheduled backup service.
+
+## One-shot trusted CI
+
+Use `raft run` for a bounded foreground job that should not retain a workspace.
+It always creates a disposable box, supports placement/sizing/template/note flags,
+Git-filtered `--push`, explicit complete-tree `--push-all`, `--cwd`, `--timeout`,
+and repeatable `--pull GUEST_DIRECTORY NEW_LOCAL_DIRECTORY`. Read
+[the CI guide](../../docs/guides/ci-jobs.mdx) before using it. Keep secrets out of
+the uploaded tree; Git filtering is not a secret scanner. Supply purpose/owner/next.
+
+The handle and cleanup result appear on stderr. Do not claim a box is gone when
+cleanup is unconfirmed; inspect that exact handle without blindly rerunning the
+payload. Host expiry is a backstop, not immediate proof. No keep, lease renewal,
+registered runner or scoped CI credentials are provided. Never configure host
+keys, repository secrets or new access, or expose sudo-capable CI access to
+untrusted code, merely because an example suggests doing so.

@@ -4,7 +4,7 @@ title: Verification
 
 # Verification
 
-Raft is verified using real disposable Incus workspaces, guest processes, files, Docker builds, and network connections. Tests contain no mocked services and verify Raft behavior rather than conformance with the hosted Boat service.
+Raft is verified using real disposable Incus workspaces, guest processes, files, Docker builds, and network connections. Native suites exercise real services and verify Raft behavior rather than conformance with the hosted Boat service. Separate local worker and CI-orchestration fault fixtures are labeled below; they do not establish native-host behavior.
 
 ## Verification boundaries
 
@@ -34,7 +34,7 @@ Storage accounting covers shared pools rather than per-box quotas. Large backup 
 | Development image | Real developer-user tool checks, immutable selection and credential-path archive rejection |
 | Deployment/firewall | Repeat deployment removes stale rules without restarting Incus; failed filtering blocks normal and socket startup; boot timestamps prove filtering precedes Incus |
 | Storage contract | Disposable oversized pool is rejected without automatic resizing |
-| CLI options and errors | Help for all 34 commands and `host add`; default location, TTL and desktop port; all eight sizing profiles; global and per-location reports; invalid TTLs, sizes, required arguments, handles, paths, snapshot names, jobs and ports |
+| CLI options and errors | Command help, including `run` and `host add`; default location, TTL and desktop port; all eight sizing profiles; global and per-location reports; invalid TTLs, sizes, required arguments, handles, paths, snapshot names, jobs and ports |
 
 ## Command and option audit (2026-10-06)
 
@@ -241,3 +241,19 @@ On 2026-10-06, `raft limits` (since renamed `raft capacity`, with the admission 
 Allocation fixtures validated mixed sizing budgets, frozen containers, low RAM and disk conditions, host reserves, and admission limits. The four-stopped-box admission test verified that creation, forking, and recovery reject a fifth container when slots are exhausted. These are conservative allocation checks, not workload saturation benchmarks.
 
 </details>
+
+## Disposable CI command verification
+
+`python3 deploy/verify-run.py` runs explicit orchestration fault-injection tests,
+real Linux signal/deadline handling, real Git filtering and safe archive traversal,
+and the actual ownership-check cleanup program against an isolated fake Incus
+executable. These are not native-host evidence. They cover failed/uncertain
+creation, upload failures, nonzero payload preservation, artifacts, cleanup
+failures, cancellation, timeouts, existing destinations and ignored credentials.
+
+`python3 deploy/verify-run.py --location lab` additionally creates real temporary
+boxes on the explicitly selected host, uploads a source tree, executes successful
+and failing commands, retrieves result directories, checks timeout cleanup and
+compares the host inventory before/after. Native AMD64 and ARM64 image CI runs
+this suite. A new PR must have those actual runs pass before claiming native
+verification; local fault-injection success alone does not establish it.

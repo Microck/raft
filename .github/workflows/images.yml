@@ -4,6 +4,7 @@ on:
     paths:
       - raft.py
       - raft_files.py
+      - raft_run.py
       - images/incus/**
       - deploy/**
       - .github/workflows/images.yml
@@ -106,6 +107,8 @@ jobs:
         run: python3 deploy/verify-limits.py --location lab
       - name: Verify disposable lifecycle, templates, resizing and recursive transfers
         run: python3 deploy/verify-features.py --location lab
+      - name: Verify disposable CI runs
+        run: python3 deploy/verify-run.py --location lab
       - name: Verify full development-image backup and recovery
         run: python3 deploy/verify-controls.py --source lab --target lab --development-image --directory "$RUNNER_TEMP"
       - name: Measure cached-image startup

@@ -25,6 +25,7 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Usage | ✅ | ✅ | Cgroup memory, CPU counters, and shared-pool or own-disk space. No billing meter |
 | Root terminal | ✅ | ✅ | PTY over host SSH and native Incus exec. No directly exposed guest SSH endpoint |
 | Synchronous exec | ✅ | ✅ | Literal argv and preserved exit code. Shell syntax requires an explicit shell |
+| Disposable foreground CI | ✅ | ✅ | `run` orchestrates one fresh box, Git-aware upload, output collection and cleanup. Fixed timeout, no lease renewal/keep mode; host sudo SSH rather than scoped API keys. [CI guide](./guides/ci-jobs.mdx) |
 | Detached exec | ✅ | ✅ | Guest systemd unit, status, logs, cancellation. No process checkpoint or restart after stop |
 | File transfer | ✅ | ✅ | Binary file upload/download. Recursive tree transfer for running boxes; no directory merges |
 | Named snapshots | ✅ | ✅ | Create/list/restore with stopped source, checked inside the lifecycle lock. No running snapshot consistency guarantee |
@@ -63,3 +64,5 @@ Checked on 2026-10-07 against Boat's [CLI reference](https://docs.boat.dev/cli-r
 The new workspace-control suite passed on ARM64 and AMD64 at runtime commit `a7fef1f5` in [run 37603576786](https://github.com/Microck/raft/actions/runs/37603576786). The baseline native architecture and disposable AMD64 host tests passed in [run 37496577945](https://github.com/Microck/raft/actions/runs/37496577945). This audit compares documented features, not a live differential test against Boat. Managed agent workflows remain out of scope.
 
 Recursive transfers, resume/fork sizing, snapshot templates/deletion and disposable lifecycle are implemented. Directory transfers require a running box; templates stay on the source host. Public hosting, VM isolation, organization sharing, and remote APIs require additional infrastructure. noVNC tests do not establish parity for Boat frame rate, browser confinement or application set.
+
+CI comparison sources (reviewed 2026-10-22): [Boat CI](https://docs.boat.dev/ci), [CLI run](https://docs.boat.dev/cli-reference#boat-run-command), [scoped API keys](https://docs.boat.dev/api-keys/scopes), and [snapshot contents](https://docs.boat.dev/snapshots/whats-saved). Matching workflows do not imply matching security boundaries or costs.
