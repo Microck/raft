@@ -106,3 +106,16 @@ Boxes accept an optional note with a fixed template: `purpose` (required), `owne
 - **Host locking**: Export holds the host lifecycle lock, temporarily delaying expiry checks on the source host.
 - **Recovery**: `raft recover` imports archives into a stopped container with a fresh name, new MAC address, and cleared TTL. It reads the archive's recorded pool from `backup/index.yaml`: own-disk backups return to `raft-disks` with their size after the reservation check, failing on a host without the pool, and other archives land in `raft-data`. The host note policy applies after the reservation check. Recovery never overwrites existing boxes.
 - **Archive security**: Archives contain full container filesystems, including credentials. Native archive configuration is not sanitized; backups do not imply scheduled off-host uploads. Store archives privately and import only trusted exports.
+
+## Disposable foreground CI
+
+`run` creates a uniquely marked disposable box and establishes its fixed host
+expiry before startup. It streams one foreground command without retrying it,
+optionally transfers a Git-filtered or explicitly complete source tree, collects
+result directories even after payload failure, then checks ownership and deletes
+under the lifecycle lock. The controller handles timeout and cancellation with
+bounded collection/cleanup attempts and reports unconfirmed cleanup as failure.
+Host expiry is a backstop dependent on the worker and lock, not a strict deletion
+guarantee after transport failure. Existing nonzero payload status is preserved.
+This is not a registered runner, a scoped CI identity or VM-grade isolation.
+See [Disposable CI jobs](guides/ci-jobs.mdx) for the full contract.

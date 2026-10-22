@@ -102,7 +102,8 @@ and [Docker](docs/guides/docker.mdx).
 
 See [project setup and templates](docs/guides/project-setup.mdx),
 [persistent services](docs/guides/long-running-services.mdx),
-[scripting and CI](docs/guides/scripting-ci.mdx), and
+[scripting and CI](docs/guides/scripting-ci.mdx),
+[disposable CI jobs](docs/guides/ci-jobs.mdx), and
 [upgrades](docs/guides/upgrades.mdx) for complete operator workflows.
 
 stop the source box before taking a snapshot, restoring one or making a fork.
@@ -150,6 +151,7 @@ records differences, sources and test coverage.
 | CPU/memory sizing and usage | ✅ | ✅ | Any whole CPU count and GiB size up to the host. Usage covers the shared pool or the box's own disk |
 | Host capacity estimates | ❌ | ✅ | Advisory only; Raft has no box count limit. Boat reports plan limits |
 | Root terminal and command execution | ✅ | ✅ | Host SSH transport |
+| Disposable foreground CI jobs | ✅ | ✅ | `raft run`: fixed timeout, Git-aware upload, artifact collection, guarded cleanup; host SSH trust, not scoped API keys |
 | Background jobs, logs and cancellation | ✅ | ✅ | No process checkpoints |
 | File upload/download | ✅ | ✅ | Files and recursive trees; new directory destinations only |
 | Snapshots and same-host forks | ✅ | ✅ | Stopped source, checked under the lifecycle lock |

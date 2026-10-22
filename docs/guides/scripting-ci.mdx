@@ -11,6 +11,11 @@ authentication, and hosts with passwordless sudo. No Raft HTTP API, SDK, or API 
 exists. Give access only to trusted jobs: the configured SSH account has host sudo
 and controls all boxes on that host.
 
+For one-shot builds, [`raft run`](./ci-jobs.mdx) combines allocation, source upload,
+foreground execution, artifact collection and disposable cleanup. It is an
+orchestration command, not a registered CI runner. The manual lifecycle examples
+below remain useful for persistent debugging workflows.
+
 ## Output formats
 
 Raft does not have a global `--json` option. Parse each command's actual format:
@@ -29,7 +34,7 @@ Raft does not have a global `--json` option. Parse each command's actual format:
 | `prune` | JSONL candidates or deleted records with `box`, `action` |
 | `status` | systemd `ActiveState`, `SubState`, `ExecMainStatus` property lines |
 | `logs` | Guest journal text |
-| `exec` | Payload stdout/stderr |
+| `exec`, `run` | Payload stdout/stderr; `run` lifecycle diagnostics use stderr |
 | Other inspection/maintenance commands | Human-readable text or no output |
 
 `list` emits nothing when there are no boxes. `stopAt` is the host Unix deadline

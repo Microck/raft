@@ -9,6 +9,7 @@
     "background-jobs",
     "long-running-services",
     "scripting-ci",
+    "ci-jobs",
     "config-policy",
     "desktop-services",
     "snapshots-forks",

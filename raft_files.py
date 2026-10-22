@@ -34,14 +34,26 @@ def safe_member(member, destination):
     return tarfile.data_filter(member, destination)
 
 
-def pack_directory(source, stream):
+def pack_directory(source, stream, *, include=None):
     source = Path(source).resolve(strict=True)
     if not source.is_dir():
         raise ValueError("Recursive transfer source must be a directory")
 
+    allowed = None
+    if include is not None:
+        allowed = {"."}
+        for value in include:
+            path = PurePosixPath(value)
+            if path.is_absolute() or ".." in path.parts or ".git" in path.parts:
+                raise ValueError("Invalid filtered upload path: " + value)
+            allowed.add(str(path))
+            allowed.update(str(parent) for parent in path.parents)
+
     with tarfile.open(fileobj=stream, mode="w|") as archive:
 
         def add(parent, entry, name):
+            if allowed is not None and str(PurePosixPath(name)) not in allowed:
+                return
             # O_PATH pins the entry without opening a device or following a link.
             # All metadata, reads and descent then use that held object.
             descriptor = os.open(entry, os.O_PATH | os.O_NOFOLLOW, dir_fd=parent)

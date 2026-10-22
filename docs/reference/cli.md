@@ -27,6 +27,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Task | Commands |
 | --- | --- |
 | Workspace lifecycle | [`new`](#new), [`stop`](#stop), [`resume`](#resume), [`extend`](#extend), [`destroy`](#destroy) |
+| Disposable CI jobs | [`run`](#run) |
 | Execution and inspection | [`exec`](#exec), [`ssh`](#ssh), [`info`](#info), [`usage`](#usage) |
 | Background job | [`status`](#status), [`logs`](#logs), [`cancel`](#cancel) |
 | File transfer | [`upload`](#upload), [`download`](#download) |
@@ -37,6 +38,30 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Defaults and policies | [`config`](#config), [`policy`](#policy) |
 | Host inspection and maintenance | [`capacity`](#capacity), [`doctor`](#doctor), [`list`](#list), [`gc`](#gc), [`prune`](#prune) |
 | CLI maintenance | [`self-update`](#self-update) |
+
+## Disposable CI command
+
+### `run`
+
+`raft run [--location LOCATION | --from LOCATION:BOX/SNAPSHOT] [--cpu N] [--memory SIZE] [--disk SIZE] [--timeout SECONDS] [--push DIRECTORY | --push-all DIRECTORY] [--cwd GUEST_PATH] [--pull GUEST_DIRECTORY NEW_LOCAL_DIRECTORY]... [--purpose TEXT [--owner TEXT] [--next TEXT]] -- COMMAND [ARG ...]`
+
+Create a disposable box, probe readiness, optionally upload source, stream the
+command, collect result directories and attempt ownership-checked cleanup.
+`--timeout` defaults to 600 and covers the entire job, with separate 30-second
+collection and cleanup grace periods. The host expiry is established before
+start at timeout + 120 seconds. No renewal, detach, persistent or keep option.
+
+`--push` requires a Git working tree and copies tracked/unignored files without
+`.git`; submodules are refused. `--push-all` explicitly copies the full tree,
+including ignored files. Uploads require a new guest destination with an existing
+parent, defaulting to `/workspace/project`. Without upload, cwd is `/workspace`.
+Pulls are directory transfers to new local paths and run after a failed payload.
+
+Payload failure status takes precedence; a successful payload with failed
+collection/cleanup returns 1. Timeout is 124, Ctrl-C 130 and SIGTERM 143.
+Lifecycle messages and the allocated handle go to stderr, not stdout. Unknown
+remote outcomes are not automatically retried. See the [CI guide](../guides/ci-jobs.mdx)
+for trust restrictions, template caching, recovery limits and a GitHub example.
 
 ## Workspace lifecycle commands
 
