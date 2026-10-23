@@ -16,6 +16,8 @@
 control, with command execution, Docker, file transfer, snapshots, forks and a
 private desktop. Raft is not affiliated with Boat.
 
+[watch the 34-second intro video](promo/raft-intro.mp4) · [source post on X](https://x.com/JustMicrock/status/2112831660152504342)
+
 [setup](docs/operations.mdx) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.mdx) | [agent skill](skills/raft-cli/SKILL.md) | [docs site](https://raft.micr.dev/)
 
 ## quickstart
