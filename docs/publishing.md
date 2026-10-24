@@ -1,5 +1,6 @@
 ---
 title: Publishing
+description: Release packages and native images through verified publication gates.
 ---
 
 # Publishing a clean source release

@@ -5,6 +5,8 @@
   "pages": [
     "cli",
     "configuration",
-    "capacity"
+    "capacity",
+    "[Runtime contract](/docs/contract/)",
+    "[Boot measurements](/docs/boot-performance/)"
   ]
 }

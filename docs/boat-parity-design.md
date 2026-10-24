@@ -1,5 +1,6 @@
 ---
 title: Design decisions
+description: "Architecture choices for contributors: Incus, SSH, clean images and private access."
 ---
 
 # Architecture and references

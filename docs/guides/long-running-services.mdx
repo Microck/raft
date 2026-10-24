@@ -11,7 +11,7 @@ terminal, and detached jobs do not extend that deadline automatically.
 ## Choose a lifetime and retention policy
 
 ```sh title="CONTROLLER: Create a persistent box"
-box=$(raft new --location lab --ttl 3600)
+box=$(raft new --location lab --ttl 3600 --persistent)
 ```
 
 TTL is in seconds: 60 to 2,592,000 (30 days), with a creation default of 600.

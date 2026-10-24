@@ -17,7 +17,7 @@ parts of Raft. Updating one does not automatically update the others.
 ## Choose a release and prepare
 
 Review [release notes](https://github.com/Microck/raft/releases) and use matching
-CLI and deployment sources. The examples below pin `v0.2.0`; replace that version
+CLI and deployment sources. The examples below pin `v0.6.0`; replace that version
 consistently when adopting another release.
 
 ```sh title="CONTROLLER: Inspect the current installation"
@@ -34,7 +34,7 @@ stopping one. Schedule redeployment when interruptions are acceptable.
 ## Update the controller
 
 `raft self-update` installs the latest release through the channel that
-installed the CLI, and `raft self-update --version 0.2.0` installs a chosen
+installed the CLI, and `raft self-update --version 0.6.0` installs a chosen
 one. `raft self-update --check` only reports. For npm installs, npm checks the
 registry integrity hash of a package published with provenance. For uv tools,
 Raft downloads the release wheel and refuses it unless its SHA-256 matches the
@@ -43,7 +43,7 @@ release `SHA256SUMS`. See [`self-update`](../reference/cli.md#self-update).
 To install a release by hand instead, for an npm installation:
 
 ```sh title="CONTROLLER: Install a pinned CLI release"
-npm install -g @microck/raft@0.2.0
+npm install -g @microck/raft@0.6.0
 raft --version
 ```
 
@@ -52,7 +52,7 @@ release, verify the checksum, then install it with `uv`:
 
 ```sh title="CONTROLLER: Install a verified release wheel instead of npm"
 sha256sum --ignore-missing -c SHA256SUMS
-uv tool install --force ./raft-0.2.0-py3-none-any.whl
+uv tool install --force ./raft-0.6.0-py3-none-any.whl
 raft --version
 ```
 
@@ -71,8 +71,8 @@ reports each host whose worker differs from the new CLI.
 Obtain a separate checkout of the matching release:
 
 ```sh title="CONTROLLER: Obtain and deploy matching host code"
-git clone --branch v0.2.0 https://github.com/Microck/raft.git raft-v0.2.0
-cd raft-v0.2.0
+git clone --branch v0.6.0 https://github.com/Microck/raft.git raft-v0.6.0
+cd raft-v0.6.0
 python3 deploy/deploy.py --location lab
 raft doctor
 ```
@@ -105,7 +105,7 @@ backup's guest filesystem rather than rebuilding it from the new image.
 ## Verify the update
 
 ```sh title="CONTROLLER: Smoke-check a new persistent box"
-box=$(raft new --location lab --ttl 600)
+box=$(raft new --location lab --ttl 600 --persistent)
 raft exec "$box" -- node --version
 raft exec "$box" -- docker info
 raft stop "$box"

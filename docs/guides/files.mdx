@@ -5,11 +5,11 @@ description: Transfer files between your controller machine and running Raft wor
 
 # File transfer
 
-Upload and download individual files between your local controller and running workspaces over verified host SSH and Incus instance APIs.
+Upload and download individual files between your controller and a box over verified host SSH and Incus instance APIs.
 
 ## Target workspace handle
 
-Commands in this guide target a running workspace. Select one from `raft list` (see [First working box](../first-box.mdx)):
+Use a running box for all examples below. Individual-file transfers also work while stopped; recursive directory transfers require a running box. Select one from `raft list` (see [First working box](../first-box.mdx)):
 
 ```sh title="CONTROLLER: Select running workspace"
 raft list

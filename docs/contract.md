@@ -1,8 +1,12 @@
 ---
 title: Runtime contract
+description: Detailed implementation behavior and safety boundaries for maintainers.
 ---
 
 # Raft contract
+
+This is the implementation reference for maintainers and advanced operators.
+For a first run, use [host setup](./operations.mdx) and [your first box](./first-box.mdx).
 
 Raft manages persistent unprivileged native-architecture Incus system containers on configured ARM64 or AMD64 Linux hosts. Containers share the host kernel. Images must match host CPU architecture; foreign-architecture emulation and VM workflows are not implemented.
 
@@ -63,7 +67,7 @@ Boxes accept an optional note with a fixed template: `purpose` (required), `owne
 
 ## Container lifecycle and execution
 
-- **Stop and resume**: Stop terminates guest processes and preserves disk contents; stopped boxes retain disk but do not reserve guest RAM. Resume starts the container anew with an explicit TTL without restoring process memory.
+- **Stop and resume**: For a persistent box, stop terminates guest processes and preserves disk contents; stopped boxes retain disk but do not reserve guest RAM. Resume starts the container anew with an explicit TTL without restoring process memory.
 - **Lifetime extension**: `raft extend --ttl` resets a running box's deadline from current host time without restarting; stopped boxes require `raft resume`.
 - **Host worker contract**: `doctor`, disposable creation/fork, prune and setting a retention policy require the current worker protocol (2 since 0.6.0, which added retention). `doctor` checks it without running expiry or changing boxes, and reports the failing location. A mismatch fails before executing deletion policy or creating a disposable box; deploy the current checkout explicitly. Installing a new CLI does not update host workers.
 - **Disposable lifecycle**: `new --disposable`, or a configured `disposable` default without `--persistent`, opts a box into deletion on stop or TTL expiry, including its snapshots. Clones and recovered boxes default to persistent whatever the default; fork accepts an explicit `--disposable`.
@@ -108,6 +112,9 @@ Boxes accept an optional note with a fixed template: `purpose` (required), `owne
 - **Archive security**: Archives contain full container filesystems, including credentials. Native archive configuration is not sanitized; backups do not imply scheduled off-host uploads. Store archives privately and import only trusted exports.
 
 ## Disposable foreground CI
+
+This section specifies the unreleased 0.7.0 development implementation, not
+published 0.6.0. See [release status](./releases/index.mdx).
 
 `run` creates a uniquely marked disposable box and establishes its fixed host
 expiry before startup. It streams one foreground command without retrying it,

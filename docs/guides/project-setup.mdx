@@ -15,7 +15,7 @@ service. Commands run as guest root in `/workspace` unless you choose another us
 Create a persistent box after [host setup](../operations.mdx):
 
 ```sh title="CONTROLLER: Create a project box"
-box=$(raft new --location lab --ttl 3600)
+box=$(raft new --location lab --ttl 3600 --persistent)
 ```
 
 Upload a local project, excluding credentials and files you do not want copied.

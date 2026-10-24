@@ -9,7 +9,8 @@ Raft exports portable workspace archives and restores them onto compatible hosts
 
 ## Target workspace handle
 
-Commands in this guide require a stopped workspace:
+Use a **persistent** workspace. Stop it before backup; stopping a disposable box
+deletes it and its snapshots, so copy files out instead.
 
 ```sh title="CONTROLLER: Select and stop target workspace"
 raft list
@@ -35,7 +36,7 @@ Backup archives contain the entire guest filesystem, including credentials, SSH 
 
 Raft enforces safeguards during export:
 
-- **Private permissions**: Destination mode must be `0600`. Group and world permissions must be zero before export begins.
+- **Private permissions**: Raft creates the staged archive with mode `0600` and publishes it privately. Choose a new destination path; do not pre-create the file.
 - **Atomic link publication**: After export and `fsync`, Raft publishes the archive using `os.link(archive.name, destination)`. Hard-link support is checked at final publication rather than preflight; export can succeed while publication fails if the filesystem lacks hard-link support.
 - **No overwriting**: The destination file must not already exist.
 - **Lifecycle lock**: Export holds `/run/lock/raft-incus.lock`. Expiry checks for other containers on the host are delayed while the lock is held.

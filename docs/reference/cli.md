@@ -43,6 +43,9 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 
 ### `run`
 
+**Unreleased 0.7.0 feature.** Not present in published 0.6.0. See the
+[development requirements](../guides/ci-jobs.mdx) before using these commands.
+
 `raft run [--location LOCATION | --from LOCATION:BOX/SNAPSHOT] [--cpu N] [--memory SIZE] [--disk SIZE] [--timeout SECONDS] [--push DIRECTORY | --push-all DIRECTORY] [--cwd GUEST_PATH] [--pull GUEST_DIRECTORY NEW_LOCAL_DIRECTORY]... [--purpose TEXT [--owner TEXT] [--next TEXT]] -- COMMAND [ARG ...]`
 
 Create a disposable box, probe readiness, optionally upload source, stream the

@@ -1,41 +1,39 @@
 ---
 title: Overview
-description: Persistent Linux workspaces powered by Incus.
+description: Create persistent Linux development boxes on Ubuntu hosts you control.
 ---
 
 # Raft
 
-Raft is an independent, self-hosted open-source alternative to [boat.dev](https://boat.dev).
-It provides persistent Linux workspaces on ARM64 and AMD64 hardware,
-supporting command execution, Docker, file transfer, snapshots, forks, and desktop access.
-Raft is not affiliated with Boat.
+Raft creates **persistent Linux boxes on your own Ubuntu hosts**. Run commands,
+Docker builds and development services; copy files; save snapshots; or open a
+private desktop. A box is an unprivileged Incus container that shares its host's
+kernel, not a virtual machine.
 
-## Getting started
+## Start here
 
-Read [System requirements](./requirements.mdx), follow [Installation and host setup](./operations.mdx), and create your [First working box](./first-box.mdx).
+1. [Check requirements](./requirements.mdx): a Linux controller and a dedicated Ubuntu host.
+2. [Set up a host](./operations.mdx): install the CLI and run guided onboarding.
+3. [Create your first box](./first-box.mdx): run a command, stop it and resume it.
 
-```sh title="CONTROLLER: Create and use a workspace"
-box=$(raft new --location lab --ttl 600)
+Already have a configured host? Run these commands on your **controller**
+(the machine where you installed `raft`). Replace `lab` with your location:
+
+```sh
+box=$(raft new --location lab --ttl 600 --persistent)
 raft exec "$box" -- node --version
 raft ssh "$box"
-raft stop "$box"
 ```
 
-Stopping a workspace preserves files and packages on disk. Resuming resets its running lifetime.
+Exit the guest shell, then run `raft stop "$box"` on the controller. Files remain;
+processes stop. Host retention policies can later delete stopped boxes.
 
-## Task guides
+## Find a task
 
-| Task | Guide |
-| :--- | :--- |
-| Prepare a project and reuse its installed dependencies | [Project setup and templates](./guides/project-setup.mdx) |
-| Run nested containers and build images | [Docker in workspaces](./guides/docker.mdx) |
-| Transfer files between controller and workspace | [File transfer](./guides/files.mdx) |
-| Run detached commands with systemd logs | [Background jobs](./guides/background-jobs.mdx) |
-| Manage deadlines and restart services after resume | [Lifetime and persistent services](./guides/long-running-services.mdx) |
-| Automate the CLI and parse its output | [Scripting and CI](./guides/scripting-ci.mdx) |
-| Set defaults for new boxes, require box note fields or delete boxes left stopped | [Defaults and host policies](./guides/config-policy.mdx) |
-| Forward guest ports or open noVNC desktop | [Desktop and private services](./guides/desktop-services.mdx) |
-| Capture disk state or clone workspaces | [Snapshots and forks](./guides/snapshots-forks.mdx) |
-| Export portable backups across hosts | [Backup and recovery](./guides/backup-recovery.mdx) |
-| Update the CLI, host worker, and workspace image | [Upgrades and image changes](./guides/upgrades.mdx) |
-| Inspect host services and diagnose errors | [Troubleshooting](./guides/troubleshooting.mdx) |
+- [Work with a project](./guides/project-setup.mdx) or [copy files](./guides/files.mdx).
+- [Run Docker](./guides/docker.mdx), [background jobs](./guides/background-jobs.mdx), or [open a desktop](./guides/desktop-services.mdx).
+- [Browse all guides](./guides/index.mdx), [look up a command](./reference/cli.md), or [troubleshoot](./guides/troubleshooting.mdx).
+
+Raft is an independent open-source alternative to Boat, not affiliated with it.
+[Compare the trade-offs](./boat-capabilities.md). Setup examples target published
+**0.6.0**; [0.7.0 features](./releases/0.7.0.md) are marked unreleased.
