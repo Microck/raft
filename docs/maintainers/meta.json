@@ -1,0 +1,12 @@
+{
+  "title": "Maintainers",
+  "collapsible": true,
+  "defaultOpen": false,
+  "pages": [
+    "index",
+    "[Design decisions](/docs/boat-parity-design/)",
+    "[Verification](/docs/verification/)",
+    "[Publishing](/docs/publishing/)",
+    "[Documentation site](/docs/site-development/)"
+  ]
+}

@@ -36,6 +36,9 @@ try {
     '/docs/requirements',
     '/docs/operations',
     '/docs/first-box',
+    '/docs/guides',
+    '/docs/maintainers',
+    '/docs/releases',
     '/docs/guides/project-setup',
     '/docs/guides/docker',
     '/docs/guides/files',
@@ -68,6 +71,7 @@ try {
     '/docs/releases/0.7.0',
   ];
   const targets = new Set();
+  const fragments = new Map();
   for (const path of paths) {
     const response = await get(path);
     assert.equal(response.status, 200, path);
@@ -77,6 +81,9 @@ try {
       assert.ok(html.includes('href="https://github.com/Microck/raft/blob/main/.github/workflows/images.yml"'), 'Workflow source link must point to GitHub');
     }
     if (path === '/docs/operations') {
+      assert.ok(html.includes('@microck/raft@0.6.0'), 'Setup must pin the published stable package');
+      assert.ok(!html.includes('/releases/download/v0.7.0/'), 'Setup must not link unpublished image assets');
+      assert.ok(html.includes('<details>'), 'Advanced manual setup must be progressively disclosed');
       assert.ok(html.includes('role="tab"'), `${path}: must contain role="tab"`);
       assert.ok(html.includes('class="fd-steps"'), `${path}: must contain class="fd-steps"`);
       assert.equal([...html.matchAll(/<div class="fd-step">/g)].length, 7, `${path}: must contain exactly seven occurrences of <div class="fd-step">`);
@@ -91,13 +98,21 @@ try {
         assert.ok(!target.pathname.endsWith('.md'), `${path}: document link opens raw Markdown`);
         assert.ok(target.pathname.startsWith(`${config.basePath}/`), `Link escapes Pages path: ${target.pathname}`);
         targets.add(target.pathname.slice(config.basePath.length));
+        if (target.hash) {
+          const route = target.pathname.slice(config.basePath.length);
+          if (!fragments.has(route)) fragments.set(route, new Set());
+          fragments.get(route).add(decodeURIComponent(target.hash.slice(1)));
+        }
       }
     }
   }
   for (const path of targets) {
     const response = await get(path);
-    await response.arrayBuffer();
+    const text = await response.text();
     assert.equal(response.status, 200, `Broken local link: ${path}`);
+    for (const fragment of fragments.get(path) ?? []) {
+      assert.ok(text.includes(`id="${fragment}"`) || text.includes(`name="${fragment}"`), `Broken local anchor: ${path}#${fragment}`);
+    }
   }
   const missing = await get('/docs/page-that-does-not-exist');
   await missing.arrayBuffer();

@@ -1,5 +1,6 @@
 ---
 title: Verification
+description: Read test evidence and run dedicated verification suites with explicit limits.
 ---
 
 # Verification
@@ -10,7 +11,8 @@ Raft is verified using real disposable Incus workspaces, guest processes, files,
 
 Tests do not certify arbitrary long-running workloads, host loss, multi-tenant security boundaries, or exact Boat image/version parity. ARM64 host reboot and physical storage capacity are not certified by the AMD64 VM test. Containers share the host kernel and do not offer VM isolation.
 
-Storage accounting covers shared pools rather than per-box quotas. Large backup transfers hold the host lifecycle lock, which delays expiration checks.
+Shared-pool boxes have no per-box quota. Own-disk boxes have enforced ext4 limits
+and reservation accounting; the coverage matrix distinguishes both modes. Large backup transfers hold the host lifecycle lock, which delays expiration checks.
 
 ## Coverage matrix
 

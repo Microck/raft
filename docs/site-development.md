@@ -1,5 +1,6 @@
 ---
 title: Documentation site
+description: Edit, build and test the Fumadocs site without touching workspace hosts.
 ---
 
 # Documentation site

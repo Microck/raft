@@ -1,0 +1,31 @@
+---
+title: Task guides
+description: Pick a workflow after setting up your first Raft host.
+---
+
+# Task guides
+
+Start with [your first box](../first-box.mdx) if you have not run a command yet.
+Commands run on the controller unless a block is labeled **HOST**.
+
+## Develop
+
+- [Project setup and templates](./project-setup.mdx): upload a project and reuse dependencies.
+- [Docker](./docker.mdx): build images and manage guest disk use.
+- [File transfer](./files.mdx): copy individual files or directory trees.
+- [Desktop and private services](./desktop-services.mdx): open a browser, desktop or local tunnel.
+
+## Automate
+
+- [Background jobs](./background-jobs.mdx): detach, inspect logs and cancel.
+- [Lifetime and persistent services](./long-running-services.mdx): set deadlines and restart services after resume.
+- [Scripting and CI](./scripting-ci.mdx): parse output and handle failures.
+- [Disposable CI jobs — unreleased 0.7.0](./ci-jobs.mdx): run and clean up one temporary build.
+
+## Operate
+
+- [Snapshots and forks](./snapshots-forks.mdx): save disk state or make a same-host copy.
+- [Backup and recovery](./backup-recovery.mdx): move a whole box to a compatible host.
+- [Defaults and policies](./config-policy.mdx): set creation defaults and retention rules.
+- [Upgrades](./upgrades.mdx): update the CLI, host worker and image separately.
+- [Troubleshooting](./troubleshooting.mdx): start from a symptom.

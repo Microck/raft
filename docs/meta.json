@@ -2,20 +2,16 @@
   "title": "Raft",
   "pages": [
     "index",
-    "---Start here---",
+    "---Get started---",
     "requirements",
     "operations",
     "first-box",
+    "---Use Raft---",
     "guides",
     "reference",
-    "contract",
-    "---Comparison---",
+    "---About---",
     "boat-capabilities",
-    "boot-performance",
-    "---Contributing---",
-    "boat-parity-design",
-    "verification",
-    "publishing",
-    "site-development"
+    "maintainers",
+    "releases"
   ]
 }

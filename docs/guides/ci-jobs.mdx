@@ -11,10 +11,15 @@ output, collects requested result directories, and attempts ownership-checked
 cleanup even after failure or cancellation. It does not register a GitHub
 self-hosted runner or replace your CI scheduler.
 
-`raft run` is available in Raft 0.7.0 and later. Install the pinned controller
-with `npm install -g @microck/raft@0.7.0`, or use the verified release wheel.
-For development, use `python3 /path/to/raft.py run` from this checkout. Pin a
-reviewed release or full commit SHA in CI.
+<Callout type="warn" title="Unreleased: requires the 0.7.0 development code">
+The published release is 0.6.0, which does not include `raft run`. As checked on
+2026-10-24, no 0.7.0 npm package or GitHub release assets are available. Use the
+[stable scripting workflow](./scripting-ci.mdx) unless you intend to test a reviewed
+source revision. Do not install a nonexistent 0.7.0 package.
+</Callout>
+
+For development, run `python3 /path/to/raft.py run` from the reviewed checkout.
+The CI example below pins the full source commit instead of an unpublished tag.
 
 ## Trust boundary
 
@@ -123,8 +128,9 @@ inventory JSON as `RAFT_INVENTORY`. The inventory's SSH target must use that key
 and its image fingerprint must be pinned. Never generate trust with an unchecked
 `ssh-keyscan` or disable host-key checking. Restrict access to these secrets.
 
-The example pins the released controller to 0.7.0. Review a newer release before
-changing that version; do not silently install a moving branch or latest tag.
+The example pins development commit `7d678bb079a9b2dcde4e2eb9e4cd0468d00f50f3` in a
+separate Python environment. Review that code and its unreleased status
+before use; do not silently replace it with a moving branch.
 
 ```yaml title="EXAMPLE: .github/workflows/trusted-build.yml"
 name: Trusted Raft build
@@ -150,8 +156,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
-      - name: Install reviewed controller
-        run: npm install --global @microck/raft@0.7.0
+      - name: Install reviewed development controller
+        run: |
+          python -m venv "$RUNNER_TEMP/raft-cli"
+          "$RUNNER_TEMP/raft-cli/bin/pip" install "git+https://github.com/Microck/raft.git@7d678bb079a9b2dcde4e2eb9e4cd0468d00f50f3"
+          echo "$RUNNER_TEMP/raft-cli/bin" >> "$GITHUB_PATH"
       - name: Configure approved existing access
         env:
           SSH_KEY: ${{ secrets.RAFT_SSH_KEY }}

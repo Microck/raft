@@ -9,7 +9,8 @@ Raft captures filesystem snapshots, rolls back changes, and clones workspaces on
 
 ## Target workspace handle
 
-Commands in this guide require a stopped workspace:
+Use a **persistent** workspace and stop it first. Stopping a disposable box deletes
+it and its snapshots; do not use one as the source for this walkthrough.
 
 ```sh title="CONTROLLER: Select and stop target workspace"
 raft list
@@ -66,6 +67,7 @@ raft resume "$box" --ttl 600
 Forking creates an independent clone on the same host:
 
 ```sh title="CONTROLLER: Fork workspace into a new clone"
+raft stop "$box"  # Use a persistent box; stop deletes disposable boxes
 copy=$(raft fork "$box" --ttl 600)
 echo "Created fork: $copy"
 ```

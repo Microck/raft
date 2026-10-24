@@ -113,7 +113,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-box=$(raft new --location lab --ttl 3600)
+box=$(raft new --location lab --ttl 3600 --persistent)
 printf 'Created %s\n' "$box" >&2
 ready=false
 for attempt in {1..30}; do

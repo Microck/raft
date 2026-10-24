@@ -23,7 +23,7 @@ A box from a snapshot (`new --from`) or a fork keeps the source's CPU, RAM and
 disk instead of any default, and each flag you pass overrides only its own value.
 
 ```sh
-box=$(raft new --cpu 4 --memory 16GiB --disk 40GiB --ttl 3600 --purpose "Large build")
+box=$(raft new --cpu 4 --memory 16GiB --disk 40GiB --ttl 3600 --persistent --purpose "Large build")
 ```
 
 A CPU or RAM request larger than the whole host fails before anything is
@@ -37,6 +37,7 @@ Change CPU and RAM when you resume a stopped box or fork one:
 
 ```sh
 raft resume "$box" --ttl 1800 --cpu 2 --memory 4GiB
+raft stop "$box"  # Fork requires a stopped persistent source
 copy=$(raft fork "$box" --ttl 1800 --memory 2GiB)
 ```
 

@@ -1,0 +1,18 @@
+---
+title: Maintain Raft
+description: Design, verification, release and documentation work for Raft contributors.
+---
+
+# Maintain Raft
+
+These pages are for changing or releasing Raft, not for creating your first box.
+For everyday use, start with [host setup](../operations.mdx) or the [task guides](../guides/index.mdx).
+
+- [Design decisions](../boat-parity-design.md): why Raft uses Incus and host SSH.
+- [Runtime contract](../contract.md): behavior that implementations must preserve.
+- [Verification](../verification.mdx): test commands, evidence and unverified boundaries.
+- [Publishing](../publishing.md): package and image release gates.
+- [Documentation site](../site-development.md): edit, preview and check these docs.
+
+Host tests create and delete real workspaces. Read each suite's effects before
+running it, and use dedicated infrastructure you are authorized to change.

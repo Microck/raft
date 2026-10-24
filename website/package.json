@@ -10,7 +10,7 @@
     "lint": "oxlint",
     "predev": "node scripts/prepare-assets.mjs",
     "prebuild": "node scripts/prepare-assets.mjs",
-    "test": "node scripts/verify-site.mjs",
+    "test": "node --test scripts/search-results.test.mjs && node scripts/verify-site.mjs",
     "postbuild": "node scripts/prepare-assets.mjs --preview",
     "test:e2e": "node e2e-runner.mjs"
   },

@@ -3,17 +3,21 @@
   "collapsible": true,
   "defaultOpen": false,
   "pages": [
+    "index",
+    "---Develop---",
     "project-setup",
     "docker",
     "files",
+    "desktop-services",
+    "---Automate---",
     "background-jobs",
     "long-running-services",
     "scripting-ci",
     "ci-jobs",
-    "config-policy",
-    "desktop-services",
+    "---Operate---",
     "snapshots-forks",
     "backup-recovery",
+    "config-policy",
     "upgrades",
     "troubleshooting"
   ]

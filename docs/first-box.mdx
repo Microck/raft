@@ -12,13 +12,13 @@ Launch and manage a workspace after provisioning your host and pinning the image
 Create a workspace with `raft new`:
 
 ```sh title="CONTROLLER: Create a new workspace"
-box=$(raft new --location lab --ttl 600)
+box=$(raft new --location lab --ttl 600 --persistent)
 echo "Created workspace: $box"
 ```
 
 The command returns a location-qualified handle formatted as `<location>:<instance-name>` (for example `lab:rf-a1b2c3d4e5f60718`).
 
-Omitting `--location` targets the first location in `~/.config/raft/incus.json`. The `--ttl` flag sets the lifetime in seconds (default: 600).
+Without a configured location default, omitting `--location` targets the first location in `~/.config/raft/incus.json`. The `--ttl` flag sets the lifetime in seconds (default: 600).
 
 ## Step 2: Verify command execution and Docker daemon
 
@@ -50,37 +50,40 @@ Type `exit` or press `Ctrl+D` to disconnect.
 Commands run as root in `/workspace` inside an unprivileged Linux user namespace. Container root maps to an unprivileged high UID on the host, sharing the host kernel.
 </Callout>
 
-## Step 4: Stop, resume, and destroy
+## Step 4: Stop and resume
 
 Manage the workspace lifecycle:
 
-```sh title="CONTROLLER: Stop, resume, and destroy workspace"
+```sh title="CONTROLLER: Stop and resume workspace"
 # Stop running processes while preserving files and snapshots
 raft stop "$box"
 
 # Resume the stopped workspace with a renewed lifetime
 raft resume "$box" --ttl 600
 
-# Permanently destroy the workspace and release host capacity
-raft destroy "$box"
 ```
 
 - **`raft stop`**: Stops running processes and frees active allocations while retaining files and snapshots.
 - **`raft resume`**: Starts a stopped container with a new expiration deadline (`now + TTL`). Does not restore process memory.
 - **`raft destroy`**: Permanently deletes the container, filesystem, and snapshots from the host storage pool.
 
+## Clean up when finished
+
+<Callout type="warn" title="Permanent deletion">
+Destroy only the tutorial box after copying out anything you need. This removes
+its files and snapshots; it is not the same as stopping it.
+</Callout>
+
+```sh
+raft destroy "$box"
+```
+
 ## Next steps
 
-- [Project setup and templates](./guides/project-setup.mdx): Prepare a project and reuse its dependencies.
-- [Lifetime and persistent services](./guides/long-running-services.mdx): Manage deadlines and restart applications after resume.
-- [Scripting and CI](./guides/scripting-ci.mdx): Parse CLI output and handle failures.
-- [Docker in workspaces](./guides/docker.mdx): Run nested containers and build images.
-- [File transfer](./guides/files.mdx): Upload and download files over SSH.
-- [Background jobs](./guides/background-jobs.mdx): Run detached commands under systemd.
-- [Desktop and private services](./guides/desktop-services.mdx): Forward guest ports and open noVNC desktop.
-- [Snapshots and forks](./guides/snapshots-forks.mdx): Capture disk states and create same-host clones.
-- [Backup and recovery](./guides/backup-recovery.mdx): Export portable archives and restore across hosts.
-- [Troubleshooting](./guides/troubleshooting.mdx): Diagnose common errors and inspect host services.
-- [Upgrades and image changes](./guides/upgrades.mdx): Update the controller, hosts, and image pins.
+- [Set up a project](./guides/project-setup.mdx).
+- [Choose another task guide](./guides/index.mdx).
+- [Troubleshoot a failed command](./guides/troubleshooting.mdx).
 
-For temporary work, create with `--disposable`. Stopping or expiry then deletes the box and its snapshots. For persistent boxes, `raft prune --older-than 7` previews old stopped workspaces; add `--yes` only after reviewing the candidates. A host can also delete boxes left stopped automatically; `raft config` shows each location's `deleteStoppedAfterHours`.
+This tutorial uses `--persistent` so a disposable controller default cannot delete
+the box on stop. A host retention policy can still delete it after it has been
+stopped long enough; inspect `raft config` before leaving valuable work there.

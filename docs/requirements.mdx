@@ -21,7 +21,7 @@ Each workspace host must be a dedicated physical machine or virtual instance:
 
 `raft host add` checks these requirements read-only before it changes a host.
 
-Host CPU and RAM reserves are advisory estimates for `raft capacity`, not enforced cgroup locks. Raft limits neither how many boxes a host runs nor their size.
+Host CPU and RAM reserves are advisory estimates for `raft capacity`, not enforced cgroup locks. There is no product-tier box-count cap. Individual CPU/RAM requests must fit the host, and own disks must pass storage reservation checks.
 
 <Callout type="warn" title="Dedicated host requirement">
 Do not deploy Raft on hosts with existing Incus storage pools or shared virtualization workloads. Deployment configures dedicated nftables rules, storage pools, and system services.
