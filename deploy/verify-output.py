@@ -63,6 +63,21 @@ sys.exit(7)
         assert response.returncode == 7
         assert stream(records, "stdout") == bytes(range(256)) * 512
         assert stream(records, "stderr") == b"error" * 32768
+        for number in (9, 15):
+            # The event and shell status must agree after real child termination.
+            signalled = f"""
+import subprocess, sys
+import raft, raft_output
+out = raft_output.JsonOutput().start()
+child = subprocess.run([sys.executable, '-c', 'import os, signal; os.kill(os.getpid(), {number})'])
+status = raft.exit_status(child.returncode)
+out.finish(status)
+sys.exit(status)
+"""
+            response, records = events(
+                [sys.executable, "-c", signalled], {**env, "PYTHONPATH": str(ROOT)}
+            )
+            assert response.returncode == 128 + number, records
         parser = raft.parser()
         parser.add_argument("--future-flag", action="store_true")
         assert raft_output.candidates(parser, ["--future"]) == ["--future-flag"]

@@ -2445,6 +2445,11 @@ def dispatch(args):
     return 0
 
 
+def exit_status(returncode):
+    """Translate Python subprocess signals into shell-compatible process statuses."""
+    return 128 - returncode if returncode < 0 else returncode
+
+
 def main():
     if sys.version_info < (3, 11, 8):
         print("raft: Python 3.11.8 or newer is required", file=sys.stderr)
@@ -2490,6 +2495,7 @@ def main():
     except KeyboardInterrupt:
         status = 130
     finally:
+        status = exit_status(status)
         if notice and status != 130:
             notice()
         if output:

@@ -141,7 +141,9 @@ structured reports use `{"type":"data","value":...}`. Other output uses
 arbitrary bytes survive unchanged. Stream chunk boundaries are not lines.
 Expected failures add an `error` event with `code` (`usage` or `operation`) and
 `message`. The final `exit` event contains `code`, matching the process status,
-including payload failures. Usage errors return 2; operation errors return 1.
+including payload failures. Local subprocess signal termination becomes
+`128 + signal` in both the exit event and process status. Usage errors return 2;
+operation errors return 1.
 Help and version also end with an exit event. Release notices are disabled in
 JSON mode. `--json` belongs before the command; arguments after a payload's
 `--` belong to that payload. Existing command-local JSON flags keep their
