@@ -41,15 +41,17 @@ def build(host, alias):
         host,
         prefix + " launch " + fingerprint + " raft-builder -c limits.cpu=2 -c limits.memory=4GiB",
     )
+    # Stage outside /tmp: its boot-time tmpfs mount can hide an early file push.
     for source, guest, mode in [
-        ("images/incus/build.sh", "/tmp/raft-build.sh", "755"),
+        ("images/incus/build.sh", "/root/raft-build.sh", "755"),
         ("images/incus/desktop.sh", "/usr/local/bin/raft-desktop", "755"),
         ("images/incus/raft-desktop.service", "/etc/systemd/system/raft-desktop.service", "644"),
     ]:
         staged = "/tmp/" + Path(guest).name
         copy(host, ROOT / source, staged)
         remote(host, prefix + f" file push {staged} raft-builder{guest} --mode {mode}")
-    remote(host, prefix + " exec raft-builder -- bash /tmp/raft-build.sh")
+    remote(host, prefix + " exec raft-builder -- bash /root/raft-build.sh")
+    remote(host, prefix + " exec raft-builder -- rm /root/raft-build.sh")
     remote(host, prefix + " stop raft-builder --timeout 30")
     print(
         remote(

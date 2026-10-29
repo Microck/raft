@@ -135,6 +135,28 @@ def native(location):
         live.raft("cancel", box, active)
         record = live.wait_job(box, active)
         assert record["state"] == "cancelled", (record, live.raft("logs", box, active).stdout)
+        orphan = live.raft(
+            "exec", box, "--detach", "--", "sh", "-c", "echo orphan-ready; exec sleep 600"
+        ).stdout.strip()
+        deadline = time.monotonic() + 20
+        while "orphan-ready" not in live.raft("logs", box, orphan).stdout:
+            assert time.monotonic() < deadline, "Orphan test payload did not start"
+            time.sleep(0.2)
+        live.transaction(location, 'systemctl kill --signal=SIGKILL "$1"', "raft-" + orphan)
+        record = live.wait_job(box, orphan)
+        assert record["state"] == "interrupted", record
+        assert (
+            int(live.execute(box, "systemctl", "show", orphan, "-p", "ExecMainPID", "--value")) > 0
+        )
+        live.raft("cancel", box, orphan)
+        record = json.loads(live.raft("status", box, orphan).stdout)
+        assert record["state"] == "cancelled" and record["exitCode"] is None, record
+        assert record["finishedAt"] is not None
+        assert (
+            int(live.execute(box, "systemctl", "show", orphan, "-p", "ExecMainPID", "--value")) == 0
+        )
+        live.raft("cancel", box, orphan)
+        assert json.loads(live.raft("status", box, orphan).stdout) == record
         interrupted = live.raft("exec", box, "--detach", "--", "sleep", "600").stdout.strip()
         live.raft("stop", box)
         record = live.wait_job(box, interrupted)

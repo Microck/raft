@@ -282,6 +282,11 @@ def main(root=ROOT):
                     "Could not cancel job; it may still be starting: "
                     + response.stderr.decode(errors="replace").strip()
                 )
+            if record["state"] in TERMINAL:
+                # Reconciliation already confirmed the supervisor is gone, so
+                # cancel must finalize the result instead of waiting for a worker.
+                record.update(state="cancelled", exitCode=None, finishedAt=int(time.time()))
+                save(directory, record)
         else:
             raise ValueError("Unknown job operation")
 
