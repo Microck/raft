@@ -102,8 +102,13 @@ def native(location):
             "exec", box, "--detach", "--", "sh", "-c", "printf retained-output; exit 23"
         ).stdout.strip()
         record = live.wait_job(box, completed)
-        assert record["exitCode"] == 23 and record["state"] == "completed", record
-        assert live.raft("logs", box, completed).stdout == "retained-output"
+        output = live.raft("logs", box, completed).stdout
+        if record["exitCode"] != 23 or record["state"] != "completed":
+            unit = live.raft("exec", box, "--", "systemctl", "show", completed, check=False)
+            raise AssertionError(
+                {"record": record, "output": output, "unit": unit.stdout, "error": unit.stderr}
+            )
+        assert output == "retained-output"
         active = live.raft(
             "exec", box, "--detach", "--", "sh", "-c", "echo ready; sleep 600"
         ).stdout.strip()
