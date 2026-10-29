@@ -1096,6 +1096,57 @@ def transaction(location, script, *arguments, stdout=None):
     return response.stdout.decode() if response.stdout is not None else ""
 
 
+def sync_source(args, location, name):
+    """Use rsync's checksum/delta protocol inside the guest, never on the host tree."""
+    if shutil.which("rsync") is None:
+        raise ValueError("sync requires rsync on the controller; install rsync first")
+    source = Path(args.source).resolve(strict=True)
+    if not source.is_dir():
+        raise ValueError("Sync source must be a directory")
+    destination = raft_run.guest_path(args.destination)
+    if destination == "/":
+        raise ValueError("Sync destination must not be the guest root directory")
+    selected = None if args.all else raft_run.git_files(source, all_option="--all")
+    filters = None
+    if selected is not None:
+        # Recursive traversal never follows directory symlinks. A files-from list
+        # would follow symlink ancestors when a tracked directory was replaced.
+        allowed = set(selected)
+        for path in selected:
+            allowed.update(str(parent) for parent in Path(path).parents if str(parent) != ".")
+        rules = []
+        for path in sorted(allowed):
+            if any(char in path for char in "*?["):
+                path = re.sub(r"([\\*?\[])", r"\\\1", path)
+            rules.append(b"+ /" + os.fsencode(path))
+        filters = b"\0".join([*rules, b"- *", b""])
+    receiver = shlex.join(
+        ["sudo", "-n", "incus", "--project", PROJECT, "exec", name, "--", "rsync"]
+    )
+    command = [
+        "rsync",
+        "--recursive",
+        "--links",
+        "--safe-links",
+        "--times",
+        "--perms",
+        "--checksum",
+        "--omit-dir-times",
+        "--itemize-changes",
+        "--secluded-args",
+        "--rsync-path",
+        receiver,
+        "-e",
+        "ssh -T -o BatchMode=yes -o ConnectTimeout=10",
+    ]
+    if filters is not None:
+        command += ["--from0", "--filter=merge -"]
+    if args.dry_run:
+        command.append("--dry-run")
+    command += ["--", str(source) + "/", settings(location)["ssh"] + ":" + destination + "/"]
+    return subprocess.run(command, input=filters).returncode
+
+
 def snapshot_name(value):
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", value):
         raise ValueError("Invalid snapshot name")
@@ -2023,6 +2074,7 @@ def parser():
         "destroy": "Delete a box and all its snapshots, then confirm absence. Only destroy boxes owned by this task unless explicitly authorized.",
         "ssh": "Open a root shell through host SSH and Incus exec. This does not expose a guest SSH port.",
         "exec": "Run literal command arguments in /workspace and retain the exit status. Use an explicit shell for pipelines or expansions. Detached execution returns a job ID for status, logs and cancel.",
+        "sync": "Incrementally sync source into a running guest. Matching files are replaced; guest-only files remain. Requires rsync on controller and guest. Git selects tracked and unignored files by default; --all includes ignored files. Unsafe symlinks and special files are skipped by rsync. Updates are atomic per file, not per tree.",
         "upload": "Copy a local file to an absolute guest path. Recursive transfers require a running guest and publish a new directory without merging or overwriting; escaping links and special files are rejected.",
         "download": "Copy an absolute guest path to a local file. Recursive transfers require a running guest and a new destination directory; the parent must exist. Failed downloads do not replace existing files.",
         "snapshot": "Save a named disk snapshot of a stopped persistent box. Snapshots disappear when their box is deleted, including by retention.",
@@ -2055,6 +2107,17 @@ def parser():
         if action == "exec":
             command.add_argument("--detach", action="store_true")
             command.add_argument("command", nargs="+")
+        if action == "sync":
+            command.add_argument("source")
+            command.add_argument("destination")
+            command.add_argument(
+                "--all",
+                action="store_true",
+                help="Include ignored and hidden files; inspect for secrets first",
+            )
+            command.add_argument(
+                "--dry-run", action="store_true", help="Report changes without writing guest files"
+            )
         if action in ["upload", "download"]:
             command.add_argument("source")
             command.add_argument("destination")
@@ -2308,6 +2371,8 @@ def dispatch(args):
             print(job)
         else:
             return execute(location, name, payload).returncode
+    elif args.action == "sync":
+        return sync_source(args, location, name)
     elif args.action in ["upload", "download"]:
         guest_path = args.destination if args.action == "upload" else args.source
         if not guest_path.startswith("/"):
