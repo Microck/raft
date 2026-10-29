@@ -39,6 +39,18 @@ def verify():
             assert response.returncode == 2 and records[0]["code"] == "usage", records
         response, records = events(command + ["locations"], env)
         assert response.returncode == 1 and records[0]["code"] == "operation", records
+        response, records = events(command + ["run", "--", "true"], env)
+        failures = [record for record in records if record["type"] == "error"]
+        assert response.returncode == 1 and len(failures) == 1, records
+        assert failures[0]["code"] == "operation" and "incus.json" in failures[0]["message"]
+        assert b"raft run: finished" in stream(records, "stderr"), records
+        plain = subprocess.run(
+            [sys.executable, str(ROOT / "raft.py"), "run", "--", "true"],
+            env=env,
+            capture_output=True,
+        )
+        assert plain.returncode == 1 and not plain.stdout
+        assert plain.stderr.startswith(b"raft run: ") and b"incus.json" in plain.stderr
         inventory = Path(directory) / ".config/raft"
         inventory.mkdir(parents=True)
         (inventory / "incus.json").write_text('{"fixture":{"ssh":"offline.invalid","image":""}}')
@@ -153,7 +165,36 @@ def native(location):
             [sys.executable, str(ROOT / "raft.py"), "--json", "info", box], live.CONTROLLER_ENV
         )
         assert records[0]["value"]["name"] == box.partition(":")[2], records
-        print(f"{location}: JSON native exec streams, exit 7 and info passed")
+        with tempfile.TemporaryDirectory(prefix="raft-output-artifacts-") as artifacts:
+            response, records = events(
+                [
+                    sys.executable,
+                    str(ROOT / "raft.py"),
+                    "--json",
+                    "run",
+                    "--location",
+                    location,
+                    "--purpose",
+                    "JSON artifact failure verification",
+                    "--owner",
+                    "verify-output",
+                    "--pull",
+                    "/missing-raft-artifacts",
+                    str(Path(artifacts) / "collected"),
+                    "--",
+                    "true",
+                ],
+                live.CONTROLLER_ENV,
+            )
+            assert response.returncode == 1, records
+            assert any(
+                record["type"] == "error"
+                and record["code"] == "operation"
+                and "could not collect /missing-raft-artifacts" in record["message"]
+                for record in records
+            ), records
+            assert b"cleanup confirmed" in stream(records, "stderr"), records
+        print(f"{location}: JSON exec, reports, run artifact failure and cleanup passed")
     finally:
         live.raft("destroy", box)
 

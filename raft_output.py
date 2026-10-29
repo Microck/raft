@@ -96,9 +96,9 @@ def data(value, *, indent=None):
         _active.event("data", value=value)
 
 
-def error(code, message):
+def error(code, message, *, prefix="raft"):
     if _active is None:
-        print(f"raft: {message}", file=sys.stderr)
+        print(f"{prefix}: {message}", file=sys.stderr, flush=True)
     else:
         _active.event("error", code=code, message=str(message))
 

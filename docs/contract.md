@@ -143,7 +143,9 @@ Expected failures add an `error` event with `code` (`usage` or `operation`) and
 `message`. The final `exit` event contains `code`, matching the process status,
 including payload failures. Local subprocess signal termination becomes
 `128 + signal` in both the exit event and process status. Usage errors return 2;
-operation errors return 1.
+top-level operation errors return 1. `run` also emits operation errors for setup,
+artifact collection and cleanup failures, while retaining its existing payload,
+timeout and cleanup exit-status precedence.
 Help and version also end with an exit event. Release notices are disabled in
 JSON mode. `--json` belongs before the command; arguments after a payload's
 `--` belong to that payload. Existing command-local JSON flags keep their
