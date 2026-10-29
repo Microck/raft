@@ -151,6 +151,7 @@ def worker(root, name, job):
                 job,
             ],
             capture_output=True,
+            timeout=60,
         )
         properties = dict(
             line.split("=", 1)
@@ -178,6 +179,9 @@ def worker(root, name, job):
             exitCode=exit_code,
             droppedBytes=dropped,
         )
+    except subprocess.TimeoutExpired:
+        # Only the post-run inspection has a timeout; an unknown result is not success.
+        record.update(state="interrupted", exitCode=None, droppedBytes=dropped)
     except Exception as error:
         record.update(state="failed", exitCode=None, error=str(error))
     with private_store(root):
@@ -208,12 +212,18 @@ def prune(root):
     ]
     states = {}
     if units:
-        response = subprocess.run(
-            ["systemctl", "show", "-p", "Id", "-p", "ActiveState", *units],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        try:
+            response = subprocess.run(
+                ["systemctl", "show", "-p", "Id", "-p", "ActiveState", *units],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(
+                "Timed out reconciling detached jobs; retry the operation"
+            ) from error
         for block in response.stdout.strip().split("\n\n"):
             fields = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
             if "Id" in fields:
@@ -238,38 +248,50 @@ def start(root, name, job, payload, source):
         raise ValueError("Job store is full; results expire seven days after completion")
     directory = root / job
     directory.mkdir(mode=0o700)
-    record = {
-        "job": job,
-        "box": name,
-        "state": "starting",
-        "exitCode": None,
-        "startedAt": None,
-        "finishedAt": None,
-        "droppedBytes": None,
-        "bootId": boot_id(),
-        "command": payload,
-    }
-    (directory / "output").touch(mode=0o600)
-    save(directory, record)
-    sync_directory(root)
-    response = subprocess.run(
-        [
-            "systemd-run",
-            "--quiet",
-            "--collect",
-            "--unit",
-            "raft-" + job,
-            "--property=UMask=0077",
-            "--",
-            "python3",
-            "-c",
-            source,
-            "worker",
-            name,
-            job,
-        ],
-        capture_output=True,
-    )
+    try:
+        record = {
+            "job": job,
+            "box": name,
+            "state": "starting",
+            "exitCode": None,
+            "startedAt": None,
+            "finishedAt": None,
+            "droppedBytes": None,
+            "bootId": boot_id(),
+            "command": payload,
+        }
+        (directory / "output").touch(mode=0o600)
+        save(directory, record)
+        sync_directory(root)
+    except Exception:
+        # No supervisor has been submitted, so a partial allocation is safe to remove.
+        shutil.rmtree(directory)
+        raise
+    try:
+        response = subprocess.run(
+            [
+                "systemd-run",
+                "--quiet",
+                "--no-block",
+                "--collect",
+                "--unit",
+                "raft-" + job,
+                "--property=UMask=0077",
+                "--",
+                "python3",
+                "-c",
+                source,
+                "worker",
+                name,
+                job,
+            ],
+            capture_output=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            f"Timed out submitting {job}; inspect its retained status before retrying"
+        ) from error
     if response.returncode:
         shutil.rmtree(directory)
         raise RuntimeError(response.stderr.decode(errors="replace").strip())

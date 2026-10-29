@@ -41,6 +41,23 @@ def verify():
         assert status == 7 and dropped == jobs.LOG_LIMIT + 3
         assert (root / "output").read_bytes() == b"x" * jobs.LOG_LIMIT
         (root / "output").unlink()
+        # A real file-size limit fails the first record write before any service launch.
+        rejected = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import resource,signal,sys; from pathlib import Path; import raft_jobs; "
+                "signal.signal(signal.SIGXFSZ, signal.SIG_IGN); "
+                "resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0)); "
+                "raft_jobs.start(Path(sys.argv[1]), 'rf-'+'a'*16, 'rfcmd-'+'d'*32, ['true'], '')",
+                str(root),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert rejected.returncode != 0 and "File too large" in rejected.stderr
+        assert not list(root.iterdir()), "Failed allocation consumed a record slot"
         old = root / ("rfcmd-" + "a" * 32)
         old.mkdir()
         jobs.save(old, stored(old.name, finished=int(time.time()) - jobs.RETENTION - 1))
