@@ -32,6 +32,8 @@ from raft import (  # noqa: E402
     RETENTION_SINCE_KEY,
     disk_origin,
     host_problems,
+    host_inventory,
+    host_policy,
     incus,
     inventory,
     parse_handle,
@@ -694,8 +696,12 @@ def verify_readiness(location, expect_stale=False):
         (home / ".ssh").symlink_to(Path.home() / ".ssh", target_is_directory=True)
         config = home / ".config/raft/incus.json"
         config.parent.mkdir(parents=True)
-        config.write_text(json.dumps({location: settings(location)}))
-        response = live.raft("doctor", check=False, env={**os.environ, "HOME": str(home)})
+        config.write_text(
+            json.dumps({"offline": {"ssh": "raft-offline.invalid"}, location: settings(location)})
+        )
+        response = live.raft(
+            "doctor", "--location", location, check=False, env={**os.environ, "HOME": str(home)}
+        )
     assert location + ": " in response.stdout, response
     if expect_stale:
         assert response.returncode == 1, response
@@ -707,6 +713,32 @@ def verify_readiness(location, expect_stale=False):
         assert response.returncode == 0, response
         assert "saved boxes; system containers (shared host kernel)" in response.stdout, response
     print(f"{location}: doctor {'rejected stale worker' if expect_stale else 'passed'}", flush=True)
+
+
+def verify_read_reports(location):
+    """Compare batched reads with independent native reads on a quiescent host."""
+    policy, boxes = host_inventory(location)
+    assert policy == host_policy(location)
+    assert sorted(boxes, key=lambda box: box["name"]) == sorted(
+        inventory(location), key=lambda box: box["name"]
+    )
+    with tempfile.TemporaryDirectory(prefix="raft-config-test-") as work:
+        home = Path(work)
+        (home / ".ssh").symlink_to(Path.home() / ".ssh", target_is_directory=True)
+        config = home / ".config/raft/incus.json"
+        config.parent.mkdir(parents=True)
+        config.write_text(
+            json.dumps({"offline": {"ssh": "raft-offline.invalid"}, location: settings(location)})
+        )
+        env = {**os.environ, "HOME": str(home), "RAFT_NO_UPDATE_CHECK": "1"}
+        report = live.raft("config", "--location", location, env=env)
+        assert json.loads(report.stdout)["policy"] == {location: policy}
+        rejected = live.raft(
+            "config", "--location", location, "set", "cpu", "2", env=env, check=False
+        )
+        assert rejected.returncode == 1 and "controller-wide" in rejected.stderr
+        assert not (config.parent / "config.json").exists()
+    print(f"{location}: batched metadata and offline-host isolation passed", flush=True)
 
 
 def verify_transaction_stdin(location):
@@ -1276,4 +1308,5 @@ if __name__ == "__main__":
     verify_host_preflight()
     verify_archives()
     if args.location:
+        verify_read_reports(args.location)
         verify(args.location, args.isolated_worker)

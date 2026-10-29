@@ -231,6 +231,11 @@ def host_policy(location):
     # `incus query` rejects the --project flag that remote() always passes.
     projects = json.loads(incus(location, "project", "list", "--format", "json"))
     config = next(item for item in projects if item["name"] == PROJECT)["config"]
+    return parse_host_policy(location, config)
+
+
+def parse_host_policy(location, config):
+    """Validate native policy values before displaying or enforcing them."""
     stored = config.get(POLICY_KEY, "")
     required = [field for field in stored.split(",") if field]
     unknown = [field for field in required if field not in BOX_NOTE_FIELDS]
@@ -655,6 +660,30 @@ def inventory(location):
     ]
 
 
+# These probes retain --fast so stopped/stopping guests never need live counters.
+HOST_BOXES = (
+    "project = "
+    + repr(PROJECT)
+    + "\n"
+    + """
+print(json.dumps(json.loads(subprocess.run(['incus', '--project', project, 'list', '--fast', '--format', 'json'],
+                     check=True, capture_output=True).stdout)))
+"""
+)
+HOST_INVENTORY = (
+    "project = "
+    + repr(PROJECT)
+    + "\n"
+    + """import json, subprocess
+projects = json.loads(subprocess.run(['incus', '--project', project, 'project', 'list', '--format', 'json'],
+                                    check=True, capture_output=True).stdout)
+boxes = json.loads(subprocess.run(['incus', '--project', project, 'list', '--fast', '--format', 'json'],
+                                 check=True, capture_output=True).stdout)
+print(json.dumps({'policy': next(p for p in projects if p['name'] == project)['config'], 'boxes': boxes}))
+"""
+)
+
+
 REQUIRE_STOPPED = """state=$(incus --project raft list "$1" --fast --format json | python3 -c 'import json,sys; print(next(x["status"] for x in json.load(sys.stdin) if x["name"] == sys.argv[1] and x["config"].get("user.raft") == "true"))' "$1")
 test "$state" = Stopped || { echo 'Stop the source box before resume, snapshot, restore, fork or backup' >&2; exit 1; }
 """
@@ -918,26 +947,44 @@ def capacity(host, boxes):
     }
 
 
-def host_capacity(location):
+def host_read(location, script):
+    """Run a read-only host probe without taking the lifecycle/expiry lock."""
     response = subprocess.run(
         [
             "ssh",
+            "-n",
             "-T",
             "-o",
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=10",
             settings(location)["ssh"],
-            shlex.join(["sudo", "-n", "python3", "-c", HOST_RESOURCES]),
+            shlex.join(["sudo", "-n", "python3", "-c", script]),
         ],
         capture_output=True,
         text=True,
-        check=True,
     )
+    if response.returncode:
+        raise RuntimeError(f"{location}: {response.stderr.strip()}")
+    return response.stdout
+
+
+def host_inventory(location):
+    # Keep both native reads on the host: network latency costs more than JSON
+    # decoding. Do not lock read-only inventory behind a long backup or creation.
+    report = json.loads(host_read(location, HOST_INVENTORY))
+    policy = parse_host_policy(location, report["policy"])
+    boxes = [box for box in report["boxes"] if box["config"].get("user.raft") == "true"]
+    return policy, boxes
+
+
+def host_capacity(location):
+    resources, boxes = host_read(location, HOST_RESOURCES + HOST_BOXES).splitlines()
+    boxes = [box for box in json.loads(boxes) if box["config"].get("user.raft") == "true"]
     return {
         "location": location,
         "note": settings(location).get("note", ""),
-        **capacity(json.loads(response.stdout), inventory(location)),
+        **capacity(json.loads(resources), boxes),
     }
 
 
@@ -987,34 +1034,34 @@ def print_capacity(report):
 
 
 def doctor(location):
-    print(location + ": " + incus(location, "version").strip())
-    try:
-        transaction(location, CHECK_WORKER)
-    except RuntimeError as error:
-        raise RuntimeError(f"{location}: {error}") from error
-    response = subprocess.run(
-        [
-            "ssh",
-            "-T",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=10",
-            settings(location)["ssh"],
-            "systemctl is-active incus raft-expire.timer raft-network.service && df -h /",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
+    # Health checks are sequential on the host, not separate SSH handshakes.
+    # Only the worker compatibility check takes the lifecycle lock, as before.
+    script = "import json, subprocess, sys\nworker_check = " + repr(CHECK_WORKER) + "\n"
+    script += (
+        f"project = {PROJECT!r}\nshared_pool = {SHARED_POOL!r}\nbox_disk_pool = {BOX_DISK_POOL!r}\n"
     )
-    print(response.stdout.strip())
-    print(incus(location, "storage", "info", SHARED_POOL).strip())
-    # Own box disks are opt-in, so a host without their pool is healthy.
-    if BOX_DISK_POOL in incus(location, "storage", "list", "--format", "csv", "-c", "n").split():
-        print(incus(location, "storage", "info", BOX_DISK_POOL).strip())
-    else:
-        print("own box disks: not enabled (redeploy with --disk-pool SIZE)")
-    print(f"{len(inventory(location))} saved boxes; system containers (shared host kernel)")
+    script += """
+def checked(*command):
+    response = subprocess.run(command, capture_output=True, text=True)
+    if response.returncode:
+        sys.exit(response.stderr.strip() or response.stdout.strip())
+    return response.stdout.strip()
+print(checked('incus', '--project', project, 'version'))
+checked('flock', '/run/lock/raft-incus.lock', 'sh', '-ec', worker_check)
+print(checked('systemctl', 'is-active', 'incus', 'raft-expire.timer', 'raft-network.service'))
+print(checked('df', '-h', '/'))
+print(checked('incus', '--project', project, 'storage', 'info', shared_pool))
+pools = checked('incus', '--project', project, 'storage', 'list', '--format', 'csv', '-c', 'n').split()
+if box_disk_pool in pools:
+    print(checked('incus', '--project', project, 'storage', 'info', box_disk_pool))
+else:
+    print('own box disks: not enabled (redeploy with --disk-pool SIZE)')
+boxes = json.loads(checked('incus', '--project', project, 'list', '--fast', '--format', 'json'))
+print(str(sum(box['config'].get('user.raft') == 'true' for box in boxes))
+      + ' saved boxes; system containers (shared host kernel)')
+"""
+    print(location + ": ", end="", flush=True)
+    print(host_read(location, script), end="")
 
 
 def transaction(location, script, *arguments, stdout=None):
@@ -1807,7 +1854,9 @@ def creation_options(command, *, lifecycle=True):
     # Omitted options take ~/.config/raft/config.json defaults, then NEW_DEFAULTS.
     # With --from, every omitted size comes from the snapshot instead of a default.
     if lifecycle:
-        command.add_argument("--ttl", type=ttl)
+        command.add_argument(
+            "--ttl", type=ttl, help="Lifetime in seconds, 60 to 2592000 (default: config, else 600)"
+        )
     command.add_argument(
         "--cpu",
         type=cpu_count,
@@ -1843,7 +1892,12 @@ def creation_options(command, *, lifecycle=True):
             const=False,
             help="Keep the disk on stop or expiry, despite a disposable default",
         )
-    command.add_argument("--from", dest="template", metavar="LOCATION:BOX/SNAPSHOT")
+    command.add_argument(
+        "--from",
+        dest="template",
+        metavar="LOCATION:BOX/SNAPSHOT",
+        help="Copy a named snapshot on its source host, including filesystem secrets",
+    )
     note_options(command)
 
 
@@ -1851,7 +1905,14 @@ def parser():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--version", action="version", version=__version__)
     commands = cli.add_subparsers(dest="action", required=True)
-    create = commands.add_parser("new")
+    create = commands.add_parser(
+        "new",
+        help="Create a workspace and print its location-qualified handle",
+        description="Create from the pinned image or a same-host named snapshot. "
+        "Prints the handle before guest services are necessarily ready. "
+        "Inspect config for defaults and required notes, and capacity for host resources. "
+        "Disposable boxes are deleted on stop or expiry; persistent disks remain subject to host retention.",
+    )
     creation_options(create)
     run = commands.add_parser("run", help="Run a command in a temporary CI box and clean up")
     creation_options(run, lifecycle=False)
@@ -1860,6 +1921,7 @@ def parser():
     defaults = commands.add_parser(
         "config", help="Show defaults for new and each location's note policy, or change defaults"
     )
+    defaults.add_argument("--location", help="Read policy only from this configured host")
     default_commands = defaults.add_subparsers(dest="config_action")
     default_set = default_commands.add_parser("set", help="Set a default for new")
     default_set.add_argument("key", choices=list(NEW_DEFAULTS))
@@ -1915,12 +1977,17 @@ def parser():
         help="Enable own box disks: set aside SIZE of host disk for them, e.g. 40GiB "
         "(default: not enabled)",
     )
-    listing = commands.add_parser("list")
+    listing = commands.add_parser(
+        "list",
+        help="List boxes as JSONL, including ownership notes and retention deadlines",
+        description="List boxes as JSONL. Read note before using a box; deleteAt is its stopped-box deletion deadline, or empty when none is due.",
+    )
     listing.add_argument("--location")
     report = commands.add_parser("capacity", help=ADVISORY, description=ADVISORY)
     report.add_argument("--location")
     report.add_argument("--json", action="store_true")
-    commands.add_parser("doctor")
+    doctor_command = commands.add_parser("doctor", help="Check host services, worker and storage")
+    doctor_command.add_argument("--location", help="Inspect only this configured host")
     gc = commands.add_parser(
         "gc", help="Enforce deadlines and retention, including disposable deletion"
     )
@@ -1948,33 +2015,37 @@ def parser():
         metavar="X.Y.Z",
         help="Install this release instead of the latest, e.g. to roll back",
     )
-    for action in [
-        "info",
-        "stop",
-        "resume",
-        "extend",
-        "destroy",
-        "ssh",
-        "exec",
-        "upload",
-        "download",
-        "snapshot",
-        "snapshots",
-        "snapshot-delete",
-        "restore",
-        "fork",
-        "forward",
-        "desktop",
-        "logs",
-        "status",
-        "cancel",
-        "backup",
-        "usage",
-    ]:
-        command = commands.add_parser(action)
-        command.add_argument("box")
+    for action, description in {
+        "info": "Read native box metadata as JSON without starting guest processes.",
+        "stop": "Stop processes in a persistent box and retain its disk. Disposable boxes and their snapshots are deleted. Inspect info before stopping.",
+        "resume": "Start a stopped persistent box with a new lifetime. Optional CPU and memory replace only those limits. Process memory is not restored.",
+        "extend": "Reset the deadline of a running box from the host clock without restarting it. Use resume for stopped boxes.",
+        "destroy": "Delete a box and all its snapshots, then confirm absence. Only destroy boxes owned by this task unless explicitly authorized.",
+        "ssh": "Open a root shell through host SSH and Incus exec. This does not expose a guest SSH port.",
+        "exec": "Run literal command arguments in /workspace and retain the exit status. Use an explicit shell for pipelines or expansions. Detached execution returns a job ID for status, logs and cancel.",
+        "upload": "Copy a local file to an absolute guest path. Recursive transfers require a running guest and publish a new directory without merging or overwriting; escaping links and special files are rejected.",
+        "download": "Copy an absolute guest path to a local file. Recursive transfers require a running guest and a new destination directory; the parent must exist. Failed downloads do not replace existing files.",
+        "snapshot": "Save a named disk snapshot of a stopped persistent box. Snapshots disappear when their box is deleted, including by retention.",
+        "snapshots": "List named snapshots through native Incus info.",
+        "snapshot-delete": "Delete one named snapshot permanently without deleting its box.",
+        "restore": "Replace disk contents from a named snapshot of a stopped box. Keep current instance configuration, resource limits and MAC address. Requires an explicitly requested rollback.",
+        "fork": "Copy a stopped box on the same host, including files, secrets and note. Defaults to persistent. CPU and memory retain source limits unless overridden. Update the copy note for its new task.",
+        "forward": "Open a foreground SSH tunnel bound to controller 127.0.0.1. Guest service must listen on its managed NIC or 0.0.0.0. Ctrl+C closes the tunnel.",
+        "desktop": "Start the full guest desktop and open its private foreground tunnel. Closing the tunnel leaves the desktop service running until explicitly stopped or the box stops.",
+        "logs": "Print journal output for a detached job in this running box.",
+        "status": "Print systemd state and exit status for a detached job in this running box.",
+        "cancel": "Stop a detached job and its child processes. Journal history remains available while retained by the guest.",
+        "backup": "Export a stopped persistent box and its snapshots to a new private archive. Includes credentials. The host lifecycle lock delays expiry while exporting.",
+        "usage": "Report running guest cgroup CPU and memory counters and filesystem space as JSON. filesystemScope distinguishes shared storage from an own disk.",
+    }.items():
+        command = commands.add_parser(
+            action, help=description.split(". ")[0], description=description
+        )
+        command.add_argument("box", help="Exact LOCATION:BOX handle returned by creation")
         if action in ["resume", "fork", "extend"]:
-            command.add_argument("--ttl", type=ttl, required=True)
+            command.add_argument(
+                "--ttl", type=ttl, required=True, help="Lifetime in seconds, 60 to 2592000"
+            )
         if action in ["resume", "fork"]:
             command.add_argument("--cpu", type=cpu_count)
             command.add_argument("--memory", type=gib_size)
@@ -2019,13 +2090,18 @@ def dispatch(args):
     if args.action == "config":
         if args.config_action is None:
             report = {"file": str(DEFAULTS_CONFIG), "defaults": effective_defaults(), "policy": {}}
-            for location in configuration():
+            locations = [args.location] if args.location else configuration()
+            for location in locations:
                 try:
                     report["policy"][location] = host_policy(location)
                 except RuntimeError as error:
                     raise RuntimeError(f"{location}: {error}") from error
             print(json.dumps(report, indent=2))
         else:
+            if args.location:
+                raise ValueError(
+                    "--location selects a host policy report; defaults are controller-wide"
+                )
             set_default(args.key, args.value if args.config_action == "set" else None)
         return 0
     if args.action == "policy":
@@ -2120,8 +2196,8 @@ def dispatch(args):
             elif args.action == "doctor":
                 doctor(location)
             else:
-                policy = host_policy(location)
-                for box in inventory(location):
+                policy, boxes = host_inventory(location)
+                for box in boxes:
                     deletion = delete_at(box, policy)
                     print(
                         json.dumps(
