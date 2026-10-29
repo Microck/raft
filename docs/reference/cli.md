@@ -8,11 +8,12 @@ description: Complete command-line reference for the Raft controller CLI.
 Command-line reference for the `raft` controller tool.
 
 Syntax:
-`raft <subcommand> [options] [arguments]`
+`raft [--json] <subcommand> [options] [arguments]`
 
 `raft --help` lists commands, `raft <subcommand> --help` explains its behavior and arguments,
 and `raft --version` prints the installed version without loading configuration.
-Output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
+Global `--json` emits JSONL events for structured results, byte streams, errors and exit codes.
+Without it, output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
 
 At most once a day, Raft checks GitHub for a newer release in the background
 while a command runs, then prints one line on stderr after it finishes, such as
@@ -540,6 +541,16 @@ pinned or scripted runs. The notice caches its last result in
 `$XDG_CACHE_HOME/raft/update.json` (default `~/.cache/raft/update.json`). It
 waits at most 2 seconds for GitHub and is skipped for `self-update` and
 `--version`.
+
+### `completions`
+
+`raft completions bash|zsh|fish`
+
+Print a shell integration script. Source it in the matching shell, for example
+`source <(raft completions bash)`. Completions discover the installed parser on
+each request, including nested commands, flags and fixed choices. They never
+load host configuration or contact a host. The private `_complete` command is
+used by these scripts, not needed in ordinary workflows.
 
 ### `sync`
 

@@ -18,7 +18,21 @@ below remain useful for persistent debugging workflows.
 
 ## Output formats
 
-Raft does not have a global `--json` option. Parse each command's actual format:
+The development CLI supports `raft --json COMMAND ...` for JSON Lines output.
+Each event has a `type`: `data` carries a structured `value`; `stdout` and
+`stderr` carry base64-encoded bytes in `data`; `error` carries `code` and
+`message`; the final `exit` carries the process exit `code`. Decode stream events
+in order within each channel. Chunks need not end at line boundaries. This keeps
+binary output intact and streams long-running command output without buffering
+it all. Interactive `ssh`, `forward` and `desktop` reject JSON mode before acting.
+Help/version work without configuration. JSON mode suppresses release notices.
+
+```sh
+raft --json list --location lab | jq 'select(.type == "data") | .value'
+raft --json exec "$BOX" -- sh -c 'echo hello; exit 7'
+```
+
+Without global `--json`, parse each command's format:
 
 | Command | stdout |
 | --- | --- |

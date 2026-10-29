@@ -12,6 +12,8 @@ import time
 from types import SimpleNamespace
 import uuid
 
+import raft_output
+
 GRACE = 30
 LEASE_MARGIN = 120
 
@@ -234,7 +236,7 @@ def run(args, api):
 
     def issue(error):
         nonlocal status
-        print(f"raft run: {error}", file=sys.stderr, flush=True)
+        raft_output.error("operation", error, prefix="raft run")
         if status == 0:
             status = 1
 
