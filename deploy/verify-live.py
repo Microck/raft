@@ -57,6 +57,16 @@ def wait_running(box):
     raise RuntimeError("Guest Docker and SSH did not become ready")
 
 
+def wait_job(box, job):
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        record = json.loads(raft("status", box, job).stdout)
+        if record["state"] in {"completed", "cancelled", "interrupted", "failed"}:
+            return record
+        time.sleep(0.2)
+    raise RuntimeError("Detached job did not finish: " + job)
+
+
 def terminal_session(box):
     master, slave = pty.openpty()
     process = subprocess.Popen([*CLI, "ssh", box], stdin=slave, stdout=slave, stderr=slave)
@@ -796,8 +806,7 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
         job = raft(
             "exec", box, "--detach", "--", "bash", "-lc", "echo detached-ok; exit 23"
         ).stdout.strip()
-        time.sleep(2)
-        assert "ExecMainStatus=23" in raft("status", box, job).stdout
+        assert wait_job(box, job)["exitCode"] == 23
         assert "detached-ok" in raft("logs", box, job).stdout
         execute(box, "bash", "-lc", "echo saved > /workspace/persistent")
         raft("stop", box)
@@ -824,7 +833,7 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
             fetch_through_tunnel(["forward", box, "--remote", "8080"], "/persistent").strip()
             == b"saved"
         )
-        assert "ActiveState=active" in raft("status", box, server).stdout
+        assert json.loads(raft("status", box, server).stdout)["state"] == "running"
         assert b"noVNC" in fetch_through_tunnel(["desktop", box], "/vnc.html", timeout=20)
         assert b"noVNC" in fetch_through_tunnel(
             ["desktop", box], "/vnc.html", timeout=20, default_port=6080

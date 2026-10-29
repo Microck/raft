@@ -88,19 +88,19 @@ def verify(source, target, directory, development_image=False):
                 raise RuntimeError("Detached job did not start")
             time.sleep(0.2)
         child = live.execute(box, "cat", "/workspace/child-pid")
-        assert "ActiveState=active" in live.raft("status", box, job).stdout
+        assert json.loads(live.raft("status", box, job).stdout)["state"] == "running"
         live.raft("extend", box, "--ttl", "1200")
         extended = json.loads(live.raft("info", box).stdout)
         assert (
             int(extended["config"]["user.raft.expires"])
             > int(live.execute(box, "date", "+%s")) + 1100
         )
-        assert "ActiveState=active" in live.raft("status", box, job).stdout
-        # Exercise journal retention without changing any host service or other box.
+        assert json.loads(live.raft("status", box, job).stdout)["state"] == "running"
+        # Guest journal rotation cannot erase host-retained job state.
         live.execute(box, "journalctl", "--rotate", "--vacuum-size=1")
-        assert "ActiveState=active" in live.raft("status", box, job).stdout
+        assert json.loads(live.raft("status", box, job).stdout)["state"] == "running"
         live.raft("cancel", box, job)
-        assert "ActiveState=inactive" in live.raft("status", box, job).stdout
+        assert live.wait_job(box, job)["state"] == "cancelled"
         assert live.raft("logs", box, job).returncode == 0
         assert (
             live.raft("exec", box, "--", "test", "-e", "/proc/" + child, check=False).returncode

@@ -94,7 +94,7 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Versioned environments and upgrades | ✅ | ❌ | Boat versions repositories, setup and secrets, with explicit upgrades. Raft has image pins, controller defaults and filesystem templates, not an environment registry |
 | AI credential profiles and proxy | ✅ | ❌ | No provider credential manager, sandbox access switch, usage accounting or AI request proxy |
 | OpenTelemetry export | ✅ | ❌ | No built-in OTLP metrics or lifecycle-event export |
-| Command history while stopped | ✅ | ❌ | Boat stores command output and process samples outside the guest. Raft job logs require a running box and its retained journal |
+| Command history while stopped | ✅ | Preview | Unreleased retained detached-job results survive stop and deletion for seven days, with a 1 MiB log cap. No general process history or samples |
 | Process inspection command | ✅ | ❌ | Raft can execute guest tools such as ps, but has no first-class process/history API or stopped-box process samples |
 | Merge source into existing directories | ✅ | ❌ | Boat push replaces matching files in an existing destination. Raft recursive transfer deliberately requires a new destination; Git-filtered upload is currently limited to unreleased run |
 | Human-readable names and current/self aliases | ✅ | ❌ | Raft uses exact location-qualified handles and ownership notes; no rename or implicit current-box selection |

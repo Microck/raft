@@ -5,11 +5,11 @@ description: Run detached commands with systemd logging and process management.
 
 # Background jobs
 
-Raft runs detached background commands under the guest systemd init system using transient service units.
+Raft runs detached commands under guest systemd and captures their results with a transient host supervisor.
 
 ## Target workspace handle
 
-Commands in this guide target a running workspace. Select one from `raft list` (see [First working box](../first-box.mdx)):
+Launching a job requires a running workspace. Select one from `raft list` (see [First working box](../first-box.mdx)):
 
 ```sh title="CONTROLLER: Select running workspace"
 raft list
@@ -33,49 +33,51 @@ The command returns a 32-hex systemd unit name prefixed with `rfcmd-` (such as `
 
 ## Checking job status
 
-Use `raft status` to query guest systemd unit properties:
+`raft status "$box" "$job"` returns a retained JSON record:
 
-```sh title="CONTROLLER: Inspect background job state"
-raft status "$box" "$job"
+```json
+{"job":"rfcmd-...","box":"lab:rf-...","state":"completed","exitCode":23,"startedAt":1793280000,"finishedAt":1793280010,"droppedBytes":0}
 ```
 
-Active jobs report running substate:
-```text
-ActiveState=active
-SubState=running
-ExecMainStatus=0
-```
+States are `starting`, `running`, `completed`, `cancelled`, `interrupted` and
+`failed`. `completed` means the command finished, not that it succeeded; inspect
+`exitCode`. An interrupted job has no confirmed payload exit code. A transport interruption can leave the guest command running;
+inspect or cancel it before rerunning the payload. Timestamps
+are host Unix seconds. A successful status query itself returns zero.
 
-Because Raft runs detached commands with `RemainAfterExit=yes`, completed jobs retain their exit record:
-```text
-ActiveState=active
-SubState=exited
-ExecMainStatus=0
-```
+## Viewing retained output
 
-<Callout type="info" title="Exit status vs CLI return code">
-`ExecMainStatus` reports the command payload exit code inside the container. The `raft status` command returns exit code 0 when the query succeeds. It queries unit state and does not report process PIDs or start timestamps.
-</Callout>
-
-## Viewing job logs
-
-Retrieve output recorded in the guest systemd journal:
-
-```sh title="CONTROLLER: Retrieve job log output"
+```sh
 raft logs "$box" "$job"
 ```
 
-The command runs `journalctl --no-pager -o cat -u <job>` inside the container. It prints recorded logs without a pager or stream follow mode.
+A host supervisor retains the first 1 MiB of combined stdout and stderr. Further
+output is drained and counted in `droppedBytes` when the job ends. Logs and final
+status remain readable after the workspace stops or is deleted; keep its exact
+original handle. They are not copied by workspace snapshots or forks.
+
+Results live in the root-private host directory `/var/lib/raft-jobs`. They expire
+seven days after completion. Job commands prune expired records on access, so an
+idle host may retain expired files until the next access. The store holds at most
+512 records and refuses new jobs when full instead of evicting unexpired results.
+Output can contain secrets; this is host-local retention, not an off-host backup.
 
 ## Cancelling jobs
 
-Terminate a running detached command:
-
-```sh title="CONTROLLER: Terminate background job"
+```sh
 raft cancel "$box" "$job"
 ```
 
-`raft cancel` executes `systemctl stop <job>`, terminating processes in the job's systemd control group.
+Cancellation stops the guest systemd control group. Retained output remains
+available. If a job is still starting and its guest unit is not yet registered,
+cancellation reports an error; inspect its state before retrying. Unknown job
+IDs and IDs belonging to another workspace are rejected.
+
+Host reboot or guest shutdown interrupts active jobs. The next inspection marks
+an absent supervisor as interrupted rather than assuming success. Completed
+results survive host reboot. This development implementation has no fallback to
+old guest-only journals; inspect old jobs with their controller version before
+upgrading.
 
 ## Extending workspace lifetime
 

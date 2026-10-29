@@ -90,7 +90,14 @@ def next_release(work):
     """Build the current sources as release NEXT."""
     source = work / "next-source"
     source.mkdir()
-    for name in ["raft_files.py", "raft_run.py", "pyproject.toml", "README.md", "LICENSE"]:
+    for name in [
+        "raft_files.py",
+        "raft_run.py",
+        "raft_jobs.py",
+        "pyproject.toml",
+        "README.md",
+        "LICENSE",
+    ]:
         shutil.copy(ROOT / name, source)
     code = (ROOT / "raft.py").read_text()
     (source / "raft.py").write_text(code.replace(f'"{CURRENT}"', f'"{NEXT}"', 1))
