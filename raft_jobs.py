@@ -59,7 +59,7 @@ def load(directory):
         return record
     except (FileNotFoundError, ValueError) as error:
         raise ValueError(
-            f"Job record is missing or unreadable: {path}. "
+            f"Detached job not found or its record is unreadable: {path}. "
             "It may have expired; inspect the host record and retained output if present."
         ) from error
 
