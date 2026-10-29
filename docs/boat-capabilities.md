@@ -29,7 +29,7 @@ adding CLI commands.
 Operational gaps include automatic snapshots, shared templates, snapshot file
 browsing, retained command history, process inspection and telemetry export.
 Smaller CLI gaps include reverse tunnels, shell completions, uniform JSON errors,
-merging source uploads, friendly names and macOS/Windows controller support.
+friendly names and macOS/Windows controller support.
 
 VM kernel isolation and nested KVM require a different runtime mode. Raft's
 current container boundary cannot provide them through a flag. Browser-only
@@ -96,7 +96,7 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | OpenTelemetry export | ✅ | ❌ | No built-in OTLP metrics or lifecycle-event export |
 | Command history while stopped | ✅ | ❌ | Boat stores command output and process samples outside the guest. Raft job logs require a running box and its retained journal |
 | Process inspection command | ✅ | ❌ | Raft can execute guest tools such as ps, but has no first-class process/history API or stopped-box process samples |
-| Merge source into existing directories | ✅ | ❌ | Boat push replaces matching files in an existing destination. Raft recursive transfer deliberately requires a new destination; Git-filtered upload is currently limited to unreleased run |
+| Merge source into existing directories | ✅ | Preview | Boat push replaces matching files in an existing destination. Unreleased `sync` replaces matching files with Git filtering and checksum-based incremental transfer; it preserves guest-only files. Recursive upload still requires a new destination |
 | Human-readable names and current/self aliases | ✅ | ❌ | Raft uses exact location-qualified handles and ownership notes; no rename or implicit current-box selection |
 | macOS and Windows controllers | ✅ | ❌ | Raft's controller requires Linux; native ARM64/AMD64 guest support is a separate capability |
 | Unresponsive-machine recovery | ✅ | ❌ | Boat recover power-cycles an unresponsive VM. Raft recover imports an archive and is not the equivalent operation |
