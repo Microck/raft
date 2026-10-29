@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -49,7 +50,48 @@ def verify():
         interrupted = root / ("rfcmd-" + "c" * 32)
         interrupted.mkdir()
         jobs.save(interrupted, stored(interrupted.name, state="running"))
+        incomplete = root / ("rfcmd-" + "e" * 32)
+        incomplete.mkdir()
+        damaged = root / ("rfcmd-" + "f" * 32)
+        damaged.mkdir()
+        (damaged / "result.json").write_text('{"state":')
+        (damaged / "output").write_bytes(b"retained evidence")
         jobs.prune(root)
+        assert incomplete.exists() and (damaged / "output").read_bytes() == b"retained evidence"
+        for unreadable in (incomplete, damaged):
+            try:
+                jobs.load(unreadable)
+            except ValueError as error:
+                assert str(unreadable / "result.json") in str(error)
+            else:
+                raise AssertionError("Unreadable record accepted")
+        inspected = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from pathlib import Path; import sys,raft_jobs; "
+                "root=Path(sys.argv.pop(1)); raft_jobs.main(root)",
+                str(root),
+                "status",
+                "rf-" + "a" * 16,
+                current.name,
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert json.loads(inspected.stdout)["exitCode"] == 7
+        for malformed in (None, {}, {**stored(damaged.name), "finishedAt": "invalid"}):
+            (damaged / "result.json").write_text(json.dumps(malformed))
+            jobs.prune(root)
+            assert jobs.load(current)["exitCode"] == 7
+            try:
+                jobs.load(damaged)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("Malformed record accepted")
         assert not old.exists() and current.exists()
         assert jobs.load(interrupted)["state"] == "interrupted"
         assert jobs.load(interrupted)["exitCode"] is None
@@ -61,7 +103,7 @@ def verify():
             pass
         finally:
             root.chmod(0o700)
-        for index in range(jobs.RECORD_LIMIT - 2):
+        for index in range(jobs.RECORD_LIMIT - len(list(root.iterdir()))):
             (root / f"slot-{index}").mkdir()
         try:
             jobs.start(root, "rf-" + "a" * 16, "rfcmd-" + "d" * 32, ["true"], "")
@@ -70,7 +112,7 @@ def verify():
         else:
             raise AssertionError("Full store accepted a new job")
     print(
-        "Real subprocess log cap, exit code, retention, reboot interruption, permissions and record limit passed"
+        "Real process capture, damaged-record isolation, retention, reboot interruption and store limits passed"
     )
 
 
@@ -162,6 +204,12 @@ def native(location):
             live.raft("logs", box, interrupted).stdout,
         )
         assert live.raft("logs", box, completed).stdout == "retained-output"
+        count_records = "find /var/lib/raft-jobs -mindepth 1 -maxdepth 1 -type d | wc -l"
+        before = live.transaction(location, count_records)
+        refused = live.raft("exec", box, "--detach", "--", "true", check=False)
+        assert refused.returncode == 1 and not refused.stdout, refused
+        assert "no job was created" in refused.stderr, refused.stderr
+        assert live.transaction(location, count_records) == before
         live.raft("destroy", box)
         destroyed = True
         assert json.loads(live.raft("status", box, completed).stdout)["exitCode"] == 23

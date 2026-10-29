@@ -60,6 +60,9 @@ Results live in the root-private host directory `/var/lib/raft-jobs`. They expir
 seven days after completion. Job commands prune expired records on access, so an
 idle host may retain expired files until the next access. The store holds at most
 512 records and refuses new jobs when full instead of evicting unexpired results.
+Unreadable records remain on the host for inspection and count toward the limit.
+They do not block other jobs. A query for a damaged record reports its host path;
+inspect that directory and its retained output before deciding how to recover it.
 Output can contain secrets; this is host-local retention, not an off-host backup.
 
 ## Cancelling jobs
@@ -71,7 +74,9 @@ raft cancel "$box" "$job"
 Cancellation stops the guest systemd control group. Retained output remains
 available. If a job is still starting and its guest unit is not yet registered,
 cancellation reports an error; inspect its state before retrying. Unknown job
-IDs and IDs belonging to another workspace are rejected.
+IDs and IDs belonging to another workspace are rejected. Cancellation waits up to
+120 seconds. If it times out, the cancellation request remains recorded; inspect
+the job and retry cancellation.
 
 Host reboot or guest shutdown interrupts active jobs. The next inspection marks
 an absent supervisor as interrupted rather than assuming success. Completed

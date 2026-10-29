@@ -21,16 +21,47 @@ LOG_LIMIT = 1024 * 1024
 RECORD_LIMIT = 512
 RETENTION = 7 * 86400
 TERMINAL = {"completed", "cancelled", "interrupted", "failed"}
+STATES = TERMINAL | {"starting", "running"}
+
+
+def sync_directory(directory):
+    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def save(directory, record):
     staged = directory / "result.tmp"
-    staged.write_text(json.dumps(record))
+    with staged.open("w") as output:
+        json.dump(record, output)
+        output.flush()
+        os.fsync(output.fileno())
     staged.replace(directory / "result.json")
+    sync_directory(directory)
 
 
 def load(directory):
-    return json.loads((directory / "result.json").read_text())
+    path = directory / "result.json"
+    try:
+        record = json.loads(path.read_text())
+        if (
+            not isinstance(record, dict)
+            or record.get("job") != directory.name
+            or not isinstance(record.get("box"), str)
+            or not isinstance(record.get("bootId"), str)
+            or not isinstance(record.get("state"), str)
+            or record["state"] not in STATES
+            or (record["state"] in TERMINAL and type(record.get("finishedAt")) is not int)
+        ):
+            raise ValueError("Invalid job record")
+        return record
+    except (FileNotFoundError, ValueError) as error:
+        raise ValueError(
+            f"Job record is missing or unreadable: {path}. "
+            "It may have expired; inspect the host record and retained output if present."
+        ) from error
 
 
 def boot_id():
@@ -41,6 +72,7 @@ def boot_id():
 def private_store(root, create=False):
     if create:
         root.mkdir(mode=0o700, exist_ok=True)
+        sync_directory(root.parent)
     descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     metadata = os.fstat(descriptor)
     if metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
@@ -69,6 +101,7 @@ def capture(directory, command):
                 kept += len(retained)
                 dropped += len(chunk) - len(retained)
             status = process.wait()
+        os.fsync(log.fileno())
     return status, dropped
 
 
@@ -156,7 +189,15 @@ def prune(root):
     # The store lock serializes reconciliation with worker result commits.
     now = int(time.time())
     current_boot = boot_id()
-    records = [(directory, load(directory)) for directory in root.iterdir() if directory.is_dir()]
+    records = []
+    for directory in root.iterdir():
+        if directory.is_dir():
+            try:
+                records.append((directory, load(directory)))
+            except ValueError:
+                # Preserve damaged records and logs for inspection. A direct query
+                # still reports the record error, without disabling unrelated jobs.
+                continue
     units = [
         "raft-" + record["job"]
         for _, record in records
@@ -205,8 +246,9 @@ def start(root, name, job, payload, source):
         "bootId": boot_id(),
         "command": payload,
     }
-    save(directory, record)
     (directory / "output").touch(mode=0o600)
+    save(directory, record)
+    sync_directory(root)
     response = subprocess.run(
         [
             "systemd-run",
@@ -239,16 +281,32 @@ def main(root=ROOT):
     if action == "worker":
         worker(root, name, job)
         return
+    if action == "start":
+        payload = json.loads(sys.argv[4])
+        if (
+            not isinstance(payload, list)
+            or not payload
+            or not all(isinstance(arg, str) and "\0" not in arg for arg in payload)
+        ):
+            raise ValueError("A detached job requires command arguments without NUL")
+        # The caller holds the host lifecycle lock. Probe before taking the
+        # shared job-store lock so an unresponsive guest cannot block other jobs.
+        try:
+            probe = subprocess.run(
+                ["incus", "--project", "raft", "exec", name, "--", "true"],
+                capture_output=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("Workspace did not respond; no job was created") from error
+        if probe.returncode:
+            raise RuntimeError(
+                "Workspace is unavailable; no job was created: "
+                + probe.stderr.decode(errors="replace").strip()
+            )
     with private_store(root, action == "start"):
         prune(root)
         if action == "start":
-            payload = json.loads(sys.argv[4])
-            if (
-                not isinstance(payload, list)
-                or not payload
-                or not all(isinstance(arg, str) and "\0" not in arg for arg in payload)
-            ):
-                raise ValueError("A detached job requires command arguments without NUL")
             start(root, name, job, payload, sys.argv[5])
             return
         directory = root / job
@@ -272,10 +330,17 @@ def main(root=ROOT):
                 return
             marker = directory / "cancelled"
             marker.touch(mode=0o600)
-            response = subprocess.run(
-                ["incus", "--project", "raft", "exec", name, "--", "systemctl", "stop", job],
-                capture_output=True,
-            )
+            try:
+                response = subprocess.run(
+                    ["incus", "--project", "raft", "exec", name, "--", "systemctl", "stop", job],
+                    capture_output=True,
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired as error:
+                raise RuntimeError(
+                    "Timed out stopping the guest job; the cancellation request remains recorded. "
+                    "Inspect the job and retry cancel."
+                ) from error
             if response.returncode:
                 marker.unlink()
                 raise RuntimeError(
