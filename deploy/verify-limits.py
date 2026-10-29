@@ -299,8 +299,26 @@ def disk_checks(location):
             time.sleep(2)
         assert disk_size(box)[0] == total, disk_size(box)
         # Removing the container frees the space; restart Docker in case it lost state.
-        live.raft("exec", box, "--", "docker", "rm", "-f", "raft-fill", check=False)
-        live.execute(box, "systemctl", "restart", "docker")
+        removed = live.raft("exec", box, "--", "docker", "rm", "-f", "raft-fill", check=False)
+        restarted = live.raft("exec", box, "--", "systemctl", "restart", "docker", check=False)
+        if restarted.returncode:
+            print(
+                "Docker removal after disk exhaustion:", removed.stdout, removed.stderr, flush=True
+            )
+            journal = live.raft(
+                "exec",
+                box,
+                "--",
+                "journalctl",
+                "--no-pager",
+                "-n",
+                "100",
+                "-u",
+                "docker",
+                check=False,
+            )
+            print(journal.stdout, journal.stderr, flush=True)
+            raise RuntimeError("Docker restart after disk exhaustion failed: " + restarted.stderr)
         live.raft("exec", box, "--", "docker", "rm", "-f", "raft-fill", check=False)
         assert disk_size(box)[1] > GIB, disk_size(box)
         assert own_pool(location)["reservedBytes"] == created["reservedBytes"]

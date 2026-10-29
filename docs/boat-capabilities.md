@@ -29,7 +29,7 @@ adding CLI commands.
 Operational gaps include automatic snapshots, shared templates, snapshot file
 browsing, retained command history, process inspection and telemetry export.
 Smaller CLI gaps include reverse tunnels, shell completions, uniform JSON errors,
-merging source uploads, friendly names and macOS/Windows controller support.
+friendly names and macOS/Windows controller support.
 
 VM kernel isolation and nested KVM require a different runtime mode. Raft's
 current container boundary cannot provide them through a flag. Browser-only
@@ -84,10 +84,10 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Automatic deletion/retention | ✅ | ✅ | Disposable delete-on-stop/expiry; opt-in stopped-box retention cleanup with preview |
 | Dashboard | ✅ | ❌ | Missing. CLI and private desktop cover current workflow |
 | SDK/API keys | ✅ | ❌ | Host SSH authentication. No remote Raft service API |
-| CLI-wide JSON mode | ✅ | ❌ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides command-specific JSON/JSONL for locations, list, info, usage, capacity, config and prune, without a global JSON error format |
+| CLI-wide JSON mode | ✅ | Preview | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides command-specific JSON/JSONL for locations, list, info, usage, capacity, config and prune, and unreleased global JSONL events for reports, streams, errors and exit codes |
 | Snapshot file browsing/download | ✅ | ❌ | Full native archives only; no Raft snapshot tree or selected-file interface |
 | CLI self-update | ✅ | ✅ | `raft self-update` upgrades npm global installs through the registry and uv tools from a release wheel checked against `SHA256SUMS`. A daily stderr notice reports new releases. Boat also updates itself after commands; Raft never installs without the command and never changes hosts |
-| Dynamic shell completions | ✅ | ❌ | Command help, including operational constraints in the development checkout; no generated shell completions |
+| Dynamic shell completions | ✅ | Preview | Unreleased Bash, Zsh and Fish scripts query the installed parser for commands, options and fixed choices |
 | Managed agents | ✅ | ❌ | Not implemented. No prompt/events/steer/interrupt/conversation API |
 | Automatic incremental snapshots | ✅ | ❌ | Boat documents saves every minute and on stop. Raft retains the container disk and creates named snapshots only on request; no scheduled off-host snapshot service |
 | Share saved templates across accounts | ✅ | ❌ | Boat provides revocable deployment codes and credential cleanup. Raft copies complete filesystems on the same host or imports trusted whole archives; no sharing identity or sanitization service |
@@ -96,7 +96,7 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | OpenTelemetry export | ✅ | ❌ | No built-in OTLP metrics or lifecycle-event export |
 | Command history while stopped | ✅ | Preview | Unreleased retained detached-job results survive stop and deletion for seven days, with a 1 MiB log cap. No general process history or samples |
 | Process inspection command | ✅ | ❌ | Raft can execute guest tools such as ps, but has no first-class process/history API or stopped-box process samples |
-| Merge source into existing directories | ✅ | ❌ | Boat push replaces matching files in an existing destination. Raft recursive transfer deliberately requires a new destination; Git-filtered upload is currently limited to unreleased run |
+| Merge source into existing directories | ✅ | Preview | Boat push replaces matching files in an existing destination. Unreleased `sync` replaces matching files with Git filtering and checksum-based incremental transfer; it preserves guest-only files. Recursive upload still requires a new destination |
 | Human-readable names and current/self aliases | ✅ | ❌ | Raft uses exact location-qualified handles and ownership notes; no rename or implicit current-box selection |
 | macOS and Windows controllers | ✅ | ❌ | Raft's controller requires Linux; native ARM64/AMD64 guest support is a separate capability |
 | Unresponsive-machine recovery | ✅ | ❌ | Boat recover power-cycles an unresponsive VM. Raft recover imports an archive and is not the equivalent operation |

@@ -84,6 +84,23 @@ Boxes accept an optional note with a fixed template: `purpose` (required), `owne
 - **Directory transfer completion**: The receiver verifies the sender's exact archive byte count before publication. A truncated stream, including one ending between complete entries, is rejected without publishing a partial tree.
 - **File transfer failures**: Controller write errors return an error before replacing a download destination or publishing a backup archive.
 
+## Source sync
+
+`sync BOX SOURCE DESTINATION` incrementally copies source into a running guest.
+It requires rsync on the controller and guest. By default, Git selects tracked
+and unignored files and excludes `.git`; submodules are rejected. `--all` opts
+into the entire source tree, including ignored and hidden files. Git filtering
+is not a secret scanner. Missing tracked files are omitted.
+
+Matching files are replaced, but guest-only files are never deleted. Checksums
+find changed content even when size and timestamps match. Relative symlinks
+that stay within the source tree are copied; rsync skips unsafe links and
+special files and reports them. Destination must be an absolute non-root path;
+its parent must exist. `--dry-run` reports changes without writing guest files.
+Files are replaced individually through rsync temporary files, not as an atomic
+tree. An interrupted sync can leave some files updated; rerunning converges.
+No host filesystem path is exposed: rsync runs through Incus inside the guest.
+
 ## Security and network isolation
 
 - **User namespaces**: Guest root maps to an unprivileged host UID. Container nesting and intercepted syscalls support Docker without mounting the host Docker socket.
@@ -134,3 +151,32 @@ Host expiry is a backstop dependent on the worker and lock, not a strict deletio
 guarantee after transport failure. Existing nonzero payload status is preserved.
 This is not a registered runner, a scoped CI identity or VM-grade isolation.
 See [Disposable CI jobs](./guides/ci-jobs.mdx) for the full contract.
+
+## Structured output and completion
+
+`raft --json COMMAND ...` writes only JSON Lines events to stdout. Native
+structured reports use `{"type":"data","value":...}`. Other output uses
+`stdout` or `stderr` events with `encoding: "base64"` and a `data` field so
+arbitrary bytes survive unchanged. Stream chunk boundaries are not lines.
+Expected failures add an `error` event with `code` (`usage` or `operation`) and
+`message`. The final `exit` event contains `code`, matching the process status,
+including payload failures. Local subprocess signal termination becomes
+`128 + signal` in both the exit event and process status. Usage errors return 2;
+top-level operation errors return 1. `run` also emits operation errors for setup,
+artifact collection and cleanup failures, while retaining its existing payload,
+timeout and cleanup exit-status precedence.
+Help and version also end with an exit event. Release notices are disabled in
+JSON mode. `--json` belongs before the command; arguments after a payload's
+`--` belong to that payload. Existing command-local JSON flags keep their
+existing output when global JSON mode is absent.
+
+Interactive SSH and foreground tunnels/desktop reject JSON mode before any
+side effect because these commands require terminal or session ownership.
+Other commands retain their existing behavior. JSON events are flushed as
+output arrives; memory use does not grow with payload output.
+
+`raft completions bash|zsh|fish` prints a shell integration script without
+reading host configuration. It asks the installed parser for command, option
+and fixed-choice candidates when completing, so added commands and options
+need no second maintained catalog. It does not contact hosts or suggest
+workspace IDs or secret values.

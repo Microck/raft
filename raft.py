@@ -26,6 +26,7 @@ import uuid
 import raft_files
 import raft_run
 import raft_jobs
+import raft_output
 
 __version__ = "0.7.0"
 
@@ -1097,6 +1098,57 @@ def transaction(location, script, *arguments, stdout=None):
     return response.stdout.decode() if response.stdout is not None else ""
 
 
+def sync_source(args, location, name):
+    """Use rsync's checksum/delta protocol inside the guest, never on the host tree."""
+    if shutil.which("rsync") is None:
+        raise ValueError("sync requires rsync on the controller; install rsync first")
+    source = Path(args.source).resolve(strict=True)
+    if not source.is_dir():
+        raise ValueError("Sync source must be a directory")
+    destination = raft_run.guest_path(args.destination)
+    if destination == "/":
+        raise ValueError("Sync destination must not be the guest root directory")
+    selected = None if args.all else raft_run.git_files(source, all_option="--all")
+    filters = None
+    if selected is not None:
+        # Recursive traversal never follows directory symlinks. A files-from list
+        # would follow symlink ancestors when a tracked directory was replaced.
+        allowed = set(selected)
+        for path in selected:
+            allowed.update(str(parent) for parent in Path(path).parents if str(parent) != ".")
+        rules = []
+        for path in sorted(allowed):
+            if any(char in path for char in "*?["):
+                path = re.sub(r"([\\*?\[])", r"\\\1", path)
+            rules.append(b"+ /" + os.fsencode(path))
+        filters = b"\0".join([*rules, b"- *", b""])
+    receiver = shlex.join(
+        ["sudo", "-n", "incus", "--project", PROJECT, "exec", name, "--", "rsync"]
+    )
+    command = [
+        "rsync",
+        "--recursive",
+        "--links",
+        "--safe-links",
+        "--times",
+        "--perms",
+        "--checksum",
+        "--omit-dir-times",
+        "--itemize-changes",
+        "--secluded-args",
+        "--rsync-path",
+        receiver,
+        "-e",
+        "ssh -T -o BatchMode=yes -o ConnectTimeout=10",
+    ]
+    if filters is not None:
+        command += ["--from0", "--filter=merge -"]
+    if args.dry_run:
+        command.append("--dry-run")
+    command += ["--", str(source) + "/", settings(location)["ssh"] + ":" + destination + "/"]
+    return subprocess.run(command, input=filters).returncode
+
+
 def snapshot_name(value):
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", value):
         raise ValueError("Invalid snapshot name")
@@ -1903,9 +1955,19 @@ def creation_options(command, *, lifecycle=True):
 
 
 def parser():
-    cli = argparse.ArgumentParser(description=__doc__)
+    cli = raft_output.Parser(description=__doc__)
+    cli.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit JSONL data, byte-stream, error and exit events; use before the command",
+    )
     cli.add_argument("--version", action="version", version=__version__)
     commands = cli.add_subparsers(dest="action", required=True)
+    complete = commands.add_parser("completions", help="Print parser-driven shell completion setup")
+    complete.add_argument("shell", choices=["bash", "zsh", "fish"])
+    query = commands.add_parser("_complete")
+    query.add_argument("words", nargs=argparse.REMAINDER)
     create = commands.add_parser(
         "new",
         help="Create a workspace and print its location-qualified handle",
@@ -2024,6 +2086,7 @@ def parser():
         "destroy": "Delete a box and all its snapshots, then confirm absence. Only destroy boxes owned by this task unless explicitly authorized.",
         "ssh": "Open a root shell through host SSH and Incus exec. This does not expose a guest SSH port.",
         "exec": "Run literal command arguments in /workspace and retain the exit status. Use an explicit shell for pipelines or expansions. Detached execution returns a job ID for status, logs and cancel.",
+        "sync": "Incrementally sync source into a running guest. Matching files are replaced; guest-only files remain. Requires rsync on controller and guest. Git selects tracked and unignored files by default; --all includes ignored files. Unsafe symlinks and special files are skipped by rsync. Updates are atomic per file, not per tree.",
         "upload": "Copy a local file to an absolute guest path. Recursive transfers require a running guest and publish a new directory without merging or overwriting; escaping links and special files are rejected.",
         "download": "Copy an absolute guest path to a local file. Recursive transfers require a running guest and a new destination directory; the parent must exist. Failed downloads do not replace existing files.",
         "snapshot": "Save a named disk snapshot of a stopped persistent box. Snapshots disappear when their box is deleted, including by retention.",
@@ -2056,6 +2119,17 @@ def parser():
         if action == "exec":
             command.add_argument("--detach", action="store_true")
             command.add_argument("command", nargs="+")
+        if action == "sync":
+            command.add_argument("source")
+            command.add_argument("destination")
+            command.add_argument(
+                "--all",
+                action="store_true",
+                help="Include ignored and hidden files; inspect for secrets first",
+            )
+            command.add_argument(
+                "--dry-run", action="store_true", help="Report changes without writing guest files"
+            )
         if action in ["upload", "download"]:
             command.add_argument("source")
             command.add_argument("destination")
@@ -2075,6 +2149,11 @@ def parser():
 
 
 def dispatch(args):
+    if getattr(args, "json_output", False) and args.action in {"ssh", "forward", "desktop"}:
+        raise ValueError("JSON mode does not support interactive shells or foreground tunnels")
+    if args.action == "completions":
+        print(raft_output.completions(args.shell), end="")
+        return 0
     if args.action == "run":
         return raft_run.run(args, sys.modules[__name__])
     if args.action == "self-update":
@@ -2097,7 +2176,7 @@ def dispatch(args):
                     report["policy"][location] = host_policy(location)
                 except RuntimeError as error:
                     raise RuntimeError(f"{location}: {error}") from error
-            print(json.dumps(report, indent=2))
+            raft_output.data(report, indent=2)
         else:
             if args.location:
                 raise ValueError(
@@ -2144,7 +2223,7 @@ def dispatch(args):
     if args.action == "locations":
         for index, (location, entry) in enumerate(configuration().items()):
             record = {"location": location, "default": index == 0, "note": entry.get("note", "")}
-            print(json.dumps(record))
+            raft_output.data(record)
         return 0
     if args.action in ["list", "capacity", "doctor", "gc", "prune"]:
         if args.action == "prune" and args.older_than < 1:
@@ -2155,8 +2234,8 @@ def dispatch(args):
         for location in locations:
             if args.action == "capacity":
                 report = host_capacity(location)
-                if args.json:
-                    print(json.dumps(report))
+                if args.json or args.json_output:
+                    raft_output.data(report)
                 else:
                     print_capacity(report)
             elif args.action in ["gc", "prune"]:
@@ -2191,7 +2270,7 @@ def dispatch(args):
                     for line in output.splitlines():
                         record = json.loads(line)
                         record["box"] = location + ":" + record["box"]
-                        print(json.dumps(record))
+                        raft_output.data(record)
                 else:
                     print(output, end="")
             elif args.action == "doctor":
@@ -2200,18 +2279,15 @@ def dispatch(args):
                 policy, boxes = host_inventory(location)
                 for box in boxes:
                     deletion = delete_at(box, policy)
-                    print(
-                        json.dumps(
-                            {
-                                "box": location + ":" + box["name"],
-                                "state": box["status"],
-                                "stopAt": box["config"].get("user.raft.expires", ""),
-                                # Epoch text like stopAt; empty when no retention deletion is due.
-                                "deleteAt": "" if deletion is None else str(deletion),
-                                "disk": box_disk(box),
-                                "note": read_box_note(box),
-                            }
-                        )
+                    raft_output.data(
+                        {
+                            "box": location + ":" + box["name"],
+                            "state": box["status"],
+                            "stopAt": box["config"].get("user.raft.expires", ""),
+                            "deleteAt": "" if deletion is None else str(deletion),
+                            "disk": box_disk(box),
+                            "note": read_box_note(box),
+                        }
                     )
         return 0
     if args.action in {"logs", "status", "cancel"}:
@@ -2257,7 +2333,7 @@ def dispatch(args):
     location, name = parse_handle(args.box)
     box = instance(location, name)
     if args.action == "info":
-        print(json.dumps(box, indent=2))
+        raft_output.data(box, indent=2)
     elif args.action == "backup":
         backup(args, location, name)
     elif args.action == "usage":
@@ -2270,7 +2346,7 @@ def dispatch(args):
         usage["filesystemScope"] = (
             "shared Raft pool, not per-box usage" if disk == "shared" else f"own {disk} box disk"
         )
-        print(json.dumps(usage))
+        raft_output.data(usage)
     elif args.action == "destroy":
         incus(location, "delete", name, "--force", locked=True)
         if any(item["name"] == name for item in inventory(location)):
@@ -2340,6 +2416,8 @@ def dispatch(args):
             )
         else:
             return execute(location, name, payload).returncode
+    elif args.action == "sync":
+        return sync_source(args, location, name)
     elif args.action in ["upload", "download"]:
         guest_path = args.destination if args.action == "upload" else args.source
         if not guest_path.startswith("/"):
@@ -2426,16 +2504,42 @@ def dispatch(args):
     return 0
 
 
+def exit_status(returncode):
+    """Translate Python subprocess signals into shell-compatible process statuses."""
+    return 128 - returncode if returncode < 0 else returncode
+
+
 def main():
     if sys.version_info < (3, 11, 8):
         print("raft: Python 3.11.8 or newer is required", file=sys.stderr)
         return 1
     os.umask(0o077)
-    # Parsing exits for --version, --help and usage errors, before any release check.
-    args = parser().parse_args()
-    notice = update_check(args.action, RELEASES_API)
+    # Only root options select this mode. A payload's --json is its own argument.
+    root_options = []
+    for argument in sys.argv[1:]:
+        if not argument.startswith("-") or argument == "--":
+            break
+        root_options.append(argument)
+    output = raft_output.JsonOutput().start() if "--json" in root_options else None
+    status = 1
+    notice = None
     try:
+        cli = parser()
+        args = cli.parse_args()
+        if args.action == "_complete":
+            words = args.words[1:] if args.words[:1] == ["--"] else args.words
+            print("\n".join(raft_output.candidates(cli, words)))
+            status = 0
+            return status
+        notice = (
+            None
+            if output or args.action in {"completions", "_complete"}
+            else update_check(args.action, RELEASES_API)
+        )
         status = dispatch(args)
+    except raft_output.UsageError as error:
+        raft_output.error("usage", error)
+        status = 2
     except (
         OSError,
         ValueError,
@@ -2443,11 +2547,18 @@ def main():
         tarfile.TarError,
         subprocess.CalledProcessError,
     ) as error:
-        print(f"raft: {error}", file=sys.stderr)
+        raft_output.error("operation", error)
         status = 1
+    except SystemExit as error:
+        status = error.code if isinstance(error.code, int) else 1
     except KeyboardInterrupt:
-        return 130
-    notice()
+        status = 130
+    finally:
+        status = exit_status(status)
+        if notice and status != 130:
+            notice()
+        if output:
+            output.finish(status)
     return status
 
 

@@ -8,11 +8,12 @@ description: Complete command-line reference for the Raft controller CLI.
 Command-line reference for the `raft` controller tool.
 
 Syntax:
-`raft <subcommand> [options] [arguments]`
+`raft [--json] <subcommand> [options] [arguments]`
 
 `raft --help` lists commands, `raft <subcommand> --help` explains its behavior and arguments,
 and `raft --version` prints the installed version without loading configuration.
-Output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
+Global `--json` emits JSONL events for structured results, byte streams, errors and exit codes.
+Without it, output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
 
 At most once a day, Raft checks GitHub for a newer release in the background
 while a command runs, then prints one line on stderr after it finishes, such as
@@ -30,7 +31,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Disposable CI jobs | [`run`](#run) |
 | Execution and inspection | [`exec`](#exec), [`ssh`](#ssh), [`info`](#info), [`usage`](#usage) |
 | Background job | [`status`](#status), [`logs`](#logs), [`cancel`](#cancel) |
-| File transfer | [`upload`](#upload), [`download`](#download) |
+| File transfer | [`upload`](#upload), [`download`](#download), [`sync`](#sync) |
 | Snapshots and cloning | [`snapshot`](#snapshot), [`snapshots`](#snapshots), [`restore`](#restore), [`snapshot-delete`](#snapshot-delete), [`fork`](#fork) |
 | Port forwarding and desktop | [`forward`](#forward), [`desktop`](#desktop) |
 | Backup and recovery | [`backup`](#backup), [`recover`](#recover) |
@@ -541,3 +542,34 @@ pinned or scripted runs. The notice caches its last result in
 `$XDG_CACHE_HOME/raft/update.json` (default `~/.cache/raft/update.json`). It
 waits at most 2 seconds for GitHub and is skipped for `self-update` and
 `--version`.
+
+### `completions`
+
+`raft completions bash|zsh|fish`
+
+Print a shell integration script. Source it in the matching shell, for example
+`source <(raft completions bash)`. Completions discover the installed parser on
+each request, including nested commands, flags and fixed choices. They never
+load host configuration or contact a host. The private `_complete` command is
+used by these scripts, not needed in ordinary workflows.
+
+### `sync`
+
+`raft sync BOX SOURCE DESTINATION [--all] [--dry-run]`
+
+Sync source into an existing running workspace, replacing matching files and
+preserving guest-only files. Checksums detect content changes even if timestamps
+and sizes match; unchanged content is not resent. Requires rsync on the
+controller and guest. Install it explicitly if an older image lacks it.
+
+Git selects tracked and unignored files by default, excluding `.git` and rejecting
+submodules. `--all` includes ignored and hidden files too. Deleted source files
+are not deleted remotely. Rsync reports skipped unsafe symlinks and special files.
+Destination is an absolute non-root guest directory with an existing parent.
+`--dry-run` previews changes without writing files. Updates are atomic per file,
+not per tree; rerun after an interruption to finish syncing.
+
+```sh
+raft sync "$BOX" . /workspace/project --dry-run
+raft sync "$BOX" . /workspace/project
+```

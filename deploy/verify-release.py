@@ -73,6 +73,7 @@ def verify_npm():
                 "package/raft_files.py",
                 "package/raft_run.py",
                 "package/raft_jobs.py",
+                "package/raft_output.py",
             }:
                 if content != (ROOT / PurePosixPath(member.name).name).read_bytes():
                     raise ValueError("npm runtime differs from canonical Python source")
@@ -81,6 +82,7 @@ def verify_npm():
             "package/raft_files.py",
             "package/raft_run.py",
             "package/raft_jobs.py",
+            "package/raft_output.py",
             "package/LICENSE",
             "package/deploy/deploy.py",
             "package/images/incus/build.sh",
@@ -118,6 +120,7 @@ def main():
                 "raft_files.py",
                 "raft_run.py",
                 "raft_jobs.py",
+                "raft_output.py",
                 "deploy",
                 "docs",
                 "images",
@@ -130,7 +133,7 @@ def main():
     with zipfile.ZipFile(wheels[0]) as archive:
         for name in archive.namelist():
             inspect(name, archive.read(name))
-        if not {"raft.py", "raft_files.py", "raft_run.py", "raft_jobs.py"} <= set(
+        if not {"raft.py", "raft_files.py", "raft_run.py", "raft_jobs.py", "raft_output.py"} <= set(
             archive.namelist()
         ):
             raise ValueError("Wheel missing CLI module")
@@ -146,7 +149,7 @@ def main():
         )
         verify_cli(environment / "bin/raft", work)
         subprocess.run(
-            [str(python), "-I", "-c", "import raft, raft_files, raft_run, raft_jobs"],
+            [str(python), "-I", "-c", "import raft, raft_files, raft_run, raft_jobs, raft_output"],
             cwd=work,
             check=True,
         )

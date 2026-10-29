@@ -12,6 +12,8 @@ import time
 from types import SimpleNamespace
 import uuid
 
+import raft_output
+
 GRACE = 30
 LEASE_MARGIN = 120
 
@@ -156,7 +158,7 @@ def guest_path(value):
     return str(path)
 
 
-def git_files(source):
+def git_files(source, *, all_option="--push-all"):
     """Fail closed on Git errors; do not accidentally upload an ignored credential."""
 
     def git(*arguments):
@@ -165,17 +167,19 @@ def git_files(source):
         )
         if result.returncode:
             raise ValueError(
-                "--push requires a readable Git working tree; use --push-all only "
+                f"Git-filtered source requires a readable Git working tree; use {all_option} only "
                 "after checking the entire tree for secrets: "
                 + result.stderr.decode(errors="replace").strip()
             )
         return result.stdout
 
     if git("rev-parse", "--is-inside-work-tree").strip() != b"true":
-        raise ValueError("--push requires a Git working tree")
+        raise ValueError("Git-filtered source requires a Git working tree")
     for record in git("ls-files", "--stage", "-z", "--", ".").split(b"\0"):
         if record.startswith(b"160000 "):
-            raise ValueError("--push does not copy submodules; stage their contents explicitly")
+            raise ValueError(
+                "Git-filtered source does not copy submodules; stage their contents explicitly"
+            )
     paths = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ".")
     return {
         os.fsdecode(path)
@@ -232,7 +236,7 @@ def run(args, api):
 
     def issue(error):
         nonlocal status
-        print(f"raft run: {error}", file=sys.stderr, flush=True)
+        raft_output.error("operation", error, prefix="raft run")
         if status == 0:
             status = 1
 
