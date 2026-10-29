@@ -19,6 +19,22 @@ Start with [Raft setup](./operations.mdx) to use it, or expand the detailed matr
 when evaluating a specific capability. Similar commands are not a promise of
 identical behavior, isolation or cost.
 
+## What remains for parity
+
+The largest missing pieces are a remote API with scoped credentials and SDKs,
+managed agent conversations, versioned environments and secrets, public HTTPS
+ingress, and team access. These require product and infrastructure work beyond
+adding CLI commands.
+
+Operational gaps include automatic snapshots, shared templates, snapshot file
+browsing, retained command history, process inspection and telemetry export.
+Smaller CLI gaps include reverse tunnels, shell completions, uniform JSON errors,
+merging source uploads, friendly names and macOS/Windows controller support.
+
+VM kernel isolation and nested KVM require a different runtime mode. Raft's
+current container boundary cannot provide them through a flag. Browser-only
+streaming is also separate from the existing full desktop.
+
 <details>
 <summary>Detailed capability matrix and verification evidence</summary>
 
@@ -60,23 +76,38 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Bounded host storage pools | ❓ | ✅ | Raft configures a shared 60 GiB Btrfs pool and, when enabled, a fully allocated LVM thin pool for own box disks that it never overcommits, and rejects size drift. Boat does not document an operator-managed host storage pool |
 | Strict per-box disk allocation | ✅ | ✅ | On hosts with own box disks enabled, `new --disk SIZE` gives a box a fixed-size, copy-on-write ext4 disk that guest and Docker writes cannot exceed. Shared-pool boxes, the default, have no per-box quota |
 | VM kernel isolation | ✅ | ❌ | VM deployment not implemented |
-| Nested KVM / Android emulator acceleration | ✅ | ❌ | Boat documents KVM on standard hosts; overflow cloud VMs lack it. Raft has no guest KVM device or VM mode |
+| Nested KVM / Android emulator acceleration | ✅ | ❌ | Boat currently documents `/dev/kvm` on every sandbox. Raft has no guest KVM device or VM mode |
 | External guest SSH | ✅ | ❌ | Boat supports a public IP or an SSH endpoint; public IPv4 is not guaranteed. Raft uses host-mediated private access |
 | Named environments and secrets | ✅ | ❌ | Files/configuration can be prepared explicitly. No environment registry or secret-injection service |
-| Organizations | ✅ | ❌ | Boat shares billing and plan limits; resources stay with their creator. Raft is single-operator |
+| Organizations | ✅ | ❌ | Boat supports team-visible sandboxes, optional shared access, roles and per-member environment/profile restrictions. Raft is single-operator |
 | Lifecycle webhooks | ✅ | ❌ | Missing. Deferred until an external consumer needs them |
 | Automatic deletion/retention | ✅ | ✅ | Disposable delete-on-stop/expiry; opt-in stopped-box retention cleanup with preview |
 | Dashboard | ✅ | ❌ | Missing. CLI and private desktop cover current workflow |
 | SDK/API keys | ✅ | ❌ | Host SSH authentication. No remote Raft service API |
-| CLI-wide JSON mode | ✅ | ❌ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides JSON for list/info/usage/capacity and JSONL for prune |
+| CLI-wide JSON mode | ✅ | ❌ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides command-specific JSON/JSONL for locations, list, info, usage, capacity, config and prune, without a global JSON error format |
 | Snapshot file browsing/download | ✅ | ❌ | Full native archives only; no Raft snapshot tree or selected-file interface |
 | CLI self-update | ✅ | ✅ | `raft self-update` upgrades npm global installs through the registry and uv tools from a release wheel checked against `SHA256SUMS`. A daily stderr notice reports new releases. Boat also updates itself after commands; Raft never installs without the command and never changes hosts |
-| Dynamic shell completions | ✅ | ❌ | Static `--help` only |
+| Dynamic shell completions | ✅ | ❌ | Command help, including operational constraints in the development checkout; no generated shell completions |
 | Managed agents | ✅ | ❌ | Not implemented. No prompt/events/steer/interrupt/conversation API |
+| Automatic incremental snapshots | ✅ | ❌ | Boat documents saves every minute and on stop. Raft retains the container disk and creates named snapshots only on request; no scheduled off-host snapshot service |
+| Share saved templates across accounts | ✅ | ❌ | Boat provides revocable deployment codes and credential cleanup. Raft copies complete filesystems on the same host or imports trusted whole archives; no sharing identity or sanitization service |
+| Versioned environments and upgrades | ✅ | ❌ | Boat versions repositories, setup and secrets, with explicit upgrades. Raft has image pins, controller defaults and filesystem templates, not an environment registry |
+| AI credential profiles and proxy | ✅ | ❌ | No provider credential manager, sandbox access switch, usage accounting or AI request proxy |
+| OpenTelemetry export | ✅ | ❌ | No built-in OTLP metrics or lifecycle-event export |
+| Command history while stopped | ✅ | ❌ | Boat stores command output and process samples outside the guest. Raft job logs require a running box and its retained journal |
+| Process inspection command | ✅ | ❌ | Raft can execute guest tools such as ps, but has no first-class process/history API or stopped-box process samples |
+| Merge source into existing directories | ✅ | ❌ | Boat push replaces matching files in an existing destination. Raft recursive transfer deliberately requires a new destination; Git-filtered upload is currently limited to unreleased run |
+| Human-readable names and current/self aliases | ✅ | ❌ | Raft uses exact location-qualified handles and ownership notes; no rename or implicit current-box selection |
+| macOS and Windows controllers | ✅ | ❌ | Raft's controller requires Linux; native ARM64/AMD64 guest support is a separate capability |
+| Unresponsive-machine recovery | ✅ | ❌ | Boat recover power-cycles an unresponsive VM. Raft recover imports an archive and is not the equivalent operation |
 
 ## Reference check
 
-Checked on 2026-10-07 against Boat's [CLI reference](https://docs.boat.dev/cli-reference), [machine capabilities](https://docs.boat.dev/machines), [SSH/file access](https://docs.boat.dev/ssh-access), [snapshots](https://docs.boat.dev/snapshots), [data retention](https://docs.boat.dev/data-retention), and [billing and limits](https://docs.boat.dev/billing).
+Rechecked on 2026-10-29 against Boat's [CLI reference](https://docs.boat.dev/cli-reference), [machine capabilities](https://docs.boat.dev/machines), [SSH/file access](https://docs.boat.dev/ssh-access), [snapshots](https://docs.boat.dev/snapshots), [environments](https://docs.boat.dev/environments), [environment versions](https://docs.boat.dev/environments/versions), [organizations](https://docs.boat.dev/organizations), [AI proxy API](https://docs.boat.dev/api/reference/ai-credentials/get-ai-credentials-proxy), and [telemetry API](https://docs.boat.dev/api/reference/account/get-opentelemetry-export).
+
+Some Boat overview/API text still describes creator-private resources; the dedicated organization guide and current CLI document shared sandboxes. This matrix follows those specific workflow descriptions. Boat's browser-only view restricts display and input, not access by other code inside its sandbox. These are documented capabilities, not independently tested security guarantees.
+
+Raft's latest published release was verified as [0.6.0](https://github.com/Microck/raft/releases/tag/v0.6.0) on 2026-10-29. `run` and the new help/read-performance changes remain development-branch features until released.
 
 The new workspace-control suite passed on ARM64 and AMD64 at runtime commit `a7fef1f5` in [run 37603576786](https://github.com/Microck/raft/actions/runs/37603576786). The baseline native architecture and disposable AMD64 host tests passed in [run 37496577945](https://github.com/Microck/raft/actions/runs/37496577945). This audit compares documented features, not a live differential test against Boat. Managed agent workflows remain out of scope.
 

@@ -1,219 +1,84 @@
 ---
 name: raft-cli
-description: Create and use private persistent Linux workspaces on configured Linux hosts with Raft and Incus. Use for self-hosted builds, tests, terminals, Docker, file transfer, snapshots, and private desktop access. Hosted Boat uses its separate boat-cli skill.
+description: Create and operate private Linux workspaces with Raft. Discover the installed CLI, host policies and guest tools before choosing commands for builds, tests, files, jobs or desktop access. Hosted Boat uses its separate skill.
 ---
 
 # Raft
 
-Raft runs unprivileged native ARM64 or AMD64 Incus system containers. They share the host kernel.
-The current deployment does not implement Incus VMs. Do not describe these boxes as VMs or promise cross-architecture emulation.
+## Discover before choosing a workflow
 
-`raft host add` installs packages and services on a machine. Run it only when the
-user explicitly asks to onboard that host, and show its `--dry-run` plan first.
+1. Run `raft --version` and `raft --help`. The installed command tree is the
+   capability source. Do not infer support from Boat, a newer release, or this
+   skill. Never update the CLI merely to make an example work.
+2. Match the task to a command in that help. Read `raft COMMAND --help` and
+   nested help until you reach the operation. Read its arguments, defaults,
+   output and constraints before invoking it. Revisit help when the version
+   changes or the task needs a different operation.
+3. If help cannot answer a material question, inspect the matching installed
+   source or that version's Raft command reference and runtime contract. In a
+   checkout these are `docs/reference/cli.md` and `docs/contract.md`; published
+   sources are at https://github.com/Microck/raft. Current website documentation
+   can describe unreleased code. Report unsupported capabilities instead of
+   inventing flags or silently using native Incus to bypass Raft.
 
-Do not run `raft self-update` unless the user asks; an update in the middle of a
-task changes the CLI under it. Report a `raft X is available` stderr notice
-instead of acting on it. For pinned or scripted runs, set
-`RAFT_NO_UPDATE_CHECK=1` to suppress the notice.
+This skill defines the operating procedure. Command help and runtime inspection
+supply the changing feature set, sizes, limits and software inventory.
 
-Run `raft locations`, `raft config`, `raft doctor` and `raft list` before allocating.
-`raft config` shows the defaults `new` will use on this controller and each
-location's host policies: the box note fields it requires (`require`) and how
-long it keeps stopped boxes (`deleteStoppedAfterHours`, `null` for no limit).
-Follow each location's `note`: the operator uses it to mark preferred hosts and
-hosts to avoid for some work. Pass `--location` explicitly when a note rules out
-the default. Do not change notes unless the user asks; `raft note LOCATION TEXT`
-sets one and `raft note LOCATION --clear` removes it. Keep the exact
-location-qualified handle returned by `new`. There is no implicit current box.
+## Select a host and establish ownership
 
-Note every box you create. Box notes follow one template so the next agent can
-tell whether a box is in use:
+1. Read `raft locations` for configured hosts and operator notes. Follow those
+   notes when choosing a location; do not change them to fit the task.
+2. Read help for `config`, `capacity`, `doctor` and `list`. Inspect the chosen
+   host's defaults, required note fields, retention, health, capacity and boxes.
+   Use location filtering when supported so an unrelated offline host does not
+   prevent inspection. On older versions without it, report the limitation;
+   do not rewrite the operator's inventory.
+3. Read existing box notes before using a box. A handle or familiar name does
+   not establish ownership. Operate only on task-owned boxes unless authorized
+   otherwise, and keep the exact location-qualified handle returned by creation.
+4. Give each new box a purpose, owner and next action using the flags discovered
+   in help. Update its note when the plan changes. Obey host policy errors;
+   never weaken policy or defaults to get past them.
+5. Size the box for the workload using the host's actual capacity and storage
+   capabilities. Capacity is advice, not a box-count quota. Check free disk
+   before large uploads, builds, snapshots or copies.
 
-- `--purpose`: what the box is for (required), e.g. `Integration tests for PR 42`
-- `--owner`: who uses it, e.g. `codex session in ~/work/app`
-- `--next`: what happens next, e.g. `Destroy after the tests pass`
+## Choose lifecycle and verify work
 
-Pass them to `new`, and run `raft note "$box" --purpose ...` when the plan
-changes; each call replaces the whole note. If a command fails with
-`requires --owner (host policy)` or similar, rerun it with the fields it names;
-the error prints the corrected command. Never change or clear a policy with
-`raft policy`, or the defaults with `raft config set/unset`, to get past an
-error or to keep a box from retention; only do so when the user asks. `fork` and `recover` accept the same note
-flags, which replace the whole note on the copy. `raft list` shows every box's
-`note`. Read it before you resume, stop, fork or destroy a box. Treat a box whose
-note names another owner or a job unrelated to your task as not yours. Forks
-keep the source note, so update a fork's note when its job differs.
+- For bounded one-shot work, check whether the installed CLI provides a command
+  that owns creation, execution, collection and cleanup. Read its timeout and
+  failure semantics before choosing it. Otherwise manage that lifecycle explicitly.
+- For reusable work, select persistence explicitly and inspect retention.
+  Stopping ends processes; it does not preserve memory. A disposable box can
+  disappear on stop, and a persistent box can expire under stopped-box retention.
+  Snapshots inside a box do not protect it against deletion of that box.
+- Probe the needed guest service after creation; a returned handle does not
+  prove readiness. Inspect tool versions inside the guest and its `/opt/raft/`
+  inventory instead of assuming an image has every compiler, agent or login.
+- Exec takes literal arguments. Use an explicit shell for shell syntax. Preserve
+  the command's exit status and collect artifacts before cleanup, including on
+  failure. After an uncertain transport failure, inspect the exact handle or job
+  before rerunning a payload that might already have executed.
+- For temporary work, confirm destruction even after a failed command. For
+  reusable work, stop when finished and report the handle and retention deadline.
+  An SSH error or an eventual TTL is not proof of immediate cleanup.
 
-```sh
-box=$(raft new --location lab --ttl 600 --purpose "Run the project tests" --owner "codex task 123" --next "Destroy when the tests finish")
-raft exec "$box" -- timeout 240 bash -lc 'git clone <url> /workspace/project && cd /workspace/project && <test-command>'
-raft download "$box" /workspace/project/report.json ./report.json
-raft destroy "$box"
-```
+## Preserve the boundaries
 
-The default development image has systemd, a guest Docker daemon, Node/npm/pnpm,
-Bun, Deno, Python/pip/venv/uv, Go, Rust, Java, Kotlin, Scala, Ruby, PHP,
-Erlang/Elixir, .NET, R, C/C++ tools, Git, Chromium and FFmpeg. Coding agents are not included in new images; install
-your preferred agent when needed and authenticate separately. Never copy host
-credentials into a box without authorization. Inspect `/opt/raft/` inside the
-box for recorded package versions. Do not assume every language has every
-version manager or that agents have an authenticated account.
+Raft workspaces are native-architecture containers sharing the host kernel.
+Do not promise VM isolation or cross-architecture execution. Inspect the actual
+runtime before claiming any isolation or resource limit.
 
-Exec passes literal arguments; use `bash -lc` for shell syntax. A failed command
-retains its exit status. `raft ssh "$box"` opens a root terminal through native
-Incus execution over verified host SSH. It does not expose a guest SSH port.
+Host onboarding, deployment, upgrades and global cleanup affect more than a
+single workspace. Perform them only within explicit authorization; inspect a
+supported dry-run or preview first. Do not change daily-driver hosts or install
+updates as a side effect of an ordinary workspace task.
 
-## Sizing boxes
+Snapshots, forks, transfers and backups can carry credentials. Copy only the
+required files and never inject host credentials without authorization. Git
+filtering is not a secret scanner. Import only trusted backups and store them
+privately. Restore only an explicitly requested rollback.
 
-Create the boxes your task needs, sized for the work. Raft has no box count
-limit and no size budget. Decide what the task needs and why, then ask for it:
-
-- `--cpu N`: any whole number of CPUs up to the host's count (default 1). Use
-  more for parallel builds and test suites.
-- `--memory SIZE`: any whole GiB up to the host's RAM, e.g. `8GiB` or `32GiB`
-  (default `2GiB`). Use more for large compiles, browsers or databases.
-- `--disk SIZE`: its own disk, e.g. `30GiB`, instead of the shared 60 GiB pool.
-  The box and Docker inside it cannot write past SIZE, and other boxes cannot
-  take its space. Use it for Docker builds, large datasets or anything that
-  could fill the shared pool. The image needs about 5 GiB, so use at least
-  `8GiB`; 10 GiB or more starts fastest. Only hosts deployed with
-  `--disk-pool` have own disks; elsewhere `--disk` fails and names the command
-  that enables them. Own disks, their snapshots, forks and templates are
-  copy-on-write, so copying one is fast, but each reserves its full size in
-  the pool.
-
-```sh
-box=$(raft new --cpu 4 --memory 16GiB --disk 20GiB --ttl 3600 --purpose "Build and test the monorepo" --owner "codex task 123" --next "Destroy when CI passes")
-```
-
-Built-in defaults are the first configured location, one CPU, 2 GiB RAM, the
-shared pool, a persistent box and 600 seconds; the operator can change them per
-controller, so pass `--location`, `--ttl`, `--cpu`, `--memory` and `--disk`
-(`--disk shared` for the shared pool) when the values matter. `new --from` and `fork` keep the
-source's CPU, RAM and disk instead of any default; each flag overrides only its
-own value. TTL accepts 60 seconds to 30
-days. A request larger than the whole host fails with the host's real size;
-retry with what it reports. If the own-disk pool has too little unreserved
-space for `--disk`, a snapshot or a copy, destroy own-disk boxes or snapshots
-the task no longer needs, or pick a smaller disk or the shared pool.
-`raft list` shows each box's `disk` (`"shared"` or its size).
-
-`raft capacity --location lab --json` is an advisory estimate of host CPU/RAM
-headroom and free disk. It is advice, never a reason to skip creating a box or
-to shrink one below what the task needs. Boxes share host CPUs; an estimate of
-zero means new boxes may run slower, not that they are refused.
-
-## Persistence and cleanup
-
-Persistent boxes stop and retain disk at expiry. `new --disposable` deletes a
-box and its snapshots on stop or expiry. The operator can make disposable the
-default for `new` (`raft config` shows `disposable`); then pass `--persistent`
-for a box you plan to stop and resume, snapshot, fork or back up, because
-stopping a disposable box deletes it. Forks stay persistent unless you pass
-`--disposable`. `raft stop "$box"` releases the
-container's running processes; `raft resume "$box" --ttl 600` starts it again.
-Stop is not pause and does not keep guest RAM allocated. Installed dependencies,
-files and secrets remain on disk. For a temporary run, completion requires
-successful `destroy`, even after command failure. Stop reusable runners when
-finished. Destroy only boxes owned by the current task unless authorized otherwise.
-
-Host systemd timers enforce deadlines every 15 seconds, even when the controller
-is offline. `raft gc` runs those expiry workers manually and deletes expired disposable
-boxes. `raft prune --older-than 7` previews stopped boxes older than seven days;
-`--yes` deletes them. It skips running boxes and boxes without a recorded stop
-time. Never apply prune outside the task-owned scope without explicit permission. A powered-off host enforces expiry when it returns.
-
-A location can also delete boxes that stay stopped longer than its retention,
-`deleteStoppedAfterHours` in `raft config`, with their snapshots. The clock
-starts when the box stops, including a stop by TTL expiry, and resume resets
-it. `raft list` shows each stopped box's `deleteAt` (Unix time, empty when
-nothing is due). Do not rely on a stopped box surviving past it: copy out
-results with `raft download`, or keep the whole box with `raft backup`, before
-then. Snapshots are deleted with the box, so they protect nothing against
-retention. Resume a box only when its task still needs it, not just to reset
-the clock.
-
-Stop a box before a consistent disk snapshot or fork:
-
-```sh
-raft stop "$box"
-raft snapshot "$box" prepared
-raft snapshots "$box"
-copy=$(raft fork "$box" --ttl 600)
-raft restore "$box" prepared
-```
-
-Restore replaces disk contents with the snapshot and retains the destination's
-current instance configuration, including its MAC and resource limits. Use it
-only when the user requested that rollback. A fork copies filesystem data, including any
-credentials installed there. Forks stay on the same host. `new --from "$box/prepared"` starts from a named
-snapshot; `snapshot-delete "$box" prepared` removes it. Resume and fork accept
-optional `--cpu` and `--memory` overrides. Omitted values retain the source limits.
-Forks and `new --from` keep the source's CPU, RAM and disk unless a flag
-overrides them; `new --from "$box/prepared" --disk 60GiB` copies the snapshot onto
-a bigger own disk when a box runs out of space. To spawn many agents from one
-prepared own-disk snapshot, run `new --from` once per agent: each copy is a thin
-snapshot created in seconds.
-Forks default to persistent; use `--disposable` explicitly for temporary clones.
-
-`upload/download --recursive` copy directory trees into new destinations without
-merging or overwriting. They require a running guest with Python 3.11.8+ and
-temporary controller disk space. Escaping links and special files are rejected.
-
-## Long commands and previews
-
-`raft exec "$box" --detach -- <command>` returns a job ID. Use `raft status
-"$box" <job>` and `raft logs "$box" <job>` to inspect its systemd state, exit
-status and output. `raft cancel "$box" <job>` stops the job and its child processes. Stop/destroy
-terminates running jobs; this is not automatic checkpointing of processes.
-`raft extend "$box" --ttl 1800` resets a running box's deadline without
-restarting its work. Use resume for stopped boxes. `raft usage "$box"` reports
-cgroup memory/CPU and disk space; `filesystemScope` says whether that is the
-shared pool or the box's own disk.
-
-`raft forward "$box" --remote 8080 --local 8080` opens a foreground private
-tunnel. `raft desktop "$box" --local 6080` starts the desktop on demand and
-opens its private tunnel. Use the printed localhost address, with `vnc.html`
-for the viewer. Ctrl+C closes the tunnel. The desktop service stays inside the
-box until the box stops or its service is explicitly stopped.
-
-Public hosting, reverse tunnels, browser-only confinement, agent conversation
-orchestration and KVM-backed VMs are not implemented. Agent binaries can be run
-through exec after authorized sign-in. Do not claim `boat prompt` parity.
-
-## Portable backups
-
-Stop before exporting a private archive, including snapshots:
-
-```sh
-raft stop "$box"
-raft backup "$box" ./workspace.tar.gz
-recovered=$(raft recover ./workspace.tar.gz --location second-host)
-raft resume "$recovered" --ttl 600
-```
-
-Recovery creates a fresh stopped handle and clears the inherited deadline. It
-never overwrites another box. A box with its own disk comes back on an own disk
-of the same size, so the destination needs own box disks enabled and room for the
-box and each of its snapshots. Only import trusted Raft exports; archives retain
-native configuration and guest secrets. Store them privately and check free
-space on the controller and destination host. Large backups hold the host
-lifecycle lock and delay expiry checks. A controller crash can leave an owned
-staging archive or imported box; inspect the reported recovery handle before
-cleanup. This is manual recovery, not a scheduled backup service.
-
-## One-shot trusted CI
-
-Use `raft run` for a bounded foreground job that should not retain a workspace.
-It always creates a disposable box, supports placement/sizing/template/note flags,
-Git-filtered `--push`, explicit complete-tree `--push-all`, `--cwd`, `--timeout`,
-and repeatable `--pull GUEST_DIRECTORY NEW_LOCAL_DIRECTORY`. Read
-[the CI guide](../../docs/guides/ci-jobs.mdx) before using it. Keep secrets out of
-the uploaded tree; Git filtering is not a secret scanner. Supply purpose/owner/next.
-
-The handle and cleanup result appear on stderr. Do not claim a box is gone when
-cleanup is unconfirmed; inspect that exact handle without blindly rerunning the
-payload. Host expiry is a backstop, not immediate proof. No keep, lease renewal,
-registered runner or scoped CI credentials are provided. Never configure host
-keys, repository secrets or new access, or expose sudo-capable CI access to
-untrusted code, merely because an example suggests doing so.
+For a tunnel or desktop, follow current help for listener addresses and service
+binding. Report the address actually printed. A private tunnel is not public
+hosting, and closing it does not necessarily stop the guest service.

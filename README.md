@@ -61,7 +61,7 @@ once your host and image are configured, run the commands below. replace `lab`
 with a location from your configuration:
 
 ```sh
-box=$(raft new --location lab --ttl 600)
+box=$(raft new --location lab --ttl 600 --persistent --purpose "Explore Raft" --owner "local operator" --next "Destroy after exploring")
 raft exec "$box" -- node --version
 raft ssh "$box"
 raft stop "$box"
@@ -75,8 +75,9 @@ stopped for 48 hours, and logs each deletion in its journal. disposable
 creation, prune and retention require the current host worker; redeploy from
 the current checkout before using them.
 
-size boxes for the job: `--cpu`, `--memory` and `--disk` take any whole number
-up to the host. on hosts deployed with `--disk-pool SIZE`, `--disk 20GiB` gives a
+size boxes for the job: `--cpu` takes a positive whole CPU count and
+`--memory` takes whole GiB, each up to the host total. `--disk` takes whole
+GiB bounded by the own-disk pool reservation, or `shared`. on hosts deployed with `--disk-pool SIZE`, `--disk 20GiB` gives a
 box its own disk that it, and Docker inside it, cannot grow past; forks and
 templates of it are copy-on-write. raft does not cap how many boxes you keep.
 `raft capacity` prints an advisory estimate of what fits; it never blocks a box.
@@ -157,7 +158,7 @@ records differences, sources and test coverage.
 | CPU/memory sizing and usage | ✅ | ✅ | Any whole CPU count and GiB size up to the host. Usage covers the shared pool or the box's own disk |
 | Host capacity estimates | ❌ | ✅ | Advisory only; Raft has no box count limit. Boat reports plan limits |
 | Root terminal and command execution | ✅ | ✅ | Host SSH transport |
-| Disposable foreground CI jobs | ✅ | ✅ | `raft run`: fixed timeout, Git-aware upload, artifact collection, guarded cleanup; host SSH trust, not scoped API keys |
+| Disposable foreground CI jobs | ✅ | Preview | Unreleased 0.7.0 `raft run`: fixed timeout, Git-aware upload, artifact collection and guarded cleanup; absent from published 0.6.0 |
 | Background jobs, logs and cancellation | ✅ | ✅ | No process checkpoints |
 | File upload/download | ✅ | ✅ | Files and recursive trees; new directory destinations only |
 | Snapshots and same-host forks | ✅ | ✅ | Stopped source, checked under the lifecycle lock |

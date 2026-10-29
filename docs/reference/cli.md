@@ -10,12 +10,12 @@ Command-line reference for the `raft` controller tool.
 Syntax:
 `raft <subcommand> [options] [arguments]`
 
-`raft --help` lists commands, `raft <subcommand> --help` lists its arguments,
+`raft --help` lists commands, `raft <subcommand> --help` explains its behavior and arguments,
 and `raft --version` prints the installed version without loading configuration.
 Output is command-specific; see [Scripting and CI](../guides/scripting-ci.mdx).
 
-At most once a day, after a command finishes, Raft checks GitHub for a newer
-release and prints one line on stderr, such as
+At most once a day, Raft checks GitHub for a newer release in the background
+while a command runs, then prints one line on stderr after it finishes, such as
 `raft 0.7.0 is available (you have 0.6.0). Run: raft self-update`. It never
 installs anything or changes stdout, and network failures stay silent. See
 [`self-update`](#self-update) to turn it off.
@@ -382,7 +382,7 @@ would leave them out. Otherwise Raft does not interpret notes.
 
 Show or change the controller defaults for `new`.
 
-`raft config`
+`raft config [--location LOCATION]`
 `raft config set KEY VALUE`
 `raft config unset KEY`
 
@@ -410,7 +410,10 @@ repair it.
 `require` (the required note fields), `deleteStoppedAfterHours` (`null` without
 retention), `deleteStoppedAfterSince` (when retention was set, Unix seconds) and
 the last change records `requireChanged` and `deleteStoppedAfterChanged`. It
-contacts every configured host to read policies.
+contacts every configured host to read policies unless `--location LOCATION`
+selects one. This filter affects the policy report, not controller defaults,
+and is rejected with `set` or `unset`. Location-scoped config and doctor are
+development-branch additions, not available in published 0.6.0.
 See [Defaults and host policies](../guides/config-policy.mdx).
 
 ### `policy`
@@ -468,7 +471,9 @@ if any. See [Box sizing and capacity](./capacity.mdx) for the fields.
 
 Inspect host connectivity, Incus version, expiry-worker compatibility, active systemd units (`incus`, `raft-expire.timer`, `raft-network.service`), root filesystem usage, status of the shared `raft-data` pool and, when own box disks are enabled, the `raft-disks` pool, and saved box count across configured hosts. Without `raft-disks` it prints `own box disks: not enabled (redeploy with --disk-pool SIZE)` and does not fail. An incompatible worker returns a nonzero exit status and names the failing location without running expiry or modifying boxes.
 
-`raft doctor`
+`raft doctor [--location LOCATION]`
+
+Pass `--location` to inspect one configured host independently of offline hosts.
 
 ### `list`
 

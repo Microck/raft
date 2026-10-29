@@ -9,6 +9,26 @@ Raft builds Debian 13 system container images for native ARM64 and AMD64 hosts. 
 
 Timings depend on software, image state, hardware, host load, and network transport. These measurements do not compare Raft with hosted Boat.
 
+## Controller read latency, 2026-10-29
+
+The development CLI batches host reads into one SSH connection per command.
+Five samples per version on one ARM64 Incus 6.0.6 host gave these medians:
+
+| Command | Baseline at 1fd6d62f | Candidate | Reduction |
+| --- | ---: | ---: | ---: |
+| `list --location HOST` | 0.837 s | 0.467 s | 44% |
+| `capacity --location HOST` | 0.838 s | 0.478 s | 43% |
+| `doctor` for one host | 2.209 s | 0.531 s | 76% |
+
+[Raw samples](benchmarks/read-latency-2026-10-29.json) include all timings.
+Both versions used the same controller, host and SSH configuration, with
+`RAFT_NO_UPDATE_CHECK=1`. Each sample started a fresh Python process; doctor
+called `raft.doctor(location)` directly because the baseline CLI cannot select
+one host. Five baseline samples preceded five candidate samples per command.
+These are exploratory network-dependent timings, not boot or guest workload
+speedups. The changes retain fast metadata reads and the worker compatibility
+lock; they do not weaken lifecycle checks or change host services.
+
 ## Native CI comparison
 
 [Verified native run](https://github.com/Microck/raft/actions/runs/37447415532), 2026-10-06. Five samples per architecture on 4-CPU runners with 1 guest CPU and 2 GiB guest RAM:
