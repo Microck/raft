@@ -31,7 +31,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 | Disposable CI jobs | [`run`](#run) |
 | Execution and inspection | [`exec`](#exec), [`ssh`](#ssh), [`info`](#info), [`usage`](#usage) |
 | Background job | [`status`](#status), [`logs`](#logs), [`cancel`](#cancel) |
-| File transfer | [`upload`](#upload), [`download`](#download) |
+| File transfer | [`upload`](#upload), [`download`](#download), [`sync`](#sync) |
 | Snapshots and cloning | [`snapshot`](#snapshot), [`snapshots`](#snapshots), [`restore`](#restore), [`snapshot-delete`](#snapshot-delete), [`fork`](#fork) |
 | Port forwarding and desktop | [`forward`](#forward), [`desktop`](#desktop) |
 | Backup and recovery | [`backup`](#backup), [`recover`](#recover) |
@@ -551,3 +551,24 @@ Print a shell integration script. Source it in the matching shell, for example
 each request, including nested commands, flags and fixed choices. They never
 load host configuration or contact a host. The private `_complete` command is
 used by these scripts, not needed in ordinary workflows.
+
+### `sync`
+
+`raft sync BOX SOURCE DESTINATION [--all] [--dry-run]`
+
+Sync source into an existing running workspace, replacing matching files and
+preserving guest-only files. Checksums detect content changes even if timestamps
+and sizes match; unchanged content is not resent. Requires rsync on the
+controller and guest. Install it explicitly if an older image lacks it.
+
+Git selects tracked and unignored files by default, excluding `.git` and rejecting
+submodules. `--all` includes ignored and hidden files too. Deleted source files
+are not deleted remotely. Rsync reports skipped unsafe symlinks and special files.
+Destination is an absolute non-root guest directory with an existing parent.
+`--dry-run` previews changes without writing files. Updates are atomic per file,
+not per tree; rerun after an interruption to finish syncing.
+
+```sh
+raft sync "$BOX" . /workspace/project --dry-run
+raft sync "$BOX" . /workspace/project
+```

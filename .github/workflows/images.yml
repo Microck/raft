@@ -109,6 +109,8 @@ jobs:
         run: python3 deploy/verify-features.py --location lab
       - name: Verify structured CLI output
         run: python3 deploy/verify-output.py --location lab
+      - name: Verify incremental source sync
+        run: python3 deploy/verify-sync.py --location lab
       - name: Verify disposable CI runs
         run: python3 deploy/verify-run.py --location lab
       - name: Verify full development-image backup and recovery

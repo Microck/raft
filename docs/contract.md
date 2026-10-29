@@ -84,6 +84,23 @@ Boxes accept an optional note with a fixed template: `purpose` (required), `owne
 - **Directory transfer completion**: The receiver verifies the sender's exact archive byte count before publication. A truncated stream, including one ending between complete entries, is rejected without publishing a partial tree.
 - **File transfer failures**: Controller write errors return an error before replacing a download destination or publishing a backup archive.
 
+## Source sync
+
+`sync BOX SOURCE DESTINATION` incrementally copies source into a running guest.
+It requires rsync on the controller and guest. By default, Git selects tracked
+and unignored files and excludes `.git`; submodules are rejected. `--all` opts
+into the entire source tree, including ignored and hidden files. Git filtering
+is not a secret scanner. Missing tracked files are omitted.
+
+Matching files are replaced, but guest-only files are never deleted. Checksums
+find changed content even when size and timestamps match. Relative symlinks
+that stay within the source tree are copied; rsync skips unsafe links and
+special files and reports them. Destination must be an absolute non-root path;
+its parent must exist. `--dry-run` reports changes without writing guest files.
+Files are replaced individually through rsync temporary files, not as an atomic
+tree. An interrupted sync can leave some files updated; rerunning converges.
+No host filesystem path is exposed: rsync runs through Incus inside the guest.
+
 ## Security and network isolation
 
 - **User namespaces**: Guest root maps to an unprivileged host UID. Container nesting and intercepted syscalls support Docker without mounting the host Docker socket.
