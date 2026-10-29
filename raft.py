@@ -25,6 +25,7 @@ import uuid
 
 import raft_files
 import raft_run
+import raft_output
 
 __version__ = "0.7.0"
 
@@ -1902,9 +1903,19 @@ def creation_options(command, *, lifecycle=True):
 
 
 def parser():
-    cli = argparse.ArgumentParser(description=__doc__)
+    cli = raft_output.Parser(description=__doc__)
+    cli.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit JSONL data, byte-stream, error and exit events; use before the command",
+    )
     cli.add_argument("--version", action="version", version=__version__)
     commands = cli.add_subparsers(dest="action", required=True)
+    complete = commands.add_parser("completions", help="Print parser-driven shell completion setup")
+    complete.add_argument("shell", choices=["bash", "zsh", "fish"])
+    query = commands.add_parser("_complete")
+    query.add_argument("words", nargs=argparse.REMAINDER)
     create = commands.add_parser(
         "new",
         help="Create a workspace and print its location-qualified handle",
@@ -2074,6 +2085,11 @@ def parser():
 
 
 def dispatch(args):
+    if getattr(args, "json_output", False) and args.action in {"ssh", "forward", "desktop"}:
+        raise ValueError("JSON mode does not support interactive shells or foreground tunnels")
+    if args.action == "completions":
+        print(raft_output.completions(args.shell), end="")
+        return 0
     if args.action == "run":
         return raft_run.run(args, sys.modules[__name__])
     if args.action == "self-update":
@@ -2096,7 +2112,7 @@ def dispatch(args):
                     report["policy"][location] = host_policy(location)
                 except RuntimeError as error:
                     raise RuntimeError(f"{location}: {error}") from error
-            print(json.dumps(report, indent=2))
+            raft_output.data(report, indent=2)
         else:
             if args.location:
                 raise ValueError(
@@ -2143,7 +2159,7 @@ def dispatch(args):
     if args.action == "locations":
         for index, (location, entry) in enumerate(configuration().items()):
             record = {"location": location, "default": index == 0, "note": entry.get("note", "")}
-            print(json.dumps(record))
+            raft_output.data(record)
         return 0
     if args.action in ["list", "capacity", "doctor", "gc", "prune"]:
         if args.action == "prune" and args.older_than < 1:
@@ -2154,8 +2170,8 @@ def dispatch(args):
         for location in locations:
             if args.action == "capacity":
                 report = host_capacity(location)
-                if args.json:
-                    print(json.dumps(report))
+                if args.json or args.json_output:
+                    raft_output.data(report)
                 else:
                     print_capacity(report)
             elif args.action in ["gc", "prune"]:
@@ -2190,7 +2206,7 @@ def dispatch(args):
                     for line in output.splitlines():
                         record = json.loads(line)
                         record["box"] = location + ":" + record["box"]
-                        print(json.dumps(record))
+                        raft_output.data(record)
                 else:
                     print(output, end="")
             elif args.action == "doctor":
@@ -2199,18 +2215,15 @@ def dispatch(args):
                 policy, boxes = host_inventory(location)
                 for box in boxes:
                     deletion = delete_at(box, policy)
-                    print(
-                        json.dumps(
-                            {
-                                "box": location + ":" + box["name"],
-                                "state": box["status"],
-                                "stopAt": box["config"].get("user.raft.expires", ""),
-                                # Epoch text like stopAt; empty when no retention deletion is due.
-                                "deleteAt": "" if deletion is None else str(deletion),
-                                "disk": box_disk(box),
-                                "note": read_box_note(box),
-                            }
-                        )
+                    raft_output.data(
+                        {
+                            "box": location + ":" + box["name"],
+                            "state": box["status"],
+                            "stopAt": box["config"].get("user.raft.expires", ""),
+                            "deleteAt": "" if deletion is None else str(deletion),
+                            "disk": box_disk(box),
+                            "note": read_box_note(box),
+                        }
                     )
         return 0
     # Only fork accepts note flags here; check them before contacting the host.
@@ -2218,7 +2231,7 @@ def dispatch(args):
     location, name = parse_handle(args.box)
     box = instance(location, name)
     if args.action == "info":
-        print(json.dumps(box, indent=2))
+        raft_output.data(box, indent=2)
     elif args.action == "backup":
         backup(args, location, name)
     elif args.action == "usage":
@@ -2231,7 +2244,7 @@ def dispatch(args):
         usage["filesystemScope"] = (
             "shared Raft pool, not per-box usage" if disk == "shared" else f"own {disk} box disk"
         )
-        print(json.dumps(usage))
+        raft_output.data(usage)
     elif args.action == "destroy":
         incus(location, "delete", name, "--force", locked=True)
         if any(item["name"] == name for item in inventory(location)):
@@ -2437,11 +2450,32 @@ def main():
         print("raft: Python 3.11.8 or newer is required", file=sys.stderr)
         return 1
     os.umask(0o077)
-    # Parsing exits for --version, --help and usage errors, before any release check.
-    args = parser().parse_args()
-    notice = update_check(args.action, RELEASES_API)
+    # Only root options select this mode. A payload's --json is its own argument.
+    root_options = []
+    for argument in sys.argv[1:]:
+        if not argument.startswith("-") or argument == "--":
+            break
+        root_options.append(argument)
+    output = raft_output.JsonOutput().start() if "--json" in root_options else None
+    status = 1
+    notice = None
     try:
+        cli = parser()
+        args = cli.parse_args()
+        if args.action == "_complete":
+            words = args.words[1:] if args.words[:1] == ["--"] else args.words
+            print("\n".join(raft_output.candidates(cli, words)))
+            status = 0
+            return status
+        notice = (
+            None
+            if output or args.action in {"completions", "_complete"}
+            else update_check(args.action, RELEASES_API)
+        )
         status = dispatch(args)
+    except raft_output.UsageError as error:
+        raft_output.error("usage", error)
+        status = 2
     except (
         OSError,
         ValueError,
@@ -2449,11 +2483,17 @@ def main():
         tarfile.TarError,
         subprocess.CalledProcessError,
     ) as error:
-        print(f"raft: {error}", file=sys.stderr)
+        raft_output.error("operation", error)
         status = 1
+    except SystemExit as error:
+        status = error.code if isinstance(error.code, int) else 1
     except KeyboardInterrupt:
-        return 130
-    notice()
+        status = 130
+    finally:
+        if notice and status != 130:
+            notice()
+        if output:
+            output.finish(status)
     return status
 
 

@@ -68,13 +68,19 @@ def verify_npm():
             content = archive.extractfile(member).read()
             inspect(member.name, content)
             names.add(member.name)
-            if member.name in {"package/raft.py", "package/raft_files.py", "package/raft_run.py"}:
+            if member.name in {
+                "package/raft.py",
+                "package/raft_files.py",
+                "package/raft_run.py",
+                "package/raft_output.py",
+            }:
                 if content != (ROOT / PurePosixPath(member.name).name).read_bytes():
                     raise ValueError("npm runtime differs from canonical Python source")
         required = {
             "package/raft.py",
             "package/raft_files.py",
             "package/raft_run.py",
+            "package/raft_output.py",
             "package/LICENSE",
             "package/deploy/deploy.py",
             "package/images/incus/build.sh",
@@ -111,6 +117,7 @@ def main():
                 "raft.py",
                 "raft_files.py",
                 "raft_run.py",
+                "raft_output.py",
                 "deploy",
                 "docs",
                 "images",
@@ -123,7 +130,9 @@ def main():
     with zipfile.ZipFile(wheels[0]) as archive:
         for name in archive.namelist():
             inspect(name, archive.read(name))
-        if not {"raft.py", "raft_files.py", "raft_run.py"} <= set(archive.namelist()):
+        if not {"raft.py", "raft_files.py", "raft_run.py", "raft_output.py"} <= set(
+            archive.namelist()
+        ):
             raise ValueError("Wheel missing CLI module")
     # A new environment avoids both editable checkouts and uv's cached same-version
     # tool environments. Run the installed entry point outside the source tree.
@@ -137,7 +146,9 @@ def main():
         )
         verify_cli(environment / "bin/raft", work)
         subprocess.run(
-            [str(python), "-I", "-c", "import raft, raft_files, raft_run"], cwd=work, check=True
+            [str(python), "-I", "-c", "import raft, raft_files, raft_run, raft_output"],
+            cwd=work,
+            check=True,
         )
     verify_npm()
     print("Release archives and isolated wheel installation passed")

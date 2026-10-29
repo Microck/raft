@@ -132,3 +132,28 @@ Host expiry is a backstop dependent on the worker and lock, not a strict deletio
 guarantee after transport failure. Existing nonzero payload status is preserved.
 This is not a registered runner, a scoped CI identity or VM-grade isolation.
 See [Disposable CI jobs](./guides/ci-jobs.mdx) for the full contract.
+
+## Structured output and completion
+
+`raft --json COMMAND ...` writes only JSON Lines events to stdout. Native
+structured reports use `{"type":"data","value":...}`. Other output uses
+`stdout` or `stderr` events with `encoding: "base64"` and a `data` field so
+arbitrary bytes survive unchanged. Stream chunk boundaries are not lines.
+Expected failures add an `error` event with `code` (`usage` or `operation`) and
+`message`. The final `exit` event contains `code`, matching the process status,
+including payload failures. Usage errors return 2; operation errors return 1.
+Help and version also end with an exit event. Release notices are disabled in
+JSON mode. `--json` belongs before the command; arguments after a payload's
+`--` belong to that payload. Existing command-local JSON flags keep their
+existing output when global JSON mode is absent.
+
+Interactive SSH and foreground tunnels/desktop reject JSON mode before any
+side effect because these commands require terminal or session ownership.
+Other commands retain their existing behavior. JSON events are flushed as
+output arrives; memory use does not grow with payload output.
+
+`raft completions bash|zsh|fish` prints a shell integration script without
+reading host configuration. It asks the installed parser for command, option
+and fixed-choice candidates when completing, so added commands and options
+need no second maintained catalog. It does not contact hosts or suggest
+workspace IDs or secret values.
