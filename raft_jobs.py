@@ -89,6 +89,9 @@ def worker(root, name, job):
         "--quiet",
         "--wait",
         "--pipe",
+        # Simple services treat several termination signals as success and discard
+        # their exit metadata. Oneshot retains those failures for inspection below.
+        "--service-type=oneshot",
         "--unit",
         job,
         "--property=WorkingDirectory=/workspace",

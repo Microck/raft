@@ -109,6 +109,22 @@ def native(location):
                 {"record": record, "output": output, "unit": unit.stdout, "error": unit.stderr}
             )
         assert output == "retained-output"
+        for signum in (1, 2, 13, 15):
+            signalled = live.raft(
+                "exec",
+                box,
+                "--detach",
+                "--",
+                "python3",
+                "-c",
+                f"import os,signal; signal.signal({signum},signal.SIG_DFL); "
+                f"os.kill(os.getpid(),{signum})",
+            ).stdout.strip()
+            record = live.wait_job(box, signalled)
+            assert record["state"] == "completed" and record["exitCode"] == 128 + signum, (
+                record,
+                live.raft("logs", box, signalled).stdout,
+            )
         active = live.raft(
             "exec", box, "--detach", "--", "sh", "-c", "echo ready; sleep 600"
         ).stdout.strip()
