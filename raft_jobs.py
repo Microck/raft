@@ -133,43 +133,46 @@ def worker(root, name, job):
     ]
     try:
         status, dropped = capture(directory, command)
-        exit_code = 0 if status == 0 else None
-        confirmed = status == 0
-        if not confirmed:
-            inspected = subprocess.run(
-                [
-                    "incus",
-                    "--project",
-                    "raft",
-                    "exec",
-                    name,
-                    "--",
-                    "systemctl",
-                    "show",
-                    job,
-                    "-p",
-                    "ExecMainCode",
-                    "-p",
-                    "ExecMainStatus",
-                    "-p",
-                    "SubState",
-                ],
-                capture_output=True,
+        # During shutdown the guest can still answer queries and return a payload
+        # status. Inspect the manager as well, including for zero-exit handlers.
+        inspected = subprocess.run(
+            [
+                "incus",
+                "--project",
+                "raft",
+                "exec",
+                name,
+                "--",
+                "sh",
+                "-c",
+                'systemctl show "$1" -p ExecMainCode -p ExecMainStatus -p SubState '
+                "&& systemctl show -p SystemState",
+                "raft-job-status",
+                job,
+            ],
+            capture_output=True,
+        )
+        properties = dict(
+            line.split("=", 1)
+            for line in inspected.stdout.decode(errors="replace").splitlines()
+            if "=" in line
+        )
+        confirmed = (
+            inspected.returncode == 0
+            and properties.get("SystemState") not in {None, "stopping"}
+            and (
+                status == 0
+                or (
+                    properties.get("ExecMainCode", "0") != "0"
+                    and properties.get("SubState") != "running"
+                )
             )
-            properties = dict(
-                line.split("=", 1)
-                for line in inspected.stdout.decode(errors="replace").splitlines()
-                if "=" in line
-            )
-            confirmed = (
-                inspected.returncode == 0
-                and properties.get("ExecMainCode", "0") != "0"
-                and properties.get("SubState") != "running"
-            )
-            if confirmed:
-                exit_code = int(properties["ExecMainStatus"])
-                if properties["ExecMainCode"] != "1":
-                    exit_code += 128
+        )
+        exit_code = None
+        if confirmed:
+            exit_code = 0 if status == 0 else int(properties["ExecMainStatus"])
+            if status != 0 and properties["ExecMainCode"] != "1":
+                exit_code += 128
         record.update(
             state="completed" if confirmed else "interrupted",
             exitCode=exit_code,

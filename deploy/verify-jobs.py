@@ -197,12 +197,28 @@ def native(location):
         live.raft("cancel", box, orphan)
         assert json.loads(live.raft("status", box, orphan).stdout) == record
         interrupted = live.raft("exec", box, "--detach", "--", "sleep", "600").stdout.strip()
+        zero_on_stop = live.raft(
+            "exec",
+            box,
+            "--detach",
+            "--",
+            "python3",
+            "-u",
+            "-c",
+            "import signal,sys,time; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); "
+            "print('shutdown-handler-ready'); time.sleep(600)",
+        ).stdout.strip()
+        deadline = time.monotonic() + 20
+        while "shutdown-handler-ready" not in live.raft("logs", box, zero_on_stop).stdout:
+            assert time.monotonic() < deadline, "Shutdown handler did not start"
+            time.sleep(0.2)
         live.raft("stop", box)
-        record = live.wait_job(box, interrupted)
-        assert record["state"] == "interrupted", (
-            record,
-            live.raft("logs", box, interrupted).stdout,
-        )
+        for stopped_job in (interrupted, zero_on_stop):
+            record = live.wait_job(box, stopped_job)
+            assert record["state"] == "interrupted" and record["exitCode"] is None, (
+                record,
+                live.raft("logs", box, stopped_job).stdout,
+            )
         assert live.raft("logs", box, completed).stdout == "retained-output"
         count_records = "find /var/lib/raft-jobs -mindepth 1 -maxdepth 1 -type d | wc -l"
         before = live.transaction(location, count_records)
