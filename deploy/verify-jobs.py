@@ -117,10 +117,15 @@ def native(location):
             assert time.monotonic() < deadline
             time.sleep(0.2)
         live.raft("cancel", box, active)
-        assert live.wait_job(box, active)["state"] == "cancelled"
+        record = live.wait_job(box, active)
+        assert record["state"] == "cancelled", (record, live.raft("logs", box, active).stdout)
         interrupted = live.raft("exec", box, "--detach", "--", "sleep", "600").stdout.strip()
         live.raft("stop", box)
-        assert live.wait_job(box, interrupted)["state"] == "interrupted"
+        record = live.wait_job(box, interrupted)
+        assert record["state"] == "interrupted", (
+            record,
+            live.raft("logs", box, interrupted).stdout,
+        )
         assert live.raft("logs", box, completed).stdout == "retained-output"
         live.raft("destroy", box)
         destroyed = True
