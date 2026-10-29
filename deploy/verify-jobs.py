@@ -145,16 +145,13 @@ def native(location):
         live.transaction(location, 'systemctl kill --signal=SIGKILL "$1"', "raft-" + orphan)
         record = live.wait_job(box, orphan)
         assert record["state"] == "interrupted", record
-        assert (
-            int(live.execute(box, "systemctl", "show", orphan, "-p", "ExecMainPID", "--value")) > 0
-        )
+        assert int(live.execute(box, "systemctl", "show", orphan, "-p", "MainPID", "--value")) > 0
         live.raft("cancel", box, orphan)
         record = json.loads(live.raft("status", box, orphan).stdout)
         assert record["state"] == "cancelled" and record["exitCode"] is None, record
         assert record["finishedAt"] is not None
-        assert (
-            int(live.execute(box, "systemctl", "show", orphan, "-p", "ExecMainPID", "--value")) == 0
-        )
+        # ExecMainPID retains the historical PID after exit; MainPID tracks the live process.
+        assert int(live.execute(box, "systemctl", "show", orphan, "-p", "MainPID", "--value")) == 0
         live.raft("cancel", box, orphan)
         assert json.loads(live.raft("status", box, orphan).stdout) == record
         interrupted = live.raft("exec", box, "--detach", "--", "sleep", "600").stdout.strip()
