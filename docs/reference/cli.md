@@ -169,29 +169,30 @@ Display active resource consumption for a running workspace: cgroup memory, CPU 
 
 ## Background job commands
 
-`status`, `logs` and `cancel` require a job ID returned by `exec --detach` in the selected running workspace. Unknown jobs return an error.
-
-Cancelled jobs remain inspectable while their guest journal records exist. Rotating old logs does not prevent inspection of a live job.
+`status`, `logs` and `cancel` require the exact workspace handle and job ID returned by `exec --detach`. Status and logs remain available after workspace stop or deletion. Unknown or expired jobs return an error. Guest journal rotation does not affect retained results.
 
 ### `status`
 
-Check the execution state of a detached background job.
-
 `raft status <box> <job>`
 
-Queries `systemctl show` inside the container and outputs `ActiveState`, `SubState`, and `ExecMainStatus`.
+Read retained JSON state, exit code, timestamps and dropped output bytes from the
+host, including after workspace stop or deletion. `completed` means execution
+ended; inspect `exitCode` for success. Unknown or expired jobs are rejected.
 
 ### `logs`
 
-Retrieve journal output from a detached background job using `journalctl --no-pager -o cat -u <job>`.
-
 `raft logs <box> <job>`
+
+Read the first 1 MiB of combined output retained on the host. Results expire
+seven days after completion and are pruned on access. The store allows at most
+512 records. See [Background jobs](../guides/background-jobs.mdx).
 
 ### `cancel`
 
-Terminate a running detached background job using `systemctl stop <job>`.
-
 `raft cancel <box> <job>`
+
+Stop the guest job control group. Retained results remain available. Cancellation
+can fail while the guest unit is still starting; inspect before retrying.
 
 ## File transfer commands
 

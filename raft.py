@@ -25,6 +25,7 @@ import uuid
 
 import raft_files
 import raft_run
+import raft_jobs
 import raft_output
 
 __version__ = "0.7.0"
@@ -2095,9 +2096,9 @@ def parser():
         "fork": "Copy a stopped box on the same host, including files, secrets and note. Defaults to persistent. CPU and memory retain source limits unless overridden. Update the copy note for its new task.",
         "forward": "Open a foreground SSH tunnel bound to controller 127.0.0.1. Guest service must listen on its managed NIC or 0.0.0.0. Ctrl+C closes the tunnel.",
         "desktop": "Start the full guest desktop and open its private foreground tunnel. Closing the tunnel leaves the desktop service running until explicitly stopped or the box stops.",
-        "logs": "Print journal output for a detached job in this running box.",
-        "status": "Print systemd state and exit status for a detached job in this running box.",
-        "cancel": "Stop a detached job and its child processes. Journal history remains available while retained by the guest.",
+        "logs": "Print retained detached-job output, including after workspace stop or deletion. First 1 MiB retained for seven days.",
+        "status": "Print retained job state, exit code, timestamps and dropped bytes as JSON, even after workspace deletion.",
+        "cancel": "Stop the guest job control group. Host-retained output remains available for seven days.",
         "backup": "Export a stopped persistent box and its snapshots to a new private archive. Includes credentials. The host lifecycle lock delays expiry while exporting.",
         "usage": "Report running guest cgroup CPU and memory counters and filesystem space as JSON. filesystemScope distinguishes shared storage from an own disk.",
     }.items():
@@ -2289,6 +2290,44 @@ def dispatch(args):
                         }
                     )
         return 0
+    if args.action in {"logs", "status", "cancel"}:
+        location, name = parse_handle(args.box)
+        if not re.fullmatch(r"rfcmd-[a-f0-9]{32}", args.job):
+            raise ValueError("Use the job ID returned by exec --detach")
+        command = shlex.join(
+            [
+                "sudo",
+                "-n",
+                "python3",
+                "-c",
+                Path(raft_jobs.__file__).read_text(),
+                args.action,
+                name,
+                args.job,
+            ]
+        )
+        response = subprocess.run(
+            [
+                "ssh",
+                "-T",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                settings(location)["ssh"],
+                command,
+            ],
+            capture_output=True,
+        )
+        if response.returncode:
+            raise RuntimeError(response.stderr.decode(errors="replace").strip())
+        if args.action == "status":
+            record = json.loads(response.stdout)
+            record["box"] = args.box
+            print(json.dumps(record))
+        else:
+            sys.stdout.buffer.write(response.stdout)
+        return 0
     # Only fork accepts note flags here; check them before contacting the host.
     fields = box_note(args)
     location, name = parse_handle(args.box)
@@ -2364,24 +2403,17 @@ def dispatch(args):
             raise ValueError("Supply a command after --")
         if args.detach:
             job = "rfcmd-" + uuid.uuid4().hex
-            response = execute(
-                location,
-                name,
-                [
-                    "systemd-run",
-                    "--quiet",
-                    "--unit",
+            source = Path(raft_jobs.__file__).read_text()
+            print(
+                transaction(
+                    location,
+                    'exec python3 -c "$1" start "$2" "$3" "$4" "$1"',
+                    source,
+                    name,
                     job,
-                    "--property=WorkingDirectory=/workspace",
-                    "--property=RemainAfterExit=yes",
-                    "--",
-                    *payload,
-                ],
-                capture=True,
+                    json.dumps(payload),
+                ).strip()
             )
-            if response.returncode:
-                raise RuntimeError(response.stderr.decode().strip())
-            print(job)
         else:
             return execute(location, name, payload).returncode
     elif args.action == "sync":
@@ -2460,44 +2492,6 @@ def dispatch(args):
             *sizing(args),
         )
         print(location + ":" + child)
-    elif args.action in ["logs", "status", "cancel"]:
-        if not re.fullmatch(r"rfcmd-[a-f0-9]{32}", args.job):
-            raise ValueError("Use the job ID returned by exec --detach")
-        loaded = execute(
-            location,
-            name,
-            ["systemctl", "show", args.job, "-p", "LoadState", "--value"],
-            capture=True,
-        )
-        if loaded.returncode or loaded.stdout.strip() != b"loaded":
-            # Cancelled transient units unload, but their journal keeps history.
-            # Live units remain recognizable even after old logs are rotated away.
-            recorded = execute(
-                location,
-                name,
-                ["journalctl", "--no-pager", "--quiet", "-o", "json", "-n", "1", "-u", args.job],
-                capture=True,
-            )
-            if recorded.returncode or not recorded.stdout.strip():
-                raise ValueError("Detached job not found in this running box")
-        if args.action == "cancel":
-            return execute(location, name, ["systemctl", "stop", args.job]).returncode
-        command = (
-            ["journalctl", "--no-pager", "-o", "cat", "-u", args.job]
-            if args.action == "logs"
-            else [
-                "systemctl",
-                "show",
-                args.job,
-                "-p",
-                "ActiveState",
-                "-p",
-                "SubState",
-                "-p",
-                "ExecMainStatus",
-            ]
-        )
-        return execute(location, name, command).returncode
     elif args.action in ["forward", "desktop"]:
         port = args.remote if args.action == "forward" else 6080
         if not 1 <= port <= 65535 or not 1 <= args.local <= 65535:

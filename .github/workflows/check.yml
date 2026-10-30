@@ -23,12 +23,13 @@ jobs:
         with:
           node-version: '24'
       - run: uv sync --locked
-      - run: uvx ruff check raft.py raft_files.py raft_run.py raft_output.py deploy/*.py
-      - run: uvx ruff format --check raft.py raft_files.py raft_run.py raft_output.py deploy/*.py
-      - run: uv run python -m compileall -q raft.py raft_files.py raft_run.py raft_output.py deploy
+      - run: uvx ruff check raft.py raft_files.py raft_run.py raft_jobs.py raft_output.py deploy/*.py
+      - run: uvx ruff format --check raft.py raft_files.py raft_run.py raft_jobs.py raft_output.py deploy/*.py
+      - run: uv run python -m compileall -q raft.py raft_files.py raft_run.py raft_jobs.py raft_output.py deploy
       - run: uv run python deploy/verify-limits.py
       - run: uv run python deploy/verify-image-tests.py
       - run: uv run python deploy/verify-run.py
+      - run: uv run python deploy/verify-jobs.py
       - run: uv run python deploy/verify-output.py
       - run: uv run python deploy/verify-features.py
       - run: uv run python deploy/verify-self-update.py

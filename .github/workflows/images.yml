@@ -5,6 +5,7 @@ on:
       - raft.py
       - raft_files.py
       - raft_run.py
+      - raft_jobs.py
       - images/incus/**
       - deploy/**
       - .github/workflows/images.yml
@@ -101,6 +102,8 @@ jobs:
           sudo incus --project raft info raft-builder --show-log || true
           sudo journalctl -u incus --no-pager -n 80
           df -h /
+      - name: Verify retained job results
+        run: python3 deploy/verify-jobs.py --location lab
       - name: Verify lifecycle, desktop and all development tools
         run: python3 deploy/verify-live.py --location lab --extended --restart-incus
       - name: Verify capacity advice, free-form sizing and own box disks

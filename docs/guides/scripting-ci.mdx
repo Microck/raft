@@ -46,8 +46,8 @@ Without global `--json`, parse each command's format:
 | `config` | One pretty-printed JSON object with `file`, `defaults`, `policy` |
 | `config set/unset`, `policy` | One line describing the change |
 | `prune` | JSONL candidates or deleted records with `box`, `action` |
-| `status` | systemd `ActiveState`, `SubState`, `ExecMainStatus` property lines |
-| `logs` | Guest journal text |
+| `status` | Retained JSON record with `state`, `exitCode`, timestamps and `droppedBytes` |
+| `logs` | First 1 MiB of retained combined output |
 | `exec`, `run` | Payload stdout/stderr; `run` lifecycle diagnostics use stderr |
 | Other inspection/maintenance commands | Human-readable text or no output |
 
@@ -98,10 +98,10 @@ stderr.
 
 SSH transport failures may return SSH's status rather than the payload's result.
 The foreground tunnel replaces the CLI process with SSH and uses SSH's exit code.
-A zero exit from `status` means the query succeeded; read `ExecMainStatus` for the
-job result and `ActiveState`/`SubState` for whether it finished. Do not interpret a
-running job's initial `ExecMainStatus=0` as completion. See
-[Background jobs](./background-jobs.mdx).
+A zero exit from `status` means the query succeeded. Wait for a terminal `state`
+and read `exitCode`; running, cancelled and interrupted jobs have no confirmed
+payload exit code. Results remain readable after stop or deletion for seven days.
+See [Background jobs](./background-jobs.mdx).
 
 ## Create, wait, run, and stop
 
