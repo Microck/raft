@@ -17,6 +17,11 @@ on:
         type: string
 permissions:
   contents: read
+# Cancel superseded push validation, not manual validation or publishing.
+# A unique manual-run group also prevents pending releases replacing one another.
+concurrency:
+  group: native-images-${{ github.event_name == 'push' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 # Real-host suites compare CLI stderr, so no release notice may join it.
 env:
   RAFT_NO_UPDATE_CHECK: '1'

@@ -113,6 +113,8 @@ After publication, the builder creates and deletes a cache-preparation instance 
 
 The [native images workflow](https://github.com/Microck/raft/blob/main/.github/workflows/images.yml) runs on GitHub `ubuntu-24.04` and `ubuntu-24.04-arm` runners. It builds each image, runs extended lifecycle tests and all 31 developer tool checks, measures startup, and exports clean templates with SHA-256 checksums.
 
+New pushes cancel older push-triggered runs on the same ref. Manual validation and release runs have unique concurrency groups, so later pushes or dispatches do not cancel or replace them.
+
 Successful CI runs attach seven-day artifacts (`raft-dev-amd64` and `raft-dev-arm64`), which require a GitHub login to download. Small `boot-results-amd64` and `boot-results-arm64` artifacts contain only reports.
 
 Versioned public images are published under [releases](https://github.com/Microck/raft/releases) after recovery and fresh-host validation; public release assets do not expire on the seven-day CI schedule. Each archive must be imported into a host of the matching CPU architecture.
