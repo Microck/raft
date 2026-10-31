@@ -1,261 +1,43 @@
 ---
-title: Verification
-description: Read test evidence and run dedicated verification suites with explicit limits.
+title: Verify your setup
+description: Check a configured host and choose isolated tests with known side effects.
 ---
 
-# Verification
+# Verify your setup
 
-Raft is verified using real disposable Incus workspaces, guest processes, files, Docker builds, and network connections. Native suites exercise real services and verify Raft behavior rather than conformance with the hosted Boat service. Separate local worker and CI-orchestration fault fixtures are labeled below; they do not establish native-host behavior.
+Use `raft doctor --location lab` for a read-only host check, then [create a box and run a command](./first-box.mdx). For test evidence or deeper checks, use the suites below from a source checkout matching your CLI.
 
-## Verification boundaries
+## Choose an isolated test host
 
-Tests do not certify arbitrary long-running workloads, host loss, multi-tenant security boundaries, or exact Boat image/version parity. ARM64 host reboot and physical storage capacity are not certified by the AMD64 VM test. Containers share the host kernel and do not offer VM isolation.
+Live suites create and destroy boxes, run guest processes, transfer files and may change host policies. Use dedicated disposable test infrastructure, not a daily development host. You need configured SSH, pinned native images and enough scratch space for archives. Recovery requires matching source and target CPU architecture.
 
-Shared-pool boxes have no per-box quota. Own-disk boxes have enforced ext4 limits
-and reservation accounting; the coverage matrix distinguishes both modes. Large backup transfers hold the host lifecycle lock, which delays expiration checks.
+The feature suite requires an empty Raft host, sets and clears note and retention policies, and tests timer-driven deletion. Recovery tests also set and clear target note policies. Own-disk live checks need an enabled pool with at least 42 GiB unreserved. Backups can delay host expiry checks while exporting.
 
-## Coverage matrix
+## Run the check you need
 
-| Implemented workflow | E2E assertion |
+Replace `lab` and `second-host` with your isolated locations. These commands change the selected test hosts:
+
+| Goal | Command |
 | --- | --- |
-| Create/list/info/delete | Qualified handle, native state, ownership and cleanup |
-| Root terminal/exec | Real PTY, workspace directory, literal arguments and exit code |
-| Resource sizing | Effective CPU affinity and cgroup memory limit for free-form sizes, and refusal of CPU or RAM beyond the host |
-| Host capacity | Advisory notice, arbitrary sizes, no box count limit, example shapes, stopped/frozen boxes, low RAM/disk, hosts without own box disks and thin pool metadata warnings; live create/stop/resume/destroy changes in CPU/memory allocations |
-| Own box disks | Guest and Docker writes stop at the disk size without changing pool reservations or taking shared-pool space; too-small disks and requests beyond the unreserved pool space fail before leaving anything behind; new boxes, forks and templates are thin snapshots of their source, and a template copy writes under 1 GiB; each reserves exactly its size; fork, template, resized template, snapshot and backup/recover keep the disk; on a fresh host, own box disks are off until a redeploy with `--disk-pool` enables them |
-| Background jobs | Journal output, nonzero exit status, cancellation of child processes, inspection after cancellation or log rotation, and rejection of unknown job IDs |
-| TTL/extend/resume | Host-enforced stop, manual `gc`, retained files, uninterrupted lifetime extension and 30-day resume |
-| Usage | Real cgroup counters and shared-pool or own-disk scope |
-| File transfer | Binary content, paths containing spaces, stopped-workspace transfers, preservation of the destination after a failed download, and real controller write-error rejection |
-| Docker | Real image build and container execution |
-| Snapshot/restore/fork | File rollback, independent copy, retained network identity and deterministic concurrent-resume rejection under the real host lock |
-| Backup/recovery | Stopped source, no overwrite, snapshots, content, permissions and fresh MAC |
-| Private forwarding | Guest HTTP response through controller loopback tunnel |
-| Desktop | WebSocket/RFB negotiation, framebuffer, pointer, keyboard, clipboard and reconnect |
-| Network separation | Positive service control, negative IPv4/IPv6 peer, host and metadata probes |
-| Development image | Real developer-user tool checks, immutable selection and credential-path archive rejection |
-| Deployment/firewall | Repeat deployment removes stale rules without restarting Incus; failed filtering blocks normal and socket startup; boot timestamps prove filtering precedes Incus |
-| Storage contract | Disposable oversized pool is rejected without automatic resizing |
-| CLI options and errors | Command help, including `run` and `host add`; default location, TTL and desktop port; all eight sizing profiles; global and per-location reports; invalid TTLs, sizes, required arguments, handles, paths, snapshot names, jobs and ports |
+| Exercise lifecycle, tools, Docker, files, jobs, tunnels and isolation | `python3 deploy/verify-live.py --location lab --extended` |
+| Check templates, recursive transfers, notes, retention and cleanup | `python3 deploy/verify-features.py --location lab` |
+| Check capacity transitions and own disks | `python3 deploy/verify-limits.py --location lab` |
+| Check disposable CI jobs and artifact cleanup | `python3 deploy/verify-run.py --location lab` |
+| Check same-host backup/recovery | `python3 deploy/verify-controls.py --source lab --target lab` |
+| Check cross-host full-image recovery | `python3 deploy/verify-controls.py --source lab --target second-host --development-image` |
 
-## Command and option audit (2026-10-06)
+Recovery uses controller temporary storage by default; pass `--directory PATH` for a directory with enough archive space. `python3 deploy/verify-tools.py "$box"` runs development-tool checks in an existing running test box as `developer`.
 
-<details>
-<summary>Coverage, regressions and remaining limits</summary>
+Do not use `--restart-incus` unless daemon interruption is approved on a disposable host. `--reboot-host` requires a disposable host and a separate controller. These options belong to `verify-live.py` and affect the whole host, not only test boxes.
 
-The audit checked help for all 26 commands and expanded the live suites to cover defaults, invalid arguments, manual garbage collection, maximum lifetimes and unknown job IDs. Two ARM64 hosts passed extended lifecycle tests, all six sizing profiles and all 31 development-tool checks.
+For host-independent checks, omit `--location` from `verify-features.py`, `verify-limits.py` and `verify-run.py`. `python3 deploy/verify-image-tests.py` checks archive safety; `python3 deploy/verify-self-update.py` tests temporary npm/uv installations. Local worker and orchestration fixtures do not establish native-host behavior.
 
-After the fixes, live lifecycle and same-host recovery passed again. Cross-host recovery passed with a 384,827,472-byte archive. Test boxes and archives were removed without rebooting or reconfiguring the existing hosts.
+## Read the evidence and its limits
 
-The audit found and fixed two CLI bugs:
+[Native ARM64 and AMD64 validation](https://github.com/Microck/raft/actions/runs/37603576786) exercises lifecycle, workspace controls, tool checks, backup/recovery and startup measurements. [Fresh-host validation](https://github.com/Microck/raft/actions/runs/37469540182) covers deployment and reboot on a disposable AMD64 Ubuntu 24 KVM host. See [measured startup results](./boot-performance.mdx) for samples and methodology.
 
-- Unknown background jobs appeared to succeed. Job inspection now distinguishes unknown IDs, loaded jobs and canceled jobs with retained journal entries. Tests cover inspection after cancellation and journal rotation.
-- SSH could report success after a controller write failed. Downloads and backups now copy the stream through Python so local write errors reach the caller. Real `/dev/full` tests verify both receiving paths. The same Incus/SSH producer falsely succeeded with the previous implementation and raised `ENOSPC` with the fix.
+The suites check file rollback, copied network identity, retained output, binary and recursive transfers, Docker execution, private HTTP and desktop input, and network separation. Own-disk checks cover capped guest/Docker writes and reservations; shared-pool boxes have no per-box quota. Tests verify Raft behavior, not conformance with the hosted Boat service.
 
-This covers implemented workflows and selected option combinations, not every possible workload or environment. A full-image export exceeded the local controller's free disk space and was interrupted. Full-sized archive validation runs on disposable CI hosts with sufficient scratch space.
+These results do not certify arbitrary long-running workloads, host loss, multi-tenant security, cross-architecture recovery, ARM64 host reboot or physical storage capacity. VM tests with sparse virtual disks do not prove real free-disk capacity. Boxes share the host kernel, and Raft has not had a security audit.
 
-The [final runtime validation](https://github.com/Microck/raft/actions/runs/37542355027) tests commit `ac618e64`. ARM64 and AMD64 both passed extended lifecycle tests with daemon restarts, capacity transitions and full development-image backup/recovery. [Packaging checks](https://github.com/Microck/raft/actions/runs/37542355021) passed on Python 3.11 and 3.14, and [documentation checks](https://github.com/Microck/raft/actions/runs/37542355020) passed.
-
-</details>
-
-## New workspace controls
-
-`python3 deploy/verify-features.py --location lab` verifies `doctor` readiness against the installed worker, recursive trees and unsafe-archive rejection, templates from a running source, snapshot deletion, CPU/RAM overrides, disposable timer deletion, prune preview/apply, host note policies for `new`, `fork`, `note` and `recover`, and stopped-box retention: it sets a 1-hour policy, backdates one stopped box and the policy start, and checks that the next timer run deletes only that box, records the stop time of a box stopped natively and logs to the journal. It sets policies on the host and clears them at the end, and uses only its own fixtures. Every live suite runs the CLI in a private `HOME` holding only `incus.json`, so controller defaults such as `disposable true` never change their boxes. Run the archive, controller-default, policy-message and host worker retention checks without `--location` to avoid allocating boxes; the worker check runs the real worker against a fake `incus` on `PATH`.
-
-The live suite also holds a controller stdin pipe open while running real remote
-readers through both captured and streamed lifecycle transactions. Both must
-receive EOF without consuming controller input, and a subsequent transaction
-must acquire the same host lock. This covers allocation stalls caused by Incus
-waiting for stdin while the expiration worker waits for the lifecycle lock.
-
-For an older deployment whose services should stay unchanged, `--isolated-worker` first verifies that `doctor` rejects the stale installed worker with a location-specific deployment diagnostic, then uses the current worker under a private temporary path. This checks worker logic without installing it; automatic timer integration is verified on disposable CI hosts. Current deployments use the normal verification mode; the isolated mode rejects them before allocation.
-
-## Workspace controls validation (2026-10-07)
-
-<details>
-<summary>Native feature tests and transfer regressions</summary>
-
-At runtime commit `a7fef1f5`, ARM64 and AMD64 passed the new workspace-control suite in [native CI](https://github.com/Microck/raft/actions/runs/37603576786). It verifies installed-timer deletion, retention preview and exclusions, live-source snapshot templates, snapshot deletion, and effective CPU/RAM limits after resume and fork.
-
-Directory tests cover binary files, permissions, relative symlinks, hardlinks, empty directories and existing destinations. Unix sockets and unsafe archive entries are rejected. A real Incus transfer truncated between complete archive entries fails without publishing a partial directory.
-
-Both architectures passed extended lifecycle tests, full development-image recovery, startup measurements and clean-template inspection. Fresh provisioning, image import, firewall ordering and reboot passed on a disposable AMD64 KVM host.
-
-The source-race fix also passed a real concurrent writer test that swaps files and directories for external symlinks. Accepted archives retain only the selected files. Two configured ARM64 hosts passed the final feature suite with a staged worker, without changing installed services. Local fixtures and staged files were removed.
-
-</details>
-
-## Running verification suites
-
-Test commands require configured hosts and immutable image fingerprints. Suites destroy only the fixtures they create.
-
-Allocation and archive inspection:
-- `python3 deploy/verify-limits.py`: Checks advisory capacity policies without a host. Add `--location lab` to verify live create, stop, resume, and destroy reporting, oversized-request refusal, and own box disks (needs a `raft-disks` pool with 42 GiB unreserved).
-- `python3 deploy/verify-image-tests.py`: Inspects archive structures, including symlinks, hardlinks, FIFOs, and credential detection.
-- `python3 deploy/verify-self-update.py`: Upgrades real npm and uv installs in temporary directories from a local release server and npm registry. Checks SHA256SUMS refusals, install-channel detection, version comparison and the passive notice. Needs npm and uv, but no network or host.
-
-Live host suites (expand the check you need):
-
-<details>
-<summary>Lifecycle</summary>
-
-```sh
-python3 deploy/verify-live.py --location lab --extended
-```
-
-</details>
-
-<details>
-<summary>Daemon restart on a dedicated test host</summary>
-
-```sh
-python3 deploy/verify-live.py --location lab --restart-incus
-```
-
-</details>
-
-<details>
-<summary>Cross-host recovery</summary>
-
-```sh
-python3 deploy/verify-controls.py --source lab --target second-host --directory /path/to/archive-storage
-```
-
-</details>
-
-<details>
-<summary>Same-host recovery</summary>
-
-```sh
-python3 deploy/verify-controls.py --source lab --target lab --directory /path/to/archive-storage
-```
-
-</details>
-
-<details>
-<summary>Full development-image recovery</summary>
-
-```sh
-python3 deploy/verify-controls.py --source lab --target second-host --directory /path/to/archive-storage --development-image
-```
-
-</details>
-
-Recovery verification also sets a note policy on the target, proves that a backup without the required note is rejected and its imported box removed, recovers it with a note, then clears the policy.
-
-`verify-tools.py <qualified-box>` executes 31 tool checks as the unprivileged `developer` user inside a running workspace. It compiles and runs code across installed runtimes and package managers without external agent authentication.
-
-## Extended lifecycle results (2026-10-05)
-
-<details>
-<summary>Test evidence and run details</summary>
-
-The extended lifecycle suite and strengthened tool checks passed on two ARM64 Ubuntu hosts with Incus 6.0.6 on 2026-10-05.
-
-Both hosts executed all six sizing combinations, all 31 developer tool checks, Docker builds, file transfers, stopped snapshots, forks, restore, jobs, and private HTTP and desktop tunnels.
-
-Desktop testing validated keyboard input, exact clipboard synchronization, pointer coordinates, framebuffer updates, and secondary client connections. Headed Chromium testing passed with sandboxing enabled, confirming canvas rendering at 1280x720 over the noVNC interface.
-
-**Admission and backup runs**
-
-These runs predate the removal of the saved-box admission cap.
-
-The four-saved-box admission test passed, including rejection of a fifth create, fork, or recovery attempt. Full development-image recovery succeeded with a 5,254,224,965-byte archive, verifying inventories, tool checks, permissions, fresh MACs, and snapshot rollback.
-
-The execution wrapper reported exit 143 after the success message; independent native inventory and archive checks confirmed that all fixtures and temporary archives were removed.
-
-Debian fixture backup and recovery passed across the following tests:
-- Same-host recovery: 385,278,177-byte archive with snapshot rollback and distinct MAC/IP identities.
-- Reverse cross-host recovery: 385,282,465-byte archive.
-- Forward cross-host admission run: 385,272,379-byte archive (exit code 0).
-
-All recovery fixtures were destroyed; existing operator hosts were not rebooted or reconfigured.
-
-</details>
-
-## Review-fix validation (2026-10-06)
-
-<details>
-<summary>Test evidence and run details</summary>
-
-On 2026-10-06, the extended suite passed on two configured ARM64 hosts after redeploying review fixes. Both ran all 31 tool checks, six sizing profiles, and deterministic race rejection when a source container started before obtaining the host lock. Cross-host recovery passed with a 385,265,470-byte archive.
-
-Both hosts had no remaining test boxes; existing hosts were not rebooted or reconfigured.
-
-The image inspector passed 15 test cases, including non-root SSH keys, symlinks, hardlinks, and clean controls. Network testing verified initial and repeated firewall application while preserving unrelated chains.
-
-The [review-fix native run](https://github.com/Microck/raft/actions/runs/37496577945) passed all native steps on ARM64 and AMD64: development-image builds, extended lifecycle with daemon restarts, capacity transitions, and clean-image inspection. Recovery archives were 3,844,136,311 bytes on ARM64 and 3,985,872,081 bytes on AMD64.
-
-**Disposable KVM host tests**
-
-Fresh provisioning on a disposable AMD64 KVM host confirmed:
-- Repeat deployment removed injected rules while leaving Incus daemon start timestamps unchanged.
-- Failed firewall installation blocked both normal and socket-activated Incus startup.
-- Host reboot verified firewall rules became active before Incus started.
-- A disposable pool resized to 61 GiB caused deployment to fail and preserved the existing size.
-
-ARM64 host reboot and physical disk capacity remain outside this verification.
-
-</details>
-
-## Native image validation (2026-10-06)
-
-<details>
-<summary>Test evidence and run details</summary>
-
-On 2026-10-06, the [native CI run](https://github.com/Microck/raft/actions/runs/37447415532) built ARM64 and AMD64 images on Ubuntu 24 and passed extended lifecycle tests on both. Workspaces executed all six sizing combinations, 31 tool checks, sandboxed Chromium, noVNC desktop sessions, and peer isolation checks. Timings are recorded in [Boot performance](./boot-performance.mdx).
-
-In the [release-validation run](https://github.com/Microck/raft/actions/runs/37469540182), native image jobs passed full development-image recovery on both architectures. Package inventories matched and all 31 tool checks passed. Archives measured 3,844,135,523 bytes on ARM64 and 3,985,894,517 bytes on AMD64.
-
-</details>
-
-## Fresh-host and reboot validation
-
-<details>
-<summary>Test evidence and run details</summary>
-
-The [release run](https://github.com/Microck/raft/actions/runs/37469540182) validated fresh-host setup on a disposable AMD64 KVM instance running Ubuntu 24. The test verified canonical deployment, repeat deployment, image import, and lifecycle execution.
-
-Following a VM reboot, changed kernel boot IDs and active services were verified alongside retained files, snapshots, container states, Docker, and bridge isolation. The host test uses a sparse 100 GiB virtual disk and accessible KVM.
-
-It preserves the production deployer's 80 GiB free-disk check, and after enabling own box disks by redeploy checks that the pool is thin, does not pass discards to its file and has that file fully allocated, but does not prove physical storage capacity. ARM64 host reboot, host loss, and cross-architecture recovery remain unverified. The VM, SSH keys, and controller configuration were disposable; existing operator hosts were not rebooted or reconfigured.
-
-</details>
-
-## Packaging and release checks
-
-<details>
-<summary>Test evidence and run details</summary>
-
-Package builds run via `uv build`. Source and wheel archives are inspected to exclude version-control files and local caches. Clean wheel installation is verified outside the worktree alongside Ruff, syntax checks, and secret scans.
-
-Packaging workflows passed on Python 3.11 and 3.14. Guidelines for visibility changes and repository hygiene are detailed in [Publishing](./publishing.md).
-
-</details>
-
-## Capacity command validation (2026-10-06)
-
-<details>
-<summary>Test evidence and run details</summary>
-
-On 2026-10-06, `raft limits` (since renamed `raft capacity`, with the admission cap removed) passed read-only text and JSON inspection and live lifecycle tests on two ARM64 Ubuntu hosts. Tests verified allocation adjustments during create, stop, resume, and destroy cycles.
-
-Allocation fixtures validated mixed sizing budgets, frozen containers, low RAM and disk conditions, host reserves, and admission limits. The four-stopped-box admission test verified that creation, forking, and recovery reject a fifth container when slots are exhausted. These are conservative allocation checks, not workload saturation benchmarks.
-
-</details>
-
-## Disposable CI command verification
-
-`python3 deploy/verify-run.py` runs explicit orchestration fault-injection tests,
-real Linux signal/deadline handling, real Git filtering and safe archive traversal,
-and the actual ownership-check cleanup program against an isolated fake Incus
-executable. These are not native-host evidence. They cover failed/uncertain
-creation, upload failures, nonzero payload preservation, artifacts, cleanup
-failures, cancellation, timeouts, existing destinations and ignored credentials.
-
-`python3 deploy/verify-run.py --location lab` additionally creates real temporary
-boxes on the explicitly selected host, uploads a source tree, executes successful
-and failing commands, retrieves result directories, checks timeout cleanup and
-compares the host inventory before/after. Native AMD64 and ARM64 image CI runs
-this suite. A new PR must have those actual runs pass before claiming native
-verification; local fault-injection success alone does not establish it.
+For release gates and implementation details, see [publishing](./publishing.md) and the [runtime contract](./contract.md).

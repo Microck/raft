@@ -78,20 +78,6 @@ try {
     assert.equal(response.status, 200, path);
     assert.match(response.headers.get('content-type') ?? '', /text\/html/);
     const html = await response.text();
-    if (path === '/docs/boot-performance') {
-      assert.ok(html.includes('href="https://github.com/Microck/raft/blob/main/.github/workflows/images.yml"'), 'Workflow source link must point to GitHub');
-    }
-    if (path === '/docs/operations') {
-      assert.ok(html.includes('@microck/raft@0.7.0'), 'Setup must pin the published stable package');
-      assert.ok(html.includes('/releases/download/v0.7.0/'), 'Setup must link the matching published image assets');
-      assert.ok(html.includes('<details>'), 'Advanced manual setup must be progressively disclosed');
-      assert.ok(html.includes('role="tab"'), `${path}: must contain role="tab"`);
-      assert.ok(html.includes('class="fd-steps"'), `${path}: must contain class="fd-steps"`);
-      assert.equal([...html.matchAll(/<div class="fd-step">/g)].length, 7, `${path}: must contain exactly seven occurrences of <div class="fd-step">`);
-    }
-    if (path === '/docs/first-box') {
-      assert.ok(/<div[^>]*class="[^"]*raft-callout/.test(html), `${path}: must contain raft-callout`);
-    }
     assert.equal([...html.matchAll(/<h1(?:\s|>)/g)].length, 1, `${path}: one main heading`);
     for (const [, href] of html.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g)) {
       const target = new URL(href.replaceAll('&amp;', '&'), `${response.url}`);

@@ -1,272 +1,60 @@
 ---
-title: Installation and host setup
-description: Install the Raft controller CLI, provision a dedicated host, and acquire the native workspace image.
+title: Install Raft and set up a host
+description: Install the CLI, verify SSH, and onboard a dedicated Ubuntu host.
 ---
 
-# Installation and host setup
+# Install Raft and set up a host
 
-Set up a dedicated Ubuntu host, install the Raft CLI, provision Incus, acquire a workspace image, and verify readiness.
+You can create boxes after onboarding one dedicated Ubuntu host. First check the [machine requirements](./requirements.mdx). Run these commands on your Linux controller, not inside a box.
 
-Examples pin published **0.7.0**. Use matching CLI, deployment scripts and image assets.
+## Install the CLI
 
-Review prerequisites in [System requirements](./requirements.mdx) before starting.
+With Python 3.11.8+ and npm available:
 
-## Guided onboarding
+```sh
+npm install -g @microck/raft
+raft --version
+```
 
-Install the CLI from npm on your Linux controller, confirm key-based SSH to the
-host, then let `raft host add` do the remaining steps:
+Installation does not change hosts or download images. `raft host add` uses the release image matching your installed CLI version by default.
 
-```sh title="CONTROLLER: Onboard a host"
-npm install -g @microck/raft@0.7.0
+## Verify host access
+
+Replace `ubuntu@192.0.2.10` with your dedicated host's SSH target or an alias from `~/.ssh/config`. Check the host key fingerprint against a trusted source before accepting it:
+
+```sh
 ssh ubuntu@192.0.2.10 true
+ssh -o BatchMode=yes ubuntu@192.0.2.10 'sudo -n true'
+```
+
+Resolve authentication or sudo errors before continuing. Do not disable host-key checking.
+
+## Review and apply the plan
+
+Deployment changes host storage, firewall rules and system services. Do not target a shared machine or a host with unrelated Incus resources.
+
+```sh
 raft host add lab --ssh ubuntu@192.0.2.10 --dry-run
 raft host add lab --ssh ubuntu@192.0.2.10
 ```
 
-The dry run checks the host without changing it and prints the plan. The second
-command shows the same plan, asks for confirmation, provisions Incus, imports the
-checksum-verified release image, adds `lab` to `~/.config/raft/incus.json`, and
-finishes with `raft doctor` and a disposable smoke test. Unsupported hosts,
-including macOS, are rejected before any change; run an Ubuntu VM and onboard
-that instead. See [`host add`](./reference/cli.md#host-add) for image options.
+The first command checks prerequisites and prints a plan without changing the host. The second asks for confirmation, installs Incus and Raft services, imports a checksum-verified native image, and registers `lab` in `~/.config/raft/incus.json` with its immutable fingerprint. It finishes with diagnostics and a disposable create/exec/destroy test.
 
-## Manual setup
+The host gets a 60 GiB shared storage pool and a private NAT network. Boxes cannot contact peers on the bridge. No guest SSH port or public Incus listener is required.
 
-<details>
-<summary>Advanced: provision each component yourself instead of using host add</summary>
+To cap disk use per box, add `--disk-pool 100GiB` to both onboarding commands. This sets aside an additional 100 GiB on the host; individual boxes opt in with `--disk SIZE`. Without it, boxes share the pool without per-box disk caps. See [disk sizing](./reference/capacity.mdx#own-box-disks).
 
-The steps below are what `raft host add` automates. Follow them to inspect or
-customize each stage.
+For unattended onboarding, review the dry run and then pass `--yes`. Other image sources are optional: `--image-release TAG` selects a release, `--image-archive PATH` imports a trusted local archive, and `--build` builds on the host. Choose only one. See [host add](./reference/cli.md#host-add).
 
-<Steps>
+## Confirm the host is ready
 
-<Step>
-
-### Install prerequisites on the workspace host
-
-Connect to your host over SSH, verify its host key fingerprint, and install baseline packages:
-
-```sh title="HOST: Install baseline system packages"
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends \
-  ca-certificates curl gnupg python3 openssh-server iptables btrfs-progs lvm2 python3-yaml
+```sh
+raft locations
+raft doctor --location lab
 ```
 
-Verify passwordless `sudo` on the host:
+If onboarding fails before registration, host changes may remain. If the final diagnostics fail, Raft removes the location from controller inventory but leaves host changes in place. Fix the reported cause, then rerun onboarding; it reuses the deployment. An already registered location is rejected, so use `doctor` to inspect it instead.
 
-```sh title="HOST: Verify passwordless sudo"
-sudo -n true && echo "Passwordless sudo is functional"
-```
+For a missing release asset, failed checksum or unsupported architecture, do not bypass verification. Use a matching release or build a native image. For SSH and storage errors, see [troubleshooting](./guides/troubleshooting.mdx).
 
-</Step>
-
-<Step>
-
-### Install the CLI and obtain deployment scripts
-
-On your Linux controller with Python 3.11.8+, install the published CLI:
-
-```sh title="CONTROLLER: Install published CLI"
-npm install -g @microck/raft@0.7.0
-raft --version
-```
-
-Installation does not configure hosts or download images. Clone the matching
-release to obtain the deployment scripts and example configuration:
-
-```sh title="CONTROLLER: Obtain deployment scripts"
-git clone --branch v0.7.0 https://github.com/Microck/raft.git raft
-cd raft
-```
-
-Alternatively, install from that checkout using `uv` instead of npm:
-
-```sh title="CONTROLLER: Clone repository and install CLI"
-uv sync --locked
-uv tool install --editable .
-```
-
-For the `uv` installation, add `~/.local/bin` to `PATH` and verify the CLI:
-
-```sh title="CONTROLLER: Verify CLI installation"
-export PATH="$HOME/.local/bin:$PATH"
-raft --help
-```
-
-</Step>
-
-<Step>
-
-### Configure host inventory on the controller
-
-The controller reads host definitions from `~/.config/raft/incus.json`. Initialize the configuration directory and template:
-
-```sh title="CONTROLLER: Initialize configuration file"
-mkdir -p ~/.config/raft
-cp docs/incus.example.json ~/.config/raft/incus.json
-chmod 600 ~/.config/raft/incus.json
-```
-
-Verify interactive SSH to establish known host keys:
-
-```sh title="CONTROLLER: Verify host SSH access"
-ssh user@host-address "echo Host SSH connected successfully"
-ssh -o BatchMode=yes user@host-address "echo Batch SSH functional"
-```
-
-Edit `~/.config/raft/incus.json`. Set the `ssh` target. Leave `image` empty during initial setup:
-
-```json title="CONTROLLER: ~/.config/raft/incus.json"
-{
-  "lab": {
-    "ssh": "user@host-address",
-    "image": ""
-  }
-}
-```
-
-Location names use letters, digits, underscores, or hyphens. The first configured location is the default for `raft new`.
-
-</Step>
-
-<Step>
-
-### Provision the dedicated host
-
-Run the automated host deployer from your controller:
-
-```sh title="CONTROLLER: Provision host infrastructure"
-python3 deploy/deploy.py --location lab
-# Optional: enable own box disks with a pool of this size, now or on any later redeploy
-python3 deploy/deploy.py --location lab --disk-pool 100GiB
-```
-
-<details>
-<summary>Infrastructure created by the deployer</summary>
-
-The deployer runs over SSH and configures the host:
-1. Installs Incus 6.0 LTS, LVM, nftables and python3-yaml packages.
-2. Creates the isolated `raft` Incus project.
-3. Creates the shared 60 GiB Btrfs storage pool (`raft-data`). With `--disk-pool SIZE`, also creates the LVM thin pool for [own box disks](./reference/capacity.mdx#own-box-disks) (`raft-disks`) of SIZE, allocates its file on the host disk in full and stops it passing discards to that file. Without `--disk-pool` own box disks stay disabled, which is a healthy state. A later redeploy with `--disk-pool` adds the pool; no redeploy resizes either pool.
-4. Creates private bridge interface `rfbr0` (`10.232.0.1/24`) with NAT.
-5. Configures nftables bridge filters to block inter-workspace traffic and restrict host access.
-6. Installs and enables `raft-network.service` and `raft-expire.timer` units.
-
-</details>
-
-</Step>
-
-<Step>
-
-### Acquire a native workspace image
-
-Workspaces require an unprivileged Debian 13 development image matching the host architecture:
-
-<Tabs items={["Download release image", "Build from source"]}>
-
-<Tab value="Download release image">
-
-Download the release archive, checksum, and manifest from [Raft releases](https://github.com/Microck/raft/releases). These examples pin `v0.7.0`, matching the CLI and deployment checkout above. The `sha256sum` check gates import so corrupted archives are rejected:
-
-<Tabs items={["ARM64", "AMD64"]}>
-
-<Tab value="ARM64">
-
-```sh title="HOST (ARM64): Download, verify, and import release image"
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.7.0/raft-dev-arm64.tar.gz
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.7.0/SHA256SUMS
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.7.0/manifest-arm64.json
-
-sha256sum --ignore-missing -c SHA256SUMS && \
-  sudo incus --project raft image import ./raft-dev-arm64.tar.gz --alias raft-dev
-```
-
-</Tab>
-
-<Tab value="AMD64">
-
-```sh title="HOST (AMD64): Download, verify, and import release image"
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.7.0/raft-dev-amd64.tar.gz
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.7.0/SHA256SUMS
-curl -fsSL -O https://github.com/Microck/raft/releases/download/v0.7.0/manifest-amd64.json
-
-sha256sum --ignore-missing -c SHA256SUMS && \
-  sudo incus --project raft image import ./raft-dev-amd64.tar.gz --alias raft-dev
-```
-
-</Tab>
-
-</Tabs>
-
-</Tab>
-
-<Tab value="Build from source">
-
-Run the build script from your controller. It pulls Debian 13 to the host, installs development runtimes and Docker, and publishes alias `raft-dev`:
-
-```sh title="CONTROLLER: Build native development image"
-python3 deploy/build-image.py --location lab
-```
-
-<Callout type="warn" title="Do not pin the base image fingerprint">
-During the build, the script downloads an upstream Debian base image and logs its intermediate fingerprint. Do not copy that initial fingerprint; retrieve and pin the final `raft-dev` image fingerprint in the next step.
-</Callout>
-
-</Tab>
-
-</Tabs>
-
-</Step>
-
-<Step>
-
-### Retrieve and pin the image fingerprint
-
-Query the published `raft-dev` image on the host:
-
-```sh title="HOST: Retrieve published image fingerprint"
-sudo incus --project raft image list raft-dev --format json | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-print(next(img["fingerprint"] for img in data if any(a.get("name") == "raft-dev" for a in img.get("aliases", []))))
-'
-```
-
-Copy the 64-character hex output into `image` in `~/.config/raft/incus.json` on the controller:
-
-```json title="CONTROLLER: ~/.config/raft/incus.json"
-{
-  "lab": {
-    "ssh": "user@host-address",
-    "image": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-  }
-}
-```
-
-Replace the example string with your actual fingerprint. Raft requires this immutable fingerprint to prevent unexpected image mutations when creating workspaces.
-
-</Step>
-
-<Step>
-
-### Check host status with doctor
-
-Run `raft doctor` on your controller to inspect host readiness:
-
-```sh title="CONTROLLER: Run doctor diagnostics"
-raft doctor
-```
-
-Check that Incus, the network service, and the expiration timer are active. For the full report contents, see [Controller diagnostics](./guides/troubleshooting.mdx#controller-diagnostics).
-
-</Step>
-
-</Steps>
-
-</details>
-
-## Next step
-
-Proceed to [First working box](./first-box.mdx) to launch, verify, and manage your first workspace.
-
-For later releases, run `raft self-update` and follow [Upgrades and image changes](./guides/upgrades.mdx).
+Continue with [your first box](./first-box.mdx). For host redeployment or an image change, use the [upgrade guide](./guides/upgrades.mdx).

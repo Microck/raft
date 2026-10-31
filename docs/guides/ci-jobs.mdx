@@ -1,201 +1,55 @@
 ---
-title: Disposable CI jobs
-description: Run trusted builds in temporary Raft boxes, collect results, and clean up with a bounded lifetime.
+title: Run a disposable CI job
+description: Upload trusted source, run one command, collect reports, and delete the temporary box.
 ---
 
-# Disposable CI jobs
+# Run a disposable CI job
 
-`raft run` runs one foreground command in a fresh disposable box. It creates the
-box, waits for command readiness, optionally uploads source, streams command
-output, collects requested result directories, and attempts ownership-checked
-cleanup even after failure or cancellation. It does not register a GitHub
-self-hosted runner or replace your CI scheduler.
+`raft run` creates a disposable box, waits for command readiness, uploads source if requested, runs your command, collects result directories, and attempts cleanup. It does not register a CI runner or replace your scheduler.
 
-`raft run` is available in Raft 0.7.0 and later. See [installation](../operations.mdx)
-and [upgrade guidance](./upgrades.mdx) for matching controller and host components.
+Use trusted jobs on dedicated hosts only. Your controller's host SSH identity has passwordless sudo and can control all boxes. Do not expose it to unreviewed pull requests or fork jobs. Boxes share the host kernel, not VM isolation.
 
-## Trust boundary
+You need a [configured location](../operations.mdx), a compatible expiry worker, verified SSH host keys and batch authentication. Git-filtered upload needs Git on the Linux controller. Raft does not forward your environment, GitHub login or SSH agent, or inject managed secrets. Never copy a host private key into a guest.
 
-Use dedicated hosts and trusted jobs only. The controller's SSH identity has
-passwordless sudo and controls the host; it is not a scoped, per-job CI token.
-Boxes are unprivileged Incus containers sharing the host kernel, not separate
-kernel VMs. Do not expose this identity to unreviewed pull requests, fork jobs,
-or a `pull_request_target` workflow that checks out attacker-controlled code.
+## Run tests and collect a report
 
-Raft does not install or register a runner, configure repository secrets, forward
-your SSH agent, copy controller environment variables, or buy cloud capacity.
-The operator must approve and configure existing host access separately. Never
-copy a host private key or a GitHub token into the guest.
+From a Git working tree with `package-lock.json` and an npm test script, choose a local reports destination that does not exist:
 
-## One command
-
-```sh title="CONTROLLER: Git working tree"
+```sh
 RAFT_NO_UPDATE_CHECK=1 raft run \
-  --location lab --timeout 600 --cpu 2 --memory 4GiB \
+  --location lab --timeout 600 --cpu 2 --memory 4GiB --disk shared \
   --purpose "Project tests" --owner "Local CI" --next "Delete after collection" \
   --push . --pull /workspace/project/reports ./ci-reports \
   -- bash -lc 'set -euo pipefail; mkdir -p reports; npm ci; npm test 2>&1 | tee reports/test.log'
 ```
 
-The controller needs Linux, Python 3.11.8+, OpenSSH, Git for `--push`, a configured
-Raft location, verified SSH host keys, batch authentication, and the current host
-expiry worker. Ordinary image/host sizing and note policies still apply. `run`
-always forces disposable behavior, regardless of controller lifetime defaults.
-It never retries the payload command.
+Payload stdout and stderr stream to your terminal; lifecycle messages, the allocated handle and elapsed time use stderr. For JSONL events, use global `raft --json run ...`; see [scripted output](./scripting-ci.mdx#read-output).
 
-- stdout/stderr stream the payload; lifecycle messages and elapsed time go to
-  stderr. There is no cost estimate or JSON result protocol.
-- `--timeout` is one total deadline for Git filtering, creation, readiness, upload
-  and execution, not a fresh timeout for each step. Default: 600 seconds; range:
-  1 to 2,591,880 seconds.
-- `--push` includes tracked and unignored untracked files from the chosen Git
-  working tree, including working-tree edits. It excludes `.git` at every level
-  and refuses submodules. Tracked files remain included even if ignored later:
-  this is not a secret scanner. Deleted tracked files are absent.
-- `--push-all` explicitly copies the complete directory, including hidden and
-  ignored files and Git metadata. Inspect it for credentials first. This is the
-  opt-in alternative for non-Git or explicitly staged trees; it is not a silent
-  fallback when Git fails.
-- Uploads default to `/workspace/project`; without an upload, commands default
-  to `/workspace`. `--cwd` overrides this. An upload destination must not exist,
-  and its parent must already exist. Raft never merges into a stale checkout.
-- Repeat `--pull GUEST_DIRECTORY NEW_LOCAL_DIRECTORY` to collect directories,
-  including after a failing payload. Local parents must exist; destinations
-  must be new, including no existing symlinks. Files can be placed in a result
-  directory. Collection happens before deletion, with a shared 30-second grace.
-  A failed pull does not stop later pulls unless that grace has expired.
-- Exit status preserves a failing payload, including signal-style statuses.
-  Job timeout returns 124, Ctrl-C 130, SIGTERM 143. Setup/collection/cleanup
-  failure returns 1 when there is no earlier failing status. A successful
-  payload is not reported successful when cleanup cannot be confirmed.
+`--timeout` is one deadline for Git filtering, creation, readiness, upload and execution. It defaults to 600 seconds and accepts 1 to 2,591,880. Collection and cleanup each get a separate 30-second grace. The box is always disposable, with a fixed host expiry of timeout plus 120 seconds set before startup. There is no keep or lease-renewal mode, and the payload is never retried.
 
-The host receives a unique ownership marker and a fixed expiry of timeout + 120
-seconds as part of creation, before startup. Cleanup checks ownership under the
-host lifecycle lock and has a separate 30-second grace. Repeated cancellation is
-ignored during these bounded collection/cleanup attempts. No lease renewal or
-`--keep` mode is implemented.
+## Choose files and directories deliberately
 
-If creation was not acknowledged, cleanup first records that run's cancellation
-under the same host lifecycle lock. Creation checks that record before allocating,
-so a queued SSH request cannot start the box after cleanup has confirmed absence.
-These empty per-run records live in the root-only `/run/raft-ci-cancelled`
-directory, use no-follow operations, and remain until host reboot, when queued
-processes also disappear. Ordinary acknowledged runs leave no cancellation file.
+- `--push DIRECTORY` includes Git-tracked and unignored untracked files, including edits. It excludes `.git` at every level, omits deleted files and rejects submodules. Tracked credentials still copy; this is not a secret scanner.
+- `--push-all DIRECTORY` copies the entire inspected tree, including ignored files, hidden files and Git metadata. Use it explicitly for a non-Git tree, not to hide a Git error.
+- Uploads use `/workspace/project` by default. Without upload, commands use `/workspace`. `--cwd` changes that path and the upload destination. An upload needs an absent destination with an existing parent, so keep template caches outside it.
+- Repeat `--pull GUEST_DIRECTORY NEW_LOCAL_DIRECTORY` to collect multiple trees. Local parents must exist and destinations must be absent, including symlinks. Put individual artifacts in a result directory. Collection runs after a failed payload too; one failed pull does not block later pulls unless the shared grace expires.
 
-If the controller is killed before cleanup, SSH is lost, or cleanup fails, inspect
-the exact handle printed on stderr. A disconnected create may still finish when
-cancellation could not be recorded. The disposable expiry worker is a backstop,
-not a guarantee of instantaneous deletion: an unreachable host, stopped worker or
-held lifecycle lock can delay it. Do not blindly rerun an uncertain job or assume
-its side effects were rolled back.
+## Read the result and handle interruption
 
-## Prepared templates instead of shared mutable caches
+| Result | Exit status |
+| --- | --- |
+| Payload failure | The payload's nonzero status, including signal-style statuses |
+| Total deadline exceeded | `124` |
+| Ctrl+C or SIGTERM | `130` or `143` |
+| Setup, collection or cleanup failure without an earlier failure | `1` |
+| Successful payload and confirmed collection/cleanup | `0` |
 
-Prepare dependencies and tool versions in a persistent base box, stop it, then
-create a named snapshot. See [project setup](./project-setup.mdx) and
-[snapshots](./snapshots-forks.mdx). Keep the source box and snapshot available:
+Cleanup checks that the box belongs to this run. Cancellation also guards against a queued creation starting after absence was confirmed. If SSH is lost, the controller is killed or cleanup cannot be confirmed, inspect the exact allocated handle printed on stderr before rerunning. The payload may have changed external systems; deleting its box does not undo those changes.
 
-```sh title="CONTROLLER: Use an existing trusted snapshot"
-raft run --from lab:rf-REPLACE_WITH_BASE_ID/ci-base --timeout 900 \
-  --purpose "Cached build" --owner "CI" --next "Delete after tests" \
-  --push . -- bash -lc 'npm ci --prefer-offline && npm test'
-```
+Host expiry is a backstop, not instant deletion. An unavailable host, stopped worker or long locked operation can delay it. Inspect `raft list --location lab` and [host diagnostics](./troubleshooting.mdx) rather than assume cleanup happened.
 
-The template stays on its source host and retains its size unless explicitly
-overridden. Put reusable caches outside the upload destination, which must be
-new. Each job gets an independent copy; its mutations do not update the template
-or another job's cache. Refresh templates deliberately when dependencies change.
+## Reuse dependencies or call from CI
 
-Raft snapshots retain filesystem contents, including credentials and Docker
-storage. They do not save process memory. Inspect and sanitize the base before
-sharing it with jobs. Do not assume Boat's selective snapshot/cache rules apply
-to Raft's whole-filesystem copies.
+Prepare a sanitized [snapshot template](./project-setup.mdx), then pass `--from "$box/prepared"` instead of `--location`. Each job gets an independent same-host copy with the snapshot's size unless explicitly overridden. Its changes do not refresh the template.
 
-## GitHub Actions orchestration example
-
-The following is an example for a separate trusted project, not a change to
-Raft's own runner fleet. An ordinary `ubuntu-latest` job invokes Raft over SSH.
-Before using it, an operator must approve storing a dedicated CI host key as
-`RAFT_SSH_KEY`, verified host-key lines as `RAFT_KNOWN_HOSTS`, and the location
-inventory JSON as `RAFT_INVENTORY`. The inventory's SSH target must use that key
-and its image fingerprint must be pinned. Never generate trust with an unchecked
-`ssh-keyscan` or disable host-key checking. Restrict access to these secrets.
-
-The example installs the commit for the published 0.7.0 controller in a separate
-Python environment. Review and update the pinned commit deliberately.
-
-```yaml title="EXAMPLE: .github/workflows/trusted-build.yml"
-name: Trusted Raft build
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-permissions:
-  contents: read
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      RAFT_NO_UPDATE_CHECK: '1'
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.14'
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '24'
-      - name: Install Raft controller
-        run: |
-          python -m venv "$RUNNER_TEMP/raft-cli"
-          "$RUNNER_TEMP/raft-cli/bin/pip" install "git+https://github.com/Microck/raft.git@5d52c9677b6a0f1dfdeae74694f2d3ec2e94d059"
-          echo "$RUNNER_TEMP/raft-cli/bin" >> "$GITHUB_PATH"
-      - name: Configure approved existing access
-        env:
-          SSH_KEY: ${{ secrets.RAFT_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.RAFT_KNOWN_HOSTS }}
-          INVENTORY: ${{ secrets.RAFT_INVENTORY }}
-        run: |
-          umask 077
-          mkdir -p ~/.ssh ~/.config/raft
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          printf '%s\n' "$INVENTORY" > ~/.config/raft/incus.json
-          printf 'Host *\n  BatchMode yes\n  StrictHostKeyChecking yes\n  IdentitiesOnly yes\n' > ~/.ssh/config
-      - name: Run remote tests and collect logs
-        run: |
-          raft run --location ci --timeout 900 --cpu 2 --memory 4GiB \
-            --purpose "Trusted project tests" --owner "GitHub Actions" --next "Delete after tests" \
-            --push . --pull /workspace/project/reports ./ci-reports \
-            -- bash -lc 'set -euo pipefail; mkdir -p reports; npm ci; npm test 2>&1 | tee reports/test.log'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: test-reports
-          path: ci-reports/
-          if-no-files-found: warn
-```
-
-No checkout credential is needed in the guest. The secret files are outside the
-uploaded tree, and `.git` is excluded. Set a CI job limit longer than Raft's
-command deadline plus collection and cleanup grace. A forcibly terminated CI
-runner cannot perform final cleanup; check the host expiry service and inventory.
-
-## Comparison and cost
-
-[Boat's CI guide](https://docs.boat.dev/ci) uses the same broad pattern: an existing
-CI job orchestrates a disposable remote workspace. Boat also provides a managed
-`run` command, scoped API keys, renewable leases and a different VM/snapshot
-model. Raft implements a fixed lifetime on operator-owned Incus hosts and uses
-host-level SSH access; these are meaningful differences, not interchangeable
-security or billing guarantees.
-
-There is no universal “10x cheaper” claim for Raft. Compare the complete host,
-storage, idle capacity, operations and orchestration-runner cost. Standard
-GitHub-hosted runners are already free for public repositories; remote capacity
-can still help with specific hardware, prepared environments or isolation from
-other trusted jobs. See [Boat pricing](https://docs.boat.dev/pricing) and
-[GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
+In your existing trusted CI runner, install Raft and supply approved host inventory and SSH access. Store the host key, verified known-host lines and inventory outside the uploaded tree. Never disable host-key checking. Set the CI runner's time limit longer than the Raft deadline plus both grace periods; a forcibly terminated runner cannot finish cleanup. Raft does not purchase capacity or estimate your host and CI costs.

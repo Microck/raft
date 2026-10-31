@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+reviews:
+  # Preserve the profile reported by the existing Organization UI reviews.
+  profile: assertive
+  path_filters:
+    - "!docs/benchmarks/*.json"
+    - "!website/tools/oxlint/anti-slop/**"
+  path_instructions:
+    - path: "raft.py"
+      instructions: |
+        Trace changed arguments across the controller, SSH login shell, privileged
+        host shell, and Incus guest. Guest payload execution is intentional;
+        report injection only with a concrete way for data to execute on the
+        controller or host, or escape its intended argument. For sync changes,
+        check that the rsync receiver still runs inside the selected guest and
+        that Git selection cannot follow replaced directory symlinks outside the
+        source. Git filtering is not a secret scanner. Flag forwarding changes
+        that expose a controller listener beyond 127.0.0.1.
+    - path: "raft_files.py"
+      instructions: |
+        Review the lifetime of pinned file descriptors across metadata reads,
+        file reads, and directory descent. A pathname replacement must not make
+        packing read outside the selected tree. For extraction and publication
+        changes, identify a concrete escaping member, unsafe link, truncated
+        stream, or destination race that defeats the data filter, exact byte
+        count, or renameat2(RENAME_NOREPLACE) boundary. Do not suggest a
+        check-then-rename replacement for atomic no-overwrite publication.
+    - path: "raft_run.py"
+      instructions: |
+        Review cleanup against both pending and acknowledged creation: a delayed
+        SSH request must not allocate after cancellation, and deletion must prove
+        the box's user.raft.run token matches this run under the host lifecycle
+        lock. Flag cancellation-state changes that follow attacker-controlled
+        symlinks or use shared writable host directories. A transport failure is
+        not evidence that a workspace was deleted.
+    - path: "raft_jobs.py"
+      instructions: |
+        Guest commands are intentionally arbitrary argv, not host shell code.
+        Require an actual shell interpretation or argument-boundary failure
+        before reporting command injection. Logs and command records can contain
+        secrets and belong in the verified private host store, not the guest or
+        public artifacts. Check changed host-control queries for unbounded waits
+        while the store lock is held; distinguish them from the user payload,
+        which may legitimately run for a long time. Failed reconciliation must
+        not imply successful completion or authorize deletion.
+    - path: "sandbox-sdk/src/**"
+      instructions: |
+        This adapter inherits the controller's configured SSH access; it is not
+        a tenant authorization service. Guest commands may intentionally use a
+        shell, but environment values and command text travel over stdin so they
+        do not leak through SSH or sudo command lines. Flag changes that move
+        those secrets into controller argv or interpret guest file paths on the
+        controller. Preview URLs must remain private loopback tunnels. Cite the
+        changed transport or listener that creates the exposure.
+    - path: "deploy/{deploy.py,install-incus.sh,raft-network.sh,*.service,*.timer,*.conf}"
+      instructions: |
+        These files modify a real host through operator SSH and sudo. Check
+        changed deployment steps for writes outside Raft-owned resources or
+        silent replacement of conflicting infrastructure. Firewall changes must
+        stay scoped to rfbr0 and Raft-owned chains without flushing unrelated
+        rules; check startup ordering so Incus cannot start before isolation is
+        applied. Flag image import paths that bypass digest or native-architecture
+        verification. Cite the affected host resource and reachable failure.
+    - path: "deploy/verify-*.py"
+      instructions: |
+        Distinguish offline disposable fixtures from live host verification.
+        Flag tests that edit the operator's real controller configuration, depend
+        on saved defaults despite asserting fixed sizing or lifecycle behavior,
+        or clean up instances they did not create. A private HOME must retain
+        explicitly selected access configuration when live SSH is required.
+        Point to the inherited value or cleanup selector and the concrete wrong
+        target or assertion it can affect; do not demand extra live test runs.

@@ -1,129 +1,66 @@
 ---
-title: Configuration reference
-description: Schema, fields, and security requirements for controller configuration.
+title: Configure locations and defaults
+description: Look up inventory fields, creation defaults and SSH requirements.
 ---
 
-# Configuration reference
+# Configure locations and defaults
 
-The Raft controller CLI reads host inventory and image mappings from `~/.config/raft/incus.json`.
+Use [host onboarding](../operations.mdx) to create inventory and `raft config set` to manage defaults. Your controller reads both files from `~/.config/raft/`; host note and retention policies are separate and apply across controllers.
 
-## File location and security
+## Configure a location
 
-```text
-~/.config/raft/incus.json
-```
+`~/.config/raft/incus.json` maps location names to hosts. This is an illustrative entry; replace the SSH target and fingerprint with your host's values before use:
 
-Ensure the configuration file is accessible only by your user account:
-
-```sh title="CONTROLLER: Set strict file permissions"
-chmod 600 ~/.config/raft/incus.json
-```
-
-## Schema format
-
-The configuration file maps location names to host definition objects:
-
-```json title="Example ~/.config/raft/incus.json"
+```json
 {
   "lab": {
     "ssh": "ubuntu@192.0.2.10",
     "image": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "note": "Preferred for builds"
-  },
-  "remote-builder": {
-    "ssh": "builder.example.com",
-    "image": ""
   }
 }
 ```
 
-### Location keys
+| Field | Accepted value |
+| --- | --- |
+| Location key | Starts with an ASCII letter or digit, then letters, digits, `_` or `-` |
+| `ssh` | Required nonempty SSH target, such as `user@host` or an alias from `~/.ssh/config` |
+| `image` | Full 64-character lowercase hexadecimal fingerprint for image-based creation; may be empty during provisioning |
+| `note` | Optional string of operator guidance, not an enforced restriction |
 
-- **Naming format**: Matches `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Starts with an alphanumeric character and contains ASCII letters, digits, underscores, or hyphens.
-- **Default location**: The first location listed is the default for `raft new`. `raft list`, `raft capacity`, `raft gc`, and `raft prune` accept `--location` filters. Without a filter they check all configured hosts; `raft doctor` always checks all configured hosts.
+ARM64 and AMD64 images have different fingerprints. Image aliases are not accepted. Changing a pin affects future image-based creation, not saved boxes or snapshot copies.
 
-### Host entry fields
+The first inventory location is the built-in creation default; an explicit flag or configured default can override it. `raft locations` reads the file without contacting hosts and marks the first entry as `default`, even when `config.json` selects another location. `list`, `capacity`, `doctor`, `gc`, `prune` and the `config` policy report accept `--location`; without it they contact all configured hosts.
 
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| `ssh` | `string` | Yes | Non-empty SSH connection string (IP, `user@host`, or SSH host alias from `~/.ssh/config`). |
-| `image` | `string` | For `raft new` only | Full 64-character hexadecimal SHA-256 fingerprint (`^[a-f0-9]{64}$`). An empty string `""` is allowed during initial host provisioning. |
-| `note` | `string` | No | Operator guidance for choosing this location, such as `Preferred for builds` or `Do not use for Docker`. Raft shows notes but never enforces them. |
-
-Set or clear notes with `raft note` instead of editing the file by hand:
-
-```sh title="CONTROLLER: Record location guidance"
-raft note lab "Preferred for builds"
-raft note spare "Do not use for Docker builds"
-raft locations
-raft note spare --clear
-```
-
-`raft note` rewrites the file with two-space indentation, keeps location order and
-mode `0600`. `raft locations`, `raft capacity` and `raft new` show the note.
-
-<Callout type="warn" title="Replace placeholder image fingerprint">
-The `image` field requires the full 64-character hash for `raft new`; aliases such as `raft-dev` are rejected. Replace the example hash with the actual imported image fingerprint for that host.
-
-ARM64 and AMD64 images produce different fingerprints; do not reuse an ARM64 hash on an AMD64 host.
-</Callout>
+Use `raft note lab "Preferred for builds"` or `raft note lab --clear` to change location guidance. Raft preserves location order and writes mode `0600`. For manually edited inventory, run `chmod 600 ~/.config/raft/incus.json`.
 
 ## Defaults for new
 
-`~/.config/raft/config.json` is optional. It sets defaults for `raft new` on this
-controller and is separate from the location inventory:
+Optional `~/.config/raft/config.json` has one top-level `defaults` object. For example:
 
-```json title="Example ~/.config/raft/config.json"
-{
-  "defaults": {
-    "location": "lab",
-    "ttl": 3600,
-    "cpu": 2,
-    "memory": "4GiB",
-    "disk": "20GiB",
-    "disposable": true
-  }
-}
+```json
+{"defaults": {"location": "lab", "ttl": 3600, "cpu": 2, "memory": "4GiB", "disk": "shared", "disposable": false}}
 ```
 
-| Key | Accepted values | Built-in default |
-| :--- | :--- | :--- |
-| `location` | A configured location name | First configured location |
-| `ttl` | `60` to `2592000` seconds | `600` |
-| `cpu` | A positive whole number | `1` |
-| `memory` | Whole GiB, e.g. `16GiB` | `2GiB` |
-| `disk` | Whole GiB for an own box disk, or `shared` | `shared` |
-| `disposable` | `true` or `false` | `false` (persistent) |
+| Key | Accepted value | Built-in default |
+| --- | --- | --- |
+| `location` | Configured location name | First inventory entry |
+| `ttl` | 60 to 2,592,000 seconds | `600` |
+| `cpu` | Positive whole number, up to the host CPU count | `1` |
+| `memory` | Positive whole GiB, such as `16GiB`, up to host RAM rounded up to GiB | `2GiB` |
+| `disk` | Positive whole GiB for an own disk, or `shared` | `shared` |
+| `disposable` | JSON boolean; `true` or `false` in `config set` | `false` |
 
-Explicit flags win over these values; `--persistent` overrides `disposable`.
-`cpu`, `memory` and `disk` size only boxes created from the image: `new --from`
-and `fork` keep the source's size unless a flag overrides it. `disposable`
-applies to `new` and `new --from`, never to `fork`. A `disk` default needs the `raft-disks` pool on the target
-host, like `--disk`. Unknown keys and invalid values make
-`raft new` fail with the file path and key. Edit the file with
-`raft config set KEY VALUE` and `raft config unset KEY`, and inspect it with
-`raft config`. Required box note fields and stopped-box retention are host
-policies, not part of this file; see
-[Defaults and host policies](../guides/config-policy.mdx).
+Explicit creation flags win over defaults. Size defaults do not apply to `new --from`; the snapshot supplies CPU, RAM and disk. A disposable default does apply to snapshot copies. Forks ignore controller defaults entirely. See [defaults and policies](../guides/config-policy.mdx).
 
-## SSH configuration and connection behavior
+`set` and `unset` report changes, write privately and remove the file when no defaults remain. Unknown keys, bad values and malformed JSON fail instead of being ignored. `set` or `unset` can repair a recognized key's value; edit malformed JSON or unknown keys directly.
 
-Primary remote commands (`raft ssh`, `upload`, `download`, and control commands) run OpenSSH with `BatchMode=yes` and `-o ConnectTimeout=10` to fail fast on unreachable hosts. The timeout applies to initial connection establishment, not session or transfer duration.
+## Authenticate over SSH
 
-Other operations, recovery routines, and tunnels use standard SSH defaults without an explicit timeout flag.
+Verify a host's fingerprint before accepting its key. Configure identities in `~/.ssh/config` and confirm `ssh -o BatchMode=yes ubuntu@192.0.2.10 'sudo -n true'` with your host target.
 
-Configure host connections in `~/.ssh/config` for batch authentication:
+Raft uses batch SSH without password prompts. Most control, execution and transfer connections use a 10-second connection timeout, not a session-duration limit; recovery and tunnels use SSH defaults without that explicit timeout. An unreachable host does not prove that a remote operation failed or a box is absent.
 
-```text title="~/.ssh/config"
-Host lab-host
-    HostName 192.0.2.10
-    User ubuntu
-    IdentityFile ~/.ssh/id_ed25519
-    IdentitiesOnly yes
-```
+## Control release notices
 
-Verify passwordless batch SSH before running Raft commands:
-
-```sh title="CONTROLLER: Verify passwordless batch connection"
-ssh -o BatchMode=yes lab-host "echo SSH connection verified"
-```
+Set `RAFT_NO_UPDATE_CHECK=1` to disable passive release checks. Their cache is `$XDG_CACHE_HOME/raft/update.json`, or `~/.cache/raft/update.json` by default. Notices use stderr and never install an update; global JSON mode suppresses them. See [upgrades](../guides/upgrades.mdx).

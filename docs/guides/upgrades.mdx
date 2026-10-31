@@ -1,125 +1,54 @@
 ---
-title: Upgrades and image changes
-description: Update the controller CLI and host worker, replace image fingerprints, and understand existing-box behavior.
+title: Upgrade Raft or change an image
+description: Update the controller, redeploy host code, and choose the image for future boxes.
 ---
 
-# Upgrades and image changes
+# Upgrade Raft or change an image
 
-The controller CLI, host deployment scripts, and workspace image are separate
-parts of Raft. Updating one does not automatically update the others.
-
-| Component | Update method | Effect on existing boxes |
-| --- | --- | --- |
-| Controller CLI | `raft self-update`, or install the chosen npm or Python release | Changes controller commands; does not rewrite guest files |
-| Host worker and firewall | Run the chosen release's deployer per host | Replaces host policy code and reapplies filtering |
-| Pinned development image | Import an image and change the configuration fingerprint | Used for future image-based `new`; existing boxes keep their files |
-
-## Choose a release and prepare
-
-Review [release notes](https://github.com/Microck/raft/releases) and use matching
-CLI and deployment sources. The examples below pin `v0.7.0`; replace that version
-consistently when adopting another release.
-
-```sh title="CONTROLLER: Inspect the current installation"
-raft --version
-raft doctor
-raft list
-```
-
-Save a copy of your controller inventory. Export important persistent boxes using
-[Backup and recovery](./backup-recovery.mdx) before host changes. Backup requires a
-stopped box. Stopping a disposable box deletes it, so copy needed files out before
-stopping one. Schedule redeployment when interruptions are acceptable.
+You update the controller CLI, host deployment and development image separately. Updating one does not update the others. Review [release notes](https://github.com/Microck/raft/releases), save your controller inventory, and [back up important boxes](./backup-recovery.mdx) before host changes. Schedule changes when interruptions are acceptable.
 
 ## Update the controller
 
-`raft self-update` installs the latest release through the channel that
-installed the CLI, and `raft self-update --version 0.7.0` installs a chosen
-one. `raft self-update --check` only reports. For npm installs, npm checks the
-registry integrity hash of a package published with provenance. For uv tools,
-Raft downloads the release wheel and refuses it unless its SHA-256 matches the
-release `SHA256SUMS`. See [`self-update`](../reference/cli.md#self-update).
-
-To install a release by hand instead, for an npm installation:
-
-```sh title="CONTROLLER: Install a pinned CLI release"
-npm install -g @microck/raft@0.7.0
+```sh
 raft --version
-```
-
-For a Python installation, download the wheel and `SHA256SUMS` from the same
-release, verify the checksum, then install it with `uv`:
-
-```sh title="CONTROLLER: Install a verified release wheel instead of npm"
-sha256sum --ignore-missing -c SHA256SUMS
-uv tool install --force ./raft-0.7.0-py3-none-any.whl
-raft --version
-```
-
-Proceed only if checksum verification succeeds. Choose one installation method
-and check which executable your shell uses with `command -v raft`.
-
-For an editable source installation, updating the checkout changes the installed
-tool's source. Keep uncommitted work separate and run `uv sync --locked` for the
-chosen checkout. `self-update` refuses source checkouts.
-
-Updating the CLI changes no host. Continue below, and run `raft doctor` first: it
-reports each host whose worker differs from the new CLI.
-
-## Redeploy each host
-
-Obtain a separate checkout of the matching release:
-
-```sh title="CONTROLLER: Obtain and deploy matching host code"
-git clone --branch v0.7.0 https://github.com/Microck/raft.git raft-v0.7.0
-cd raft-v0.7.0
-python3 deploy/deploy.py --location lab
+raft self-update --check
+raft self-update
 raft doctor
 ```
 
-Repeat for each configured location. The deployer uses your existing
-`~/.config/raft/incus.json`, verifies owned project/pool/network/profile state,
-replaces host scripts and units, reapplies firewall rules, and starts the expiry
-timer. It does not import an image or migrate guest files.
+`--check` installs nothing and returns `100` if an update exists. `self-update` uses the npm or uv tool channel that installed the running copy; without an explicit version it never downgrades. For uv release wheels, it checks the release SHA-256 before installation. npm verifies package integrity.
 
-Do not bypass a conflicting-resource or storage-size error. Inspect the host and
-preserve backups before explicit recovery; redeployment does not repair arbitrary
-infrastructure drift. Disposable creation/fork, prune and setting a retention
-policy check the worker protocol and fail if it differs from the CLI. That check
-is not an automatic upgrade. Raft 0.6.0 raised the protocol for stopped-box
-retention, so hosts deployed by an earlier release need this redeploy.
+For a chosen version, use `raft self-update --version 0.7.1`. Source checkouts, editable installs, pip and other layouts are refused. Update a source checkout separately and run `uv sync --locked`; do not overwrite uncommitted work. If uv's tool directory moved, restore `UV_TOOL_DIR` to the original directory before retrying. Check `command -v raft` if your shell finds the wrong installation.
+
+Raft may print a daily stderr notice about available releases but never installs them automatically. Set `RAFT_NO_UPDATE_CHECK=1` to disable the notice. CLI updates leave hosts, existing boxes and image pins unchanged.
+
+## Redeploy matching host code
+
+If `doctor` reports an incompatible expiry worker, obtain a separate checkout matching your CLI. This example pins 0.7.1; use the chosen version consistently:
+
+```sh
+git clone --branch v0.7.1 https://github.com/Microck/raft.git raft-v0.7.1
+cd raft-v0.7.1
+python3 deploy/deploy.py --location lab
+raft doctor --location lab
+```
+
+Repeat for each host. Redeployment reapplies host services and firewall rules, but does not update guest files or import an image. It verifies existing resources rather than repairing arbitrary drift. Do not bypass resource conflicts or pool-size errors; preserve backups and inspect the host.
+
+Disposable creation/fork, prune and setting retention require a compatible worker. Installing a CLI does not satisfy that requirement. For optional own disks, add `--disk-pool SIZE` to the deployer; an existing pool retains its size, and a conflicting explicit size fails.
 
 ## Replace the image pin
 
-Follow [Acquire a native workspace image](../operations.mdx#acquire-a-native-workspace-image)
-to download and verify or build the image for each host's architecture. Retrieve
-its full fingerprint and replace only that location's `image` field in the
-controller inventory. Keep the previous fingerprint if you may need it again.
+From the matching checkout, build a native image under an unused alias:
 
-Changing the pin affects ordinary `raft new` calls. Resume retains the existing
-filesystem; forks and `new --from` use their source filesystem, not the new image.
-Install guest updates explicitly inside an existing box, or create a new box and
-transfer the project and needed data. Recovering an old backup also restores that
-backup's guest filesystem rather than rebuilding it from the new image.
-
-## Verify the update
-
-```sh title="CONTROLLER: Smoke-check a new persistent box"
-box=$(raft new --location lab --ttl 600 --persistent)
-raft exec "$box" -- node --version
-raft exec "$box" -- docker info
-raft stop "$box"
-raft resume "$box" --ttl 600
-raft exec "$box" -- ls /workspace
-raft destroy "$box"
+```sh
+python3 deploy/build-image.py --location lab --alias raft-dev-0-7-1
 ```
 
-Creation can return before guest services are ready. Use the readiness pattern in
-[Scripting and CI](./scripting-ci.mdx) if an immediate check fails during startup.
-For dedicated test infrastructure, [Verification](../verification.mdx) describes
-the real-host suites and their effects.
+The build does not change your pin. Copy its final fingerprint into that location's `image` in `~/.config/raft/incus.json`. Use the final development image fingerprint, not an intermediate Debian base fingerprint. Keep the previous pin if you may revert future creation. As an alternative to building, import a checksum-verified native image from the chosen release using its release instructions.
 
-To revert an image choice for future boxes, restore the previous fingerprint
-while that image remains imported. This does not revert existing boxes. Raft has
-no automatic migration or rollback of host policy or guest packages; review the
-chosen release and backups before downgrading those components.
+The pin affects only image-based `new`. Resume, fork, snapshot copies and recovery keep their saved filesystem. To update an existing guest, install updates explicitly or create a box from the selected image and transfer your files. Changing a pin does not roll back guest packages or host deployment.
+
+## Check the updated setup
+
+Create a persistent test box using [the first-box procedure](../first-box.mdx). Check command readiness, `docker info`, files after stop/resume and application behavior. Delete only that test box after collecting needed results. For broader tests on isolated hosts, see [verification](../verification.mdx).

@@ -1,113 +1,51 @@
 ---
-title: Project setup and templates
-description: Upload or clone a project, run setup scripts, and create reusable same-host snapshot templates.
+title: Set up a project
+description: Copy your source, run setup, and reuse a prepared filesystem.
 ---
 
-# Project setup and templates
+# Set up a project
 
-Raft starts a clean development image. Prepare a project with ordinary guest
-commands, then save a snapshot to reuse installed dependencies. There is no
-managed repository registry, environment registry, setup hook, or secret-injection
-service. Commands run as guest root in `/workspace` unless you choose another user.
+You can prepare dependencies once and reuse them in independent boxes. You need a [configured host](../operations.mdx), a local project at `./my-project`, and a setup script at `./my-project/setup.sh`. Commands run on your controller.
 
-## Put a project in the box
+Raft does not run setup hooks or manage repositories, environment variables or secrets for you. Private repository credentials and coding-agent authentication must be configured inside the box; your controller login and SSH agent are not forwarded.
 
-Create a persistent box after [host setup](../operations.mdx):
+## Copy your project and run setup
 
-```sh title="CONTROLLER: Create a project box"
-box=$(raft new --location lab --ttl 3600 --persistent)
-```
+Inspect your project for credentials before copying. Recursive upload includes hidden and ignored files and requires a destination that does not exist:
 
-Upload a local project, excluding credentials and files you do not want copied.
-The example assumes `./my-project` contains your project and `setup.sh`:
-
-```sh title="CONTROLLER: Upload local project"
+```sh
+box=$(raft new --location lab --ttl 3600 --persistent --purpose "Project development" --owner "Local operator" --next "Back up before deletion")
 raft upload "$box" ./my-project /workspace/my-project --recursive
-```
-
-The destination directory must not exist. For a public repository, an alternative
-is guest `git clone`; replace the example URL with your repository:
-
-```sh title="CONTROLLER: Clone instead of uploading"
-raft exec "$box" -- git clone https://github.com/OWNER/REPOSITORY.git /workspace/my-project
-```
-
-Choose one method. Private repositories require authentication configured inside
-the guest; Raft does not forward your controller's GitHub login or SSH agent.
-The clean image does not bundle coding agents or their credentials. Install and
-authenticate any agent inside the box using that tool's own instructions.
-
-## Run setup explicitly
-
-Use `bash -lc` for directory changes or shell syntax:
-
-```sh title="CONTROLLER: Run project setup"
 raft exec "$box" -- bash -lc 'cd /workspace/my-project && bash ./setup.sh'
 ```
 
-Make setup scripts safe to rerun. Raft does not execute them automatically on
-create, resume, or fork. A failing synchronous command returns its exit code;
-see [Scripting and CI](./scripting-ci.mdx).
+Commands run as guest root in `/workspace`. Use an explicit shell for directory changes. Make setup safe to rerun; a failed command returns its exit code. If the box is still starting, use the [readiness procedure](./scripting-ci.mdx) before setup. For repeated source edits, use [incremental sync](./files.mdx#sync-source-edits).
 
-For slow setup, use a detached job and inspect its result:
+For slow setup, use a [detached job](./background-jobs.mdx). Detaching does not extend the box's lifetime.
 
-```sh title="CONTROLLER: Run slow setup instead of synchronous setup"
-job=$(raft exec "$box" --detach -- bash -lc 'cd /workspace/my-project && bash ./setup.sh')
-raft status "$box" "$job"
-raft logs "$box" "$job"
-```
+## Supply private application settings
 
-Wait for successful completion before making a template. Extending the lifetime
-may be necessary; a detached job does not prevent expiry.
+If your application reads `.env`, upload a controller file named `./app.env` and restrict access. This example assumes it runs as the image's `developer` user:
 
-## Supply application configuration
-
-For an application that reads a local `.env` file, upload it explicitly and set
-permissions for the application's user. This example assumes a controller file
-`./app.env` and an application running as `developer`:
-
-```sh title="CONTROLLER: Install a private application configuration file"
+```sh
 raft upload "$box" ./app.env /workspace/my-project/.env
 raft exec "$box" -- chown developer:developer /workspace/my-project/.env
 raft exec "$box" -- chmod 600 /workspace/my-project/.env
 ```
 
-The application must load that file; upload does not export environment variables.
-If running the whole project as `developer`, adjust project ownership separately.
-Do not place secrets in command arguments, committed files, or logs. Host journals
-can capture guest command lines. Raft does not rotate or scrub credentials.
+The application must load the file; uploading it does not export variables. Adjust project ownership if you run the application as `developer`. Do not put secrets in command arguments, committed files or logs. Host journals can capture guest command lines; Raft does not scrub or rotate credentials.
 
-## Save and reuse a prepared template
+## Reuse installed dependencies
 
-Finish setup, remove credentials that should not be inherited, and stop the box:
+Wait for setup to succeed, remove secrets you do not want copied, then stop your persistent box and save its disk:
 
-```sh title="CONTROLLER: Save the prepared filesystem"
+```sh
 raft stop "$box"
 raft snapshot "$box" prepared
+copy=$(raft new --from "$box/prepared" --ttl 3600 --persistent --purpose "Project copy" --owner "Local operator" --next "Destroy after use")
+raft exec "$copy" -- ls /workspace/my-project
 ```
 
-Create another box from the snapshot:
+The copy stays on the source host and inherits the snapshot's CPU, RAM and disk unless you pass size overrides. It has its own handle, network identity and deadline. The source box may run while you copy the saved snapshot.
 
-```sh title="CONTROLLER: Start a copy with explicit resources"
-copy=$(raft new --from "$box/prepared" --ttl 3600 --cpu 2 --memory 4GiB)
-raft exec "$copy" -- ls -la /workspace/my-project
-```
-
-The template stays on its source host. Its source box can be running when you
-copy the saved snapshot. `new --from` keeps the snapshot's CPU, RAM and disk
-unless `--cpu`, `--memory` or `--disk SIZE` overrides them; `--disk` gives it an
-own disk of a new size. The new box has its own handle, MAC address
-and deadline.
-
-The snapshot includes packages, project files, credentials, and enabled services.
-It does not include process memory. Changing the original after snapshot creation
-does not update the saved template. Keep its source box and snapshot until you
-no longer need to create copies; destroying the source deletes its snapshots.
-
-To copy the stopped box's current filesystem instead, use
-`raft fork "$box" --ttl 3600`. Fork inherits omitted CPU/RAM limits and does not
-copy the source snapshots. See [Snapshots and forks](./snapshots-forks.mdx).
-
-For a different host, use [Backup and recovery](./backup-recovery.mdx) with matching
-CPU architecture. For services that start on resume, see
-[Lifetime and persistent services](./long-running-services.mdx).
+The snapshot includes packages, files, credentials and enabled services, but not process memory. Later edits do not update it. Keep the source box and snapshot: deletion or stopped-box retention removes the template too. For another host, use [backup and recovery](./backup-recovery.mdx); for a copy of the stopped box's unsnapshotted files, use [fork](./snapshots-forks.mdx#fork-a-stopped-box).

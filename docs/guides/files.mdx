@@ -1,91 +1,56 @@
 ---
-title: File transfer
-description: Transfer files between your controller machine and running Raft workspaces.
+title: Copy or sync files
+description: Transfer files and directory trees, or update source without deleting guest-only files.
 ---
 
-# File transfer
+# Copy or sync files
 
-Upload and download individual files between your controller and a box over verified host SSH and Incus instance APIs.
+You can transfer files between your controller and a box you own. Set `$box` to its exact handle from `raft list`. Individual files work on running or stopped boxes; directory transfers and sync require a running box.
 
-## Target workspace handle
+Guest paths must be absolute. Create parent directories first and quote paths containing spaces. Uploads run as guest root; change ownership when an application uses another user.
 
-Use a running box for all examples below. Individual-file transfers also work while stopped; recursive directory transfers require a running box. Select one from `raft list` (see [First working box](../first-box.mdx)):
+## Copy a file
 
-```sh title="CONTROLLER: Select running workspace"
-raft list
-box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
+Uploading replaces an existing destination file. Downloading replaces the local destination only after a successful transfer:
+
+```sh
+printf '%s\n' 'Hello from the controller' > ./message.txt
+raft upload "$box" ./message.txt /workspace/message.txt
+raft download "$box" /workspace/message.txt ./message-copy.txt
 ```
 
-## Uploading files
+For a failed download, your existing local file remains unchanged. Check free local disk and host connectivity before retrying.
 
-Transfer a file from your controller to an absolute path inside the workspace:
+## Copy a directory
 
-```sh title="CONTROLLER: Create fixture and upload to workspace"
-# Create local sample file on controller
-echo "Hello from controller" > ./local-file.txt
-
-# Upload to workspace
-raft upload "$box" ./local-file.txt /workspace/target-file.txt
-```
-
-Existing destination files are overwritten. Create parent directories before uploading if needed:
-
-```sh title="CONTROLLER: Create parent directory and upload"
-echo '{"mode": "debug"}' > ./settings.json
-raft exec "$box" -- mkdir -p /workspace/configs
-raft upload "$box" ./settings.json /workspace/configs/settings.json
-```
-
-<Callout type="info" title="Absolute guest paths required">
-Guest file paths must be absolute paths beginning with `/`. Relative paths inside the container are rejected by the CLI parser.
-</Callout>
-
-## Downloading files
-
-Download a file from a workspace to your controller:
-
-```sh title="CONTROLLER: Download a file from workspace"
-raft download "$box" /workspace/target-file.txt ./downloaded-file.txt
-```
-
-The destination path on the controller must specify the target filename.
-
-## Paths with spaces
-
-Wrap paths in quotes when transferring files with spaces:
-
-```sh title="CONTROLLER: Transfer files with spaces in paths"
-mkdir -p "./my documents"
-echo "col1,col2" > "./my documents/data file.csv"
-
-raft exec "$box" -- mkdir -p "/workspace/my documents"
-raft upload "$box" "./my documents/data file.csv" "/workspace/my documents/data file.csv"
-raft download "$box" "/workspace/my documents/data file.csv" "./downloaded-data.csv"
-```
-
-## Transferring directories
-
-Use `--recursive` to copy a tree into a new directory:
+Inspect the source for secrets first. Recursive upload copies hidden files and ignored files too:
 
 ```sh
 raft upload "$box" ./my-project /workspace/my-project --recursive
 raft download "$box" /workspace/my-project ./project-copy --recursive
 ```
 
-The destination must not exist, and its parent must exist. Raft publishes the directory after the complete transfer; it does not merge or overwrite trees.
+Both destinations must be absent, including symlinks, and their parents must exist. Raft publishes a complete tree; it does not merge into an existing directory. Use another destination name if a previous copy exists.
 
-| Preserved | Rejected |
-| --- | --- |
-| File contents and executable bits | Existing destination directories or symlinks |
-| Empty directories and internal hardlinks | Paths or links that escape the tree |
-| Relative symlinks within the tree | Devices, FIFOs and other special files |
+You keep file contents, executable bits, empty directories, internal hardlinks and relative symlinks within the tree. Links that escape the tree, devices, sockets and FIFOs are rejected. You need Python 3.11.8+ in the guest and enough controller scratch space for the directory archive.
 
-Recursive transfers require a running box with Python 3.11.8+ and temporary disk space on the controller. Individual-file transfers also work while a box is stopped.
+If the project runs as `developer`, change its uploaded ownership:
 
-## File ownership
-
-Uploaded files are owned by `root` in the guest. Update ownership to `developer` when needed:
-
-```sh title="CONTROLLER: Change file ownership inside container"
+```sh
 raft exec "$box" -- chown -R developer:developer /workspace/my-project
 ```
+
+## Sync source edits
+
+For repeated uploads, install rsync on your controller and use an image with rsync in the guest. Run from your Git working tree:
+
+```sh
+raft sync "$box" . /workspace/my-project --dry-run
+raft sync "$box" . /workspace/my-project
+```
+
+Sync replaces matching files and detects changed content even when size and timestamps match. It keeps guest-only files, including files you deleted locally. Updates are atomic per file, not across the whole tree; rerun after an interrupted sync.
+
+Git selects tracked files and unignored untracked files, including working-tree edits. `.git` is excluded and submodules are rejected. Tracked secrets are still included. For an inspected non-Git tree, pass `--all` to include hidden and ignored files as well. Unsafe symlinks and special files are skipped and reported rather than copied.
+
+The destination must be an absolute guest directory other than `/`, with an existing parent. Unlike recursive upload, it may already exist. See [project setup](./project-setup.mdx) for credentials and setup commands.

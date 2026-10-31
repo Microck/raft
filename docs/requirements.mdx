@@ -1,49 +1,37 @@
 ---
-title: System requirements
-description: Hardware, operating system, network, and tool requirements for running Raft.
+title: Check your machines
+description: Choose a Linux controller and a dedicated Ubuntu host before installing Raft.
 ---
 
-# System requirements
+# Check your machines
 
-Raft coordinates unprivileged Linux containers across two environments: dedicated Incus workspace hosts, and a controller running the Raft CLI.
+You need a controller to run the CLI and a dedicated host to run your boxes. You do not need a cloud account or a public Incus endpoint.
 
-## Workspace host requirements
+## Prepare your controller
 
-Each workspace host must be a dedicated physical machine or virtual instance:
+Use Linux with Python 3.11.8 or later, OpenSSH and npm for the [recommended installation](./operations.mdx). Install Git for Git-filtered uploads and rsync for incremental sync. Your controller must reach the host over SSH without password prompts.
 
-| Component | Requirement | Notes |
-| :--- | :--- | :--- |
-| **Architecture** | ARM64 or AMD64 | Workspaces run native binaries matching the host CPU architecture. |
-| **Operating system** | Ubuntu 22.04 LTS or 24.04 LTS | The deployer installs Incus 6.0 LTS and nftables bridge isolation rules. |
-| **CPU** | At least 2 CPU cores | Capacity calculations reserve 1 CPU core for the host OS and services (an advisory estimate, not an enforced host reservation). |
-| **RAM** | At least 8 GiB | Sizing calculations reserve the larger of 2 GiB or 10% of host RAM (an advisory estimate, not an enforced host reservation). |
-| **Free disk** | At least 80 GiB on host disk | For the 60 GiB shared Btrfs pool (`raft-data`), images and the host. [Own box disks](./reference/capacity.mdx#own-box-disks) are optional: `--disk-pool SIZE` adds a `raft-disks` pool of SIZE, so a fresh host then needs 80 GiB plus SIZE, and an existing host SIZE plus 20 GiB. |
+A Python wheel installed with uv can run the CLI, but host onboarding needs deployment files from the npm package or a source checkout.
 
-`raft host add` checks these requirements read-only before it changes a host.
+## Choose a dedicated host
 
-Host CPU and RAM reserves are advisory estimates for `raft capacity`, not enforced cgroup locks. There is no product-tier box-count cap. Individual CPU/RAM requests must fit the host, and own disks must pass storage reservation checks.
+| Requirement | Minimum |
+| --- | --- |
+| OS | Ubuntu 22.04 or 24.04 |
+| Architecture | ARM64 or AMD64; guest binaries match the host |
+| CPU and RAM | 2 CPUs and 8 GiB RAM |
+| Free disk | 80 GiB for a fresh deployment |
+| Access | Key-based SSH, Python 3 and passwordless sudo; `sudo -n true` must succeed |
+| Network | Inbound SSH from your controller; outbound access for packages and images |
 
-<Callout type="warn" title="Dedicated host requirement">
-Do not deploy Raft on hosts with existing Incus storage pools or shared virtualization workloads. Deployment configures dedicated nftables rules, storage pools, and system services.
-</Callout>
+Do not deploy on a machine with unrelated Incus pools or virtualization workloads. Deployment changes storage, firewall rules and system services. An Ubuntu VM is supported; a macOS host is not.
 
-### Host access and permissions
+The shared storage pool is 60 GiB. Optional [own box disks](./reference/capacity.mdx#own-box-disks) require an additional pool: `--disk-pool 100GiB` needs 180 GiB free on a fresh host, or 120 GiB when adding it to an existing deployment. Pools do not resize on redeployment.
 
-- **SSH access**: SSH access with passwordless `sudo` (`sudo -n true`).
-- **Security model**: Single operator with root access. Deploy only on trusted hardware and networks.
-- **Network connectivity**: Outbound internet for Debian packages, Incus releases, and container images. Inbound SSH from the controller. No public Incus listener or cloud account needed.
+## Understand the limits
 
-## Controller machine requirements
+Boxes share the host kernel. Guest root is not host root, but your controller's SSH identity has host sudo. Give that identity only to trusted operators and jobs. Raft has not had a security audit.
 
-The controller is your local workstation, developer machine, or CI runner:
+CPU and RAM limits cap individual boxes, not reserve hardware. `raft capacity` leaves an advisory margin of 1 CPU and the larger of 2 GiB or 10% of RAM. Raft has no box-count cap, but oversized requests and insufficient own-disk reservations fail.
 
-| Component | Requirement | Notes |
-| :--- | :--- | :--- |
-| **Operating system** | Linux | Controller CLI commands invoke standard Linux utilities. |
-| **Python** | Python 3.11.8 or newer | Required to run the `raft` CLI tool. |
-| **Toolchain** | `git`, `uv`, OpenSSH client (`ssh`), `scp` | `uv` manages the Python environment; OpenSSH provides the transport. |
-| **Network** | Network route to host SSH targets | Batch SSH commands must connect without interactive password prompts. |
-
-## Next step
-
-Proceed to [Installation and setup](./operations.mdx) to install the CLI, configure inventory, provision Incus, and acquire a workspace image.
+Continue with [host setup](./operations.mdx), which checks host prerequisites before changing anything.

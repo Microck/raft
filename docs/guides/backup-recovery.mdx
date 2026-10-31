@@ -1,112 +1,44 @@
 ---
-title: Backup and recovery
-description: Export portable workspace archives and restore them across hosts.
+title: Back up or move a box
+description: Export a private archive and recover a stopped box on a compatible host.
 ---
 
-# Backup and recovery
+# Back up or move a box
 
-Raft exports portable workspace archives and restores them onto compatible hosts for disaster recovery, migration, or offline archiving.
+You can export a persistent box and its snapshots, then recover it on a host with the same CPU architecture. Set `$box` to your task's handle from `raft list`. Use a stopped source; stopping a disposable box deletes it, so copy files out of those boxes instead.
 
-## Target workspace handle
+Archives include credentials, keys, shell history and unsanitized instance configuration. Import only trusted Raft backups. Store them privately on encrypted storage off the source host; snapshots alone do not protect against host loss.
 
-Use a **persistent** workspace. Stop it before backup; stopping a disposable box
-deletes it and its snapshots, so copy files out instead.
+## Export a private archive
 
-```sh title="CONTROLLER: Select and stop target workspace"
-raft list
-box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
+Choose a destination that does not exist, with an existing parent, enough free space, and support for private permissions and hardlinks:
+
+```sh
 raft stop "$box"
+raft backup "$box" ./project-backup.tar.gz
 ```
 
-## Exporting a backup
+Raft exports the whole filesystem, metadata and snapshots, then publishes the completed archive with mode `0600` without replacing another file. Hardlink support is checked at publication, so an export may finish before that check fails. A long export delays host expiry checks for other boxes.
 
-Specify a destination archive path on the controller:
+## Recover and check your work
 
-```sh title="CONTROLLER: Export stopped workspace to compressed archive"
-raft backup "$box" ./my-workspace-backup.tar.gz
-```
+Use `lab` for same-host recovery or another configured location of matching architecture. An own-disk backup needs own disks enabled on the target and reservation space for the box and every included snapshot:
 
-`raft backup` exports container metadata, root filesystem, and snapshots into a gzip-compressed archive.
-
-### Security and storage requirements
-
-<Callout type="warn" title="Archives contain sensitive data">
-Backup archives contain the entire guest filesystem, including credentials, SSH keys, shell history, and private files. Native Incus archive configuration is not sanitized. Import only trusted archives created by Raft, and store backups on encrypted private storage off the source host for disaster recovery.
-</Callout>
-
-Raft enforces safeguards during export:
-
-- **Private permissions**: Raft creates the staged archive with mode `0600` and publishes it privately. Choose a new destination path; do not pre-create the file.
-- **Atomic link publication**: After export and `fsync`, Raft publishes the archive using `os.link(archive.name, destination)`. Hard-link support is checked at final publication rather than preflight; export can succeed while publication fails if the filesystem lacks hard-link support.
-- **No overwriting**: The destination file must not already exist.
-- **Lifecycle lock**: Export holds `/run/lock/raft-incus.lock`. Expiry checks for other containers on the host are delayed while the lock is held.
-
-## Recovering an archive
-
-Import the archive onto the target location:
-
-```sh title="CONTROLLER: Import workspace backup onto target host"
-recovered=$(raft recover ./my-workspace-backup.tar.gz --location lab)
-echo "Recovered workspace: $recovered"
-```
-
-### Recovery process details
-
-- **Architecture compatibility**: Target host must match the native CPU architecture (ARM64 to ARM64, AMD64 to AMD64). Cross-architecture recovery is not supported.
-- **Fresh network identity**: The container receives a new name in project `raft`, a new MAC address on `rfbr0`, and no inherited TTL deadline.
-- **Stopped initial state**: Recovered workspaces remain stopped until started with `raft resume "$recovered" --ttl <SECONDS>`. Under a host [retention policy](./config-policy.mdx#delete-boxes-left-stopped), the recovered box's clock starts when the host worker first sees it, within about 15 seconds; resume it before the policy's hours pass.
-- **Disk placement**: A backup of a box with its own disk returns to an own disk of the same size in `raft-disks`. The destination needs own box disks enabled and enough unreserved pool space for the box and each of its snapshots; otherwise recovery fails before importing. Other backups land in the shared pool.
-- **Interrupted recovery**: Follow [Host crash during recovery](./troubleshooting.mdx#host-crash-during-recovery). Inspect the reported handle and container state before deleting any staging file.
-
-Start and verify the recovered workspace:
-
-```sh title="CONTROLLER: Start and verify recovered workspace"
-raft resume "$recovered" --ttl 600
+```sh
+recovered=$(raft recover ./project-backup.tar.gz --location lab --purpose "Recovered project" --owner "Local operator" --next "Verify files before removing source")
+raft info "$recovered"
+raft resume "$recovered" --ttl 1800
 raft exec "$recovered" -- ls -la /workspace
 ```
 
-## Cross-host migration workflow
+Recovery creates a persistent, stopped box with a fresh name and MAC address and no inherited TTL. It keeps the original disk type and own-disk size. Host retention starts when the worker first observes it stopped, so resume or back it up before that deadline.
 
-Follow these steps to migrate a workspace to a second host:
+Without note flags, recovery keeps the archived note. Flags replace the whole note. A supplied note is checked before upload; an inherited note that fails host policy causes the imported box to be deleted. See [note policies](./config-policy.mdx).
 
-### 1. Select and stop source workspace
+Check your application, files and snapshots before deleting the source or archive. Once verified, you may permanently delete only the old source with `raft destroy "$box"`. Keep an off-host backup.
 
-```sh title="CONTROLLER"
-raft list
-source_box="lab:rf-a1b2c3d4e5f60718"
-raft stop "$source_box"
-```
+## Handle an interrupted recovery
 
-### 2. Export archive to local controller storage
+Recovery prints its allocated handle to stderr before import. If SSH drops or the host crashes, inspect that exact handle and the target inventory before retrying. A missing response does not prove the import failed.
 
-```sh title="CONTROLLER"
-raft backup "$source_box" ./migration.tar.gz
-```
-
-### 3. Import archive onto destination host
-
-```sh title="CONTROLLER"
-target_box=$(raft recover ./migration.tar.gz --location second-host)
-```
-
-### 4. Resume workspace on destination host
-
-```sh title="CONTROLLER"
-raft resume "$target_box" --ttl 1800
-```
-
-### 5. Verify application files and operations
-
-```sh title="CONTROLLER"
-raft exec "$target_box" -- ls -la /workspace
-```
-
-After verifying the recovered workspace, optionally destroy the source container:
-
-```sh title="CONTROLLER: Optional: Destroy original container"
-raft destroy "$source_box"
-```
-
-<Callout type="warn" title="Preserve backup archives">
-Do not delete your local backup archive until you confirm that the destination workspace operates normally.
-</Callout>
+For an abandoned `/tmp/raft-recovery.XXXXXXXX` host staging file, follow [recovery troubleshooting](./troubleshooting.mdx#host-crash-during-recovery). Never delete staging files by wildcard or remove another operation's files.
