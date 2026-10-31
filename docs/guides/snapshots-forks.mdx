@@ -1,115 +1,64 @@
 ---
-title: Snapshots and forks
-description: Capture point-in-time filesystem snapshots and fork independent workspace clones.
+title: Save or copy disk state
+description: Take snapshots, roll back files, and create independent same-host copies.
 ---
 
-# Snapshots and forks
+# Save or copy disk state
 
-Raft captures filesystem snapshots, rolls back changes, and clones workspaces on the same host.
+You can save a box's filesystem or copy it on the same host. Set `$box` to your task's persistent box from `raft list`. Inspect `raft info "$box"` before stopping it: stopping a disposable box deletes it and its snapshots.
 
-## Target workspace handle
+Snapshots, restores and forks require a stopped source. Stopping ends every process; no operation saves process memory. Copies include packages, credentials and enabled services. Remove secrets you do not want inherited.
 
-Use a **persistent** workspace and stop it first. Stopping a disposable box deletes
-it and its snapshots; do not use one as the source for this walkthrough.
+## Save a snapshot
 
-```sh title="CONTROLLER: Select and stop target workspace"
-raft list
-box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
+```sh
 raft stop "$box"
-```
-
-## Stopped-source requirement
-
-<Callout type="warn" title="Workspace must be stopped">
-Creating a snapshot, restoring from a snapshot, or forking requires a stopped container. Operations run under host lock `/run/lock/raft-incus.lock` to prevent concurrent disk modification.
-</Callout>
-
-## Creating snapshots
-
-Take a point-in-time snapshot of the stopped workspace filesystem:
-
-```sh title="CONTROLLER: Create a named snapshot"
 raft snapshot "$box" pre-upgrade
-```
-
-Snapshot names must use letters, digits, underscores, or hyphens up to 64 characters.
-
-## Listing snapshots
-
-View existing snapshots for a workspace:
-
-```sh title="CONTROLLER: List existing snapshots"
 raft snapshots "$box"
 ```
 
-The command prints snapshot names and creation timestamps from Incus metadata.
+Snapshot names start with an ASCII letter or digit, followed by letters, digits, `_` or `-`, up to 64 characters. A snapshot stays with its box and disappears when the box is destroyed or deleted by retention. It is not an off-host backup.
 
-## Restoring from a snapshot
+## Roll back files
 
-Roll back a stopped workspace to a previously recorded snapshot:
+Restoring discards filesystem changes made since the snapshot. Back up any needed changes first. With your box stopped:
 
-```sh title="CONTROLLER: Restore snapshot"
+```sh
 raft restore "$box" pre-upgrade
+raft resume "$box" --ttl 1800
 ```
 
-<Callout type="info" title="Configuration preservation during restore">
-`raft restore` executes Incus snapshot restore with `--diskonly`. It rolls back filesystem blocks while preserving container configuration, CPU and memory limits, and the `eth0` network MAC address.
-</Callout>
+Restore keeps the box's instance configuration, resource limits and MAC address. It rolls back files, not external effects such as a remote database change.
 
-Resume the workspace with a renewed lifetime:
+## Fork a stopped box
 
-```sh title="CONTROLLER: Resume restored workspace"
-raft resume "$box" --ttl 600
-```
-
-## Forking a workspace
-
-Forking creates an independent clone on the same host:
-
-```sh title="CONTROLLER: Fork workspace into a new clone"
-raft stop "$box"  # Use a persistent box; stop deletes disposable boxes
-copy=$(raft fork "$box" --ttl 600)
-echo "Created fork: $copy"
-```
-
-### Characteristics of forked workspaces
-
-- **Instance-only copy**: Uses Incus `--instance-only`. Filesystem data, installed packages, and `/workspace` files are copied; source snapshots are not inherited.
-- **Immediate start**: `raft fork` launches the new container immediately with the specified TTL while the source remains stopped.
-- **Fresh network identity**: The fork receives a new container name, a fresh MAC address on `rfbr0`, and an independent IP address.
-- **Disk**: The fork keeps the source disk. Both kinds fork in seconds as copy-on-write snapshots: a shared-pool source within the shared 60 GiB Btrfs pool, an own-disk source as a thin snapshot that reserves its full size in `raft-disks`.
-
-Destroy the clone when finished to release capacity:
-
-```sh title="CONTROLLER: Destroy forked workspace"
-raft destroy "$copy"
-```
-
-## Starting from a prepared snapshot
+A fork copies the stopped box's present filesystem without its snapshots, then starts an independent box:
 
 ```sh
-copy=$(raft new --from "$box/pre-upgrade" --ttl 600)
+copy=$(raft fork "$box" --ttl 1800 --purpose "Project experiment" --owner "Local operator" --next "Destroy after comparison")
 ```
 
-The source box can be running because Raft copies the saved snapshot. The new box stays on the same host, keeps the snapshot's CPU, RAM and disk unless `--cpu`, `--memory` or `--disk` overrides them, and has a fresh network identity. Copies are copy-on-write snapshots, so starting many boxes from one prepared snapshot is fast; on own disks each copy still reserves its full size. Filesystem secrets are copied too.
+The source remains stopped. Omitted CPU and RAM limits inherit from it; `--cpu` and `--memory` override them. The disk type and size stay unchanged. A fork is persistent regardless of controller defaults unless you pass `--disposable`. Without note flags, it inherits the source note; note flags replace the entire note and must satisfy host policy.
 
-Add `--disk SIZE` to copy the snapshot onto an own disk of a new size, for example to give a full box more room:
+## Start from a snapshot
 
 ```sh
-bigger=$(raft new --from "$box/pre-upgrade" --disk 40GiB --ttl 600)
+copy=$(raft new --from "$box/pre-upgrade" --ttl 1800 --persistent --purpose "Prepared project" --owner "Local operator" --next "Destroy after use")
 ```
 
-Remove a snapshot you no longer need:
+The source box may be running because you copy a saved snapshot. The copy stays on its source host, with a fresh handle, MAC address and deadline. It keeps the snapshot's CPU, RAM and disk unless flags override them. Controller size defaults do not apply, but the disposable default does; `--persistent` overrides it. Unlike fork, `new --from` does not inherit the source note.
+
+On a host with own disks enabled, add `--disk 40GiB` to create a copy with another disk size. You cannot use `--disk shared` with `--from`, or resize a disk on resume or fork. For another host, use [backup and recovery](./backup-recovery.mdx).
+
+Copies share unchanged disk blocks. Each own-disk box and snapshot still reserves its full size, and insufficient reservation space rejects creation. See [disk reservations](../reference/capacity.mdx#reservation-accounting).
+
+## Delete a snapshot or copy
+
+These actions permanently delete the selected data. Download or back up anything needed first:
 
 ```sh
 raft snapshot-delete "$box" pre-upgrade
+raft destroy "$copy"
 ```
 
-## Choosing clone resources
-
-```sh
-copy=$(raft fork "$box" --ttl 600 --cpu 2 --memory 4GiB)
-raft resume "$box" --ttl 600 --memory 2GiB
-```
-
-Omitted CPU and RAM values keep the source limits; the disk never changes on fork or resume. Forks are persistent by default, even when `raft config` sets `disposable true`; add `--disposable` to delete a clone when it stops or expires.
+Snapshot deletion can run while the box runs. Deleting a source snapshot does not delete copies already created from it.

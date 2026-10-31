@@ -1,181 +1,74 @@
 ---
-title: Troubleshooting
-description: Diagnose configuration, host infrastructure, network filtering, and container lifecycle issues.
+title: Fix a failed operation
+description: Diagnose SSH, configuration, storage, expiry, forwarding and interrupted recovery.
 ---
 
-# Troubleshooting
+# Fix a failed operation
 
-Diagnostic procedures and solutions for common deployment, configuration, and runtime issues.
+Start with read-only checks on the controller. Replace `lab` with the failing location; do not repeat a mutating command until you know whether it completed remotely.
 
 ## Controller diagnostics
 
-### Preflight checks with `raft doctor`
-
-Run `raft doctor` on your controller to inspect host health across configured locations:
-
-```sh title="CONTROLLER: Run environment health check"
-raft doctor
-```
-
-`raft doctor` connects to each host over SSH and reports:
-- Incus version running in project `raft`
-- Compatibility of the installed expiry worker with the CLI
-- Active status of host systemd services (`incus`, `raft-expire.timer`, `raft-network.service`)
-- Host root filesystem disk usage (`df -h /`)
-- Status and usage of the shared `raft-data` Btrfs pool, and of the `raft-disks` LVM thin pool when own box disks are enabled (otherwise `own box disks: not enabled (redeploy with --disk-pool SIZE)`)
-- Count of existing saved containers
-
-<Callout type="info" title="Doctor scope">
-`raft doctor` reports runtime daemon, expiry-worker compatibility, and storage status. It does not validate image fingerprints, inspect nftables bridge rules, or emit 5 GiB low-disk warnings. A host without `raft-disks` is healthy: own box disks are opt-in.
-</Callout>
-
-### Expiry worker differs from the CLI
-
-An active expiration timer can still run an older worker. Installing or updating
-the controller CLI does not deploy host code. `doctor` checks the same worker
-protocol as disposable creation, prune and setting a retention policy, without
-running expiry or changing any boxes. It exits nonzero and names the location on a mismatch.
-
-Review the host deployment changes, then deploy from the checkout matching your
-CLI. Replace `lab` with the location reported by the diagnostic:
-
-```sh title="CONTROLLER: Explicitly update a reviewed host deployment"
-python3 deploy/deploy.py --location lab
-raft doctor
-```
-
-Deployment updates host infrastructure as well as the expiry worker. Do not run
-it on a shared host without authorization. Do not remove the compatibility check
-or mark an old worker as current; older workers may retain expired disposable
-boxes instead of deleting them.
-
-### Listing active and stopped containers
-
-Inspect workspace states across locations:
-
-```sh title="CONTROLLER: List workspaces across all hosts"
-raft list
-
-# Filter by a single location
+```sh
+raft doctor --location lab
 raft list --location lab
+raft capacity --location lab
 ```
 
-If a host is unreachable over SSH, the CLI reports a connection failure. An unreachable host does not mean containers are absent or deleted.
+`doctor` checks Incus, expiry-worker compatibility, host services, filesystem usage, storage pools and saved-box count. It does not validate your image pin or firewall rules. A host without own box disks is healthy; `capacity` supplies low-space warnings. An unreachable host does not mean its boxes are absent.
 
-## Host-side diagnostics
+| Symptom or error | What to do |
+| --- | --- |
+| Cannot reach the SSH target | Verify the host key interactively, then run `ssh -o BatchMode=yes ubuntu@192.0.2.10 'sudo -n true'` with your host target. Fix keys, routing or passwordless sudo. |
+| Missing `~/.config/raft/incus.json`, or "Configure at least one host" | [Onboard a host](../operations.mdx), or repair the inventory with a location and nonempty `ssh` value. An empty file is invalid JSON. |
+| "Unknown location" or an invalid default | Check `raft locations` and [controller configuration](../reference/configuration.mdx). Repair `defaults.location` with `raft config set location lab` or unset it. |
+| "Build an image and configure its full immutable fingerprint" | Set the imported development image's full 64-character lowercase hexadecimal fingerprint, not an alias or base-image hash. |
+| "Host expiry worker differs from this CLI" | [Redeploy code matching your CLI](./upgrades.mdx). An active timer alone does not prove worker compatibility. Do not bypass the check. |
+| Missing required `--purpose`, `--owner` or `--next` | Inspect `raft config --location lab` and supply the required note fields. Note flags replace the whole note. |
+| "Stop the source box before resume, snapshot, restore, fork or backup" | Inspect its state. Stop a persistent box when interruption is acceptable. Do not stop a disposable source; that deletes it. |
 
-Connect to the host over SSH to inspect underlying services when commands fail.
+## Fix sizing or disk failures
 
-### Inspecting Incus project status
+| Symptom or error | What to do |
+| --- | --- |
+| "Requested N CPUs, but this host has M" or oversized RAM | Use a size no larger than the host total shown by `capacity`. CPU counts are whole positive numbers; RAM and disk use whole `GiB`. |
+| "has no raft-disks pool" | Own disks are opt-in. Use `--disk shared` for image-based creation, unset a disk default, or [enable the pool](../reference/capacity.mdx#own-box-disks). |
+| "own box disks would need ... more of raft-disks" | Check unreserved capacity. Every own-disk box, snapshot and cached image reserves space. Choose a smaller disk, use shared storage, or back up and delete only data you no longer need. |
+| "No space left on device" in an own-disk box | Remove unneeded guest files or Docker data. For a larger persistent copy, stop it, snapshot it and use `new --from` with `--disk SIZE`; see [disk copies](./snapshots-forks.mdx#start-from-a-snapshot). |
+| Low shared-pool or host disk warning | `capacity` warns below 5 GiB. Review images, snapshots and boxes before deleting anything. Shared-pool growth can affect every box. |
+| Thin pool metadata warning | At 80% or more, inspect the host with `sudo lvs` before creating more own-disk boxes. Full metadata can stop all own-disk boxes and require offline repair. |
 
-Verify container states and storage pools in project `raft`:
+A configured `defaults.disk` can cause creation failures even without `--disk`; the error names it. `--disk shared` is not accepted with `--from`.
 
-```sh title="HOST: Inspect containers and storage pools"
+## Diagnose an unavailable service
+
+For forwarding, bind the guest service to `0.0.0.0` or its managed address, not guest loopback. Check its logs and choose a different local port if occupied. For the desktop, include `/vnc.html` and retry the browser request if noVNC is still starting. See [private services](./desktop-services.mdx).
+
+Boxes cannot contact peers on the same bridge by design. An open tunnel, SSH session or detached job does not extend TTL. For a stopped box use `resume`, not `extend`.
+
+## Find an expired or deleted box
+
+Check `stopAt` and `deleteAt` in `raft list`, and retention in `raft config --location lab`. Persistent expiry stops processes and keeps disk; disposable expiry deletes the box. Retention later deletes stopped boxes and snapshots. Deleted data requires an existing off-host backup.
+
+On the host, inspect without changing services:
+
+```sh title="HOST"
+sudo systemctl status raft-network.service raft-expire.timer --no-pager
+sudo journalctl -u raft-expire.service -n 50 --no-pager
+sudo journalctl -t raft
 sudo incus --project raft list
 sudo incus --project raft storage info raft-data
 ```
 
-### Checking host systemd units
+Host journals may contain guest arguments and secrets. Outages or a long backup can delay the 15-second expiry checks. `raft gc --location lab` enforces due expiry and retention immediately, which can delete other due boxes; inspect before invoking it.
 
-Raft installs two systemd units on the host:
-- `raft-network.service`: Applies firewall and bridge isolation rules before Incus starts.
-- `raft-expire.timer` / `raft-expire.service`: Runs the expiration worker every 15 seconds to stop expired workspaces.
+## Host crash during recovery
 
-Inspect unit logs with `journalctl`:
+If SSH drops or recovery is interrupted:
 
-```sh title="HOST: Check Raft systemd unit logs"
-sudo systemctl status raft-network.service
-sudo systemctl status raft-expire.timer
-sudo journalctl -u raft-expire.service -n 50 --no-pager
-```
+1. Find the `Recovery handle: LOCATION:BOX` printed to stderr.
+2. Inspect that exact handle with `raft info` and the target inventory. The import may already exist even without a successful response.
+3. If a host staging file remains, identify the exact `/tmp/raft-recovery.XXXXXXXX` by owner and timestamp and confirm no transfer still uses it.
+4. Remove only that verified owned file. Never delete `/tmp/raft-recovery.*` by wildcard.
 
-<Callout type="warn" title="Host journals and guest secrets">
-Host system journals can capture command lines, arguments, and environment variables executed in guest containers. Treat host logs as sensitive records that may contain guest credentials.
-</Callout>
-
-### Manually triggering garbage collection
-
-The host timer enforces expiry every 15 seconds. Trigger an immediate expiration run from the controller:
-
-```sh title="CONTROLLER: Run expiration workers manually"
-raft gc
-```
-
-Expired persistent containers transition from `Running` to `Stopped` and retain
-files and snapshots. Expired disposable containers are deleted, including their
-snapshots. Use `raft gc --location lab` to check only one host. The timer normally
-checks every 15 seconds; host outages, graceful shutdown and long locked
-operations can delay expiry. See [Lifetime and persistent services](./long-running-services.mdx).
-`raft gc` also applies the location's stopped-box retention.
-
-### A stopped box disappeared
-
-A host retention policy deletes boxes left stopped for its hours. Check the
-policy and the host journal, which records every deletion:
-
-```sh title="CONTROLLER: Check retention"
-raft config | jq '.policy'
-```
-
-```sh title="HOST: Find the deletion"
-sudo journalctl -t raft | grep 'Deleted box'
-```
-
-Deleted boxes cannot be recovered except from a `raft backup` archive. See
-[Defaults and host policies](./config-policy.mdx#delete-boxes-left-stopped).
-
-## Common error scenarios
-
-### Configuration errors
-
-#### Missing configuration file error
-If `~/.config/raft/incus.json` does not exist, the CLI raises `FileNotFoundError`. Create the configuration directory and file. Set mode `0600` on the file only.
-
-#### "Configure at least one host in ~/.config/raft/incus.json"
-The configuration file contains valid JSON that is `{}` or is not an object (an empty file raises a JSON decoding error instead). Ensure the file defines at least one location with a non-empty `ssh` string.
-
-#### "Build an image and configure its full immutable fingerprint before creating boxes"
-The `image` field is missing or is not a 64-character hexadecimal SHA-256 fingerprint. Supply the full fingerprint from `sudo incus --project raft image list raft-dev --format json`.
-
-### Sizing and disk errors
-
-Raft has no box count limit and no size budget. These errors come from the
-request itself or from the host:
-
-#### "Requested N CPUs, but this host has M" or "Requested SIZE RAM, but this host has N GiB"
-The request is larger than the whole host. Ask for at most the host's CPUs and RAM; `raft capacity` shows both.
-
-#### "LOCATION has no raft-disks pool, so own box disks are not enabled there"
-Own box disks are opt-in and this host was deployed without them. Nothing was created. Enable them with `python3 deploy/deploy.py --location <location> --disk-pool SIZE`, which needs SIZE plus 20 GiB free on the host, or create the box without `--disk`. Boxes without `--disk` keep working meanwhile.
-
-#### "own box disks would need N GiB more of raft-disks"
-Each own disk, each snapshot of one, and the cached image reserve their full size in `raft-disks`, so Raft refused the request before creating anything. Destroy own-disk boxes or snapshots you no longer need, choose a smaller `--disk`, or use the shared pool. `raft capacity` shows the unreserved space. See [Reservation accounting](../reference/capacity.mdx#reservation-accounting).
-
-#### "No space left on device" inside an own-disk box
-The box filled its own disk. Delete files or Docker data inside the box. For a persistent box you can also move to a larger disk: stop it with `raft stop "$box"` (snapshots need a stopped box), take `raft snapshot "$box" <snapshot>`, then create the copy with `raft new --from "$box/<snapshot>" --disk <larger size>`. Do not stop a `--disposable` box for this: stopping deletes it.
-
-#### Low disk warnings
-`raft capacity` warns when free space on host disk or the `raft-data` pool falls below 5 GiB. This warning is diagnostic and does not halt container operations. Clean up dangling images, old snapshots, or unused containers to free space.
-
-### Network and forwarding issues
-
-#### Port forward connects but returns connection refused
-Verify that the guest service binds to `0.0.0.0` or the container's `eth0` IP address. Services bound strictly to `127.0.0.1` inside the container cannot receive traffic routed through the bridge.
-
-#### Workspaces cannot reach other workspaces on the same host
-This is intended behavior. Raft configures nftables bridge filtering on `rfbr0` to prevent communication between workspaces on the same bridge.
-
-### Host crash during recovery
-
-If the controller crashes or SSH drops while `raft recover` is transferring an archive:
-1. Check the `Recovery handle: <location>:<name>` output printed to stderr when `raft recover` started.
-2. Inspect the reported handle with `raft list --location <location>` and confirm container status before removing staging.
-3. Identify the exact staging file (`/tmp/raft-recovery.XXXXXXXX`) on the host by owner and timestamp.
-4. After confirming container status, remove only that owned file:
-   ```sh title="HOST: Remove verified owned staging file"
-   sudo -n rm -f -- /tmp/raft-recovery.XXXXXXXX
-   ```
-
-<Callout type="warn" title="Do not delete by wildcard">
-Never run `rm /tmp/raft-recovery.*`. It can delete files from another recovery.
-</Callout>
+If creation or execution loses its connection, inspect its effects before retrying too. See [scripting failures](./scripting-ci.mdx#recover-from-a-lost-connection) and [backup recovery](./backup-recovery.mdx).

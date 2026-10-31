@@ -1,253 +1,71 @@
 ---
-title: Defaults and host policies
-description: Set controller defaults for new boxes, require box note fields on a host and delete boxes left stopped.
+title: Set defaults and host policies
+description: Choose creation defaults, require ownership notes, and control stopped-box deletion.
 ---
 
-# Defaults and host policies
+# Set defaults and host policies
 
-Raft has two kinds of settings:
+You can set creation defaults on your controller and policies on each host. Host policies affect every controller using that host. They are operator guardrails, not a security boundary: host SSH and sudo can change or bypass them, and older controllers do not enforce note policies.
 
-| Setting | Stored in | Applies to | Change with |
-| --- | --- | --- | --- |
-| Defaults for `new` | `~/.config/raft/config.json` on the controller | That controller only | `raft config set` and `raft config unset` |
-| Required box note fields | Incus project `raft` on each host | Every controller that uses the host | `raft policy --require` |
-| Stopped-box retention | Incus project `raft` on each host | Every box on the host | `raft policy --delete-stopped-after` |
+Inspect before changing settings:
 
-`raft config` prints both kinds: the effective defaults with their source, and
-each location's policies.
-
-```sh title="CONTROLLER: Inspect defaults and policies"
-raft config
+```sh
+raft config --location lab
 ```
 
-```json title="Example output"
-{
-  "file": "/root/.config/raft/config.json",
-  "defaults": {
-    "location": {
-      "value": "lab",
-      "source": "config"
-    },
-    "ttl": {
-      "value": 3600,
-      "source": "config"
-    },
-    "cpu": {
-      "value": 1,
-      "source": "built-in"
-    },
-    "memory": {
-      "value": "2GiB",
-      "source": "built-in"
-    },
-    "disk": {
-      "value": "shared",
-      "source": "built-in"
-    },
-    "disposable": {
-      "value": true,
-      "source": "config"
-    }
-  },
-  "policy": {
-    "lab": {
-      "require": [
-        "purpose",
-        "owner"
-      ],
-      "requireChanged": "2026-10-21T09:12:44Z by ubuntu from me@laptop",
-      "deleteStoppedAfterHours": 48,
-      "deleteStoppedAfterSince": 1792573964,
-      "deleteStoppedAfterChanged": "2026-10-21T09:12:44Z by ubuntu from me@laptop"
-    }
-  }
-}
-```
-
-`raft config` contacts every configured host to read its policy. It fails and
-names the location when a host is unreachable.
+Without `--location`, the report contacts every configured host and fails if one is unreachable. It includes effective default values and their sources, required note fields, stopped-box retention and policy change records.
 
 ## Defaults for new
 
-Set a default for any of `location`, `ttl`, `cpu`, `memory`, `disk` and
-`disposable`:
-
-```sh title="CONTROLLER: Prefer bigger, longer, temporary boxes on paris"
-raft config set location paris
+```sh
+raft config set location lab
 raft config set ttl 3600
-raft config set cpu 4
-raft config set memory 16GiB
-raft config set disk 20GiB
-raft config set disposable true
+raft config set cpu 2
+raft config set memory 4GiB
 raft config unset cpu
 ```
 
-Each command prints the old and new value. `raft new` takes an explicit flag
-first, then the configured default, then the built-in default (first configured
-location, 600 seconds, 1 CPU, 2 GiB, the shared pool, persistent). `resume`,
-`fork`, `extend` and `recover` take no defaults: their TTL and target are
-deliberate choices, and omitted sizes on resume and fork keep the source limits.
+You can set `location`, `ttl`, `cpu`, `memory`, `disk` and `disposable`. See [accepted values and built-in defaults](../reference/configuration.mdx#defaults-for-new). Explicit flags win over controller defaults, then built-in defaults. `resume`, `fork`, `extend` and `recover` do not use these defaults.
 
-With `disposable true`, every `raft new` box is deleted, with its snapshots, when
-it stops or expires. `raft new --persistent` keeps one box anyway, and
-`--disposable` overrides `disposable false` the same way. The default applies to
-`new --from` too: a snapshot has no lifecycle of its own. A fork stays
-persistent unless it gets `--disposable`, whatever the default says, like every
-other fork setting.
+Setting `disposable true` makes `new` delete the box and snapshots on stop or expiry, including `new --from`. Use `--persistent` to keep one box. A fork stays persistent unless you explicitly pass `--disposable`.
 
-Size defaults (`cpu`, `memory`, `disk`) apply only where the built-in sizes do:
-to boxes created from the image. A box from `new --from` keeps the snapshot's
-location, CPU, RAM and disk, and a fork keeps its source's, whatever
-`config.json` says. Only a flag changes them:
+Size defaults apply only to boxes created from the image. `new --from` keeps the snapshot's location, CPU, RAM and disk unless explicit flags change them. `fork` keeps the source sizes, with CPU/RAM overrides only. `--disk shared` overrides an own-disk default for image-based creation but is rejected with `--from`.
 
-| Command | CPU and RAM | Disk | Disposable |
-| --- | --- | --- | --- |
-| `new` | Flag, then config, then 1 CPU / 2 GiB | Flag, then config, then the shared pool | Flag, then config, then persistent |
-| `new --from` | Flag, then the snapshot's | `--disk SIZE`, then the snapshot's | Flag, then config, then persistent |
-| `fork` | Flag, then the source's | The source's | `--disposable`, else persistent |
+A disk default fails on hosts without own disks enabled or enough unreserved space. The error names `defaults.disk`; override with `--disk shared` or run `raft config unset disk`. Invalid keys, values or JSON fail instead of being ignored. Repair a recognized bad value with `set` or `unset`; edit malformed JSON or unknown keys in `~/.config/raft/config.json` directly.
 
-A `disk` default needs own box disks on the target host. On a location without
-the `raft-disks` pool, or with too little unreserved space, `raft new` fails with
-the same error as `--disk` and names the configured value as the cause:
+## Require box notes
 
-```text
-$ raft new --purpose "Run the tests"
-raft: lab has no raft-disks pool, so own box disks are not enabled there; nothing was created. Enable them with python3 deploy/deploy.py --location lab --disk-pool SIZE. The 20GiB own disk comes from defaults.disk in /root/.config/raft/config.json; give --disk shared or --disk SIZE, or run raft config unset disk
-```
-
-`--disk shared` puts one box on the shared pool despite a `disk` default. It is
-refused with `--from`, which keeps the snapshot's disk.
-
-The file accepts a value exactly when the same text is accepted as the flag.
-An unknown key, a bad value or malformed JSON makes `raft new` fail with the file
-path and the key; Raft never ignores part of the file. Repair a bad key with
-`raft config set KEY VALUE` or `raft config unset KEY`. Writes are atomic, keep
-mode `0600` and remove the file when no default remains.
-
-Scripts and CI jobs that need stable boxes should pass `--location`, `--ttl`,
-`--cpu`, `--memory`, `--disk` and `--disposable` or `--persistent` explicitly,
-because defaults differ between controllers.
-
-## Required box note fields
-
-A host policy makes every box on that host carry the listed [box note](../reference/cli.md#note)
-fields. `purpose` is always part of a note, so a policy must include it:
-
-```sh title="CONTROLLER: Require an owner on lab"
+```sh
 raft policy lab --require purpose,owner
-raft policy lab --require none
 ```
 
-With that policy, a command that would leave a box without an owner fails before
-it changes anything and says how to fix it:
+Fields are `purpose`, `owner` and `next`. A requirement must include `purpose`; use `--require none` to clear it. Missing or empty required fields reject `new`, `fork`, `recover` and `note` with the missing flags. Text accuracy is not checked.
 
-```text
-$ raft new --location lab --purpose "Run the tests"
-raft: location lab requires --owner (host policy). Add it: raft new --purpose "..." --owner "..." [--next "..."]
+`new`, including snapshot copies, uses only the note you supply. Fork and recovery inherit the source note unless you pass flags. Any note flags replace the whole note, so give every field the copy needs:
+
+```sh
+raft note "$box" --purpose "Project tests" --owner "Local operator" --next "Back up after tests"
 ```
 
-The policy covers every command that creates a box or changes its note:
-
-| Command | Note checked |
-| --- | --- |
-| `new`, including `new --from` | The note given to `new`; a snapshot's note is never inherited |
-| `fork` | The note given to `fork`, otherwise the source box's note |
-| `recover` | The note given to `recover`, otherwise the note in the archive |
-| `note BOX` | The new note; `--clear` is rejected while a policy requires fields |
-
-On `fork` and `recover`, `--purpose`, `--owner` and `--next` replace the whole
-note, like `raft note`. Give all the fields the copy needs; omitted fields are
-not taken from the source. `recover` without note flags can only check the
-archived note after import. When it fails, Raft deletes the imported box in the
-same locked step and reports the error. Pass the note to `recover` to fail before
-the upload instead.
-
-The controller checks the policy first, so the error arrives before any work.
-The host checks it again in the same locked transaction that writes the note,
-so a policy change cannot race a creation. That transaction checks the
-requested size against the host and reserves own-disk space first; any refusal
-comes before Incus creates the box.
+`raft note "$box" --clear` is rejected while required fields apply. Location notes are separate, unenforced guidance; set one with `raft note lab "Preferred for builds"`.
 
 ## Delete boxes left stopped
 
-A retention policy makes a host delete boxes that stay stopped too long, with
-their snapshots. Use it when agents create boxes and forget them:
+This policy permanently deletes stopped boxes and all their snapshots. Back up needed work and review the location before setting it:
 
-```sh title="CONTROLLER: Delete boxes stopped for 48 hours on lab"
+```sh
 raft policy lab --delete-stopped-after 48
-raft policy lab --delete-stopped-after never
+raft list --location lab
 ```
 
-The host expiry worker applies it every 15 seconds, and on `raft gc`, even when
-no controller is online. It deletes a stopped box once the given hours have
-passed since the later of:
+Deletion becomes due 48 hours after the later of the stop time or the policy change. Setting the policy again, shortening it or lengthening it restarts that grace period. Running boxes are unaffected; `resume` clears the stop time and a later stop starts another clock.
 
-- the box's stop, recorded in `user.raft.stopped-at` by `raft stop` and expiry;
-- the policy change, recorded in `user.raft.delete-stopped-after.since`.
+A box stopped outside Raft, or recovered from backup, starts its clock when the worker first sees it. Use `raft resume`, not native Incus lifecycle commands: a native start and stop between worker checks can retain an old stop time.
 
-So a new or shorter policy never deletes a box sooner than its hours after the
-change, including boxes that were stopped long before. Lengthening it or setting
-it again restarts the grace period the same way.
+The host enforces retention every 15 seconds and on `raft gc`, even with no controller connected. `list` shows due times as `deleteAt`. Clear automatic retention with `raft policy lab --delete-stopped-after never`. For manual cleanup, `raft prune --location lab --older-than 7` previews candidates; adding `--yes` permanently deletes them and their snapshots. Running boxes and boxes without recorded stop times are excluded.
 
-| Box | What retention does |
-| --- | --- |
-| Running, including one whose TTL has not expired | Nothing |
-| Stopped with `raft stop` or expiry | Deleted HOURS after the later of the stop and the policy change |
-| Stopped another way: a poweroff inside the box, a native `incus stop`, a failed start or `raft recover` | The worker records the time it first sees the box stopped, and the clock starts then |
-| Resumed before its deadline | Nothing; `resume` clears the stop time, and the next stop starts a new clock |
+## Check changes and failures
 
-`raft list` shows when each stopped box will go, as `deleteAt`:
+Policy commands report old and new values. `raft config` includes change times, the SSH account and a self-reported controller identity. On the host, `sudo journalctl -t raft` shows policy changes and retention deletions.
 
-```sh title="CONTROLLER: Stopped boxes and their deletion times"
-raft list --location lab | jq -r 'select(.deleteAt != "") | "\(.box) \(.deleteAt | tonumber | todate)"'
-```
-
-Retention deletes the whole box. Keep anything you need with
-[`raft backup`](./backup-recovery.mdx) before the deadline, or resume the box to
-reset its clock. Snapshots live inside the box and are deleted with it.
-
-Retention needs the current host worker. On a host deployed by an older release,
-`--delete-stopped-after HOURS` fails with
-`Host expiry worker differs from this CLI; deploy the current Raft checkout first`
-and changes nothing; redeploy the host, see
-[Upgrades and image changes](./upgrades.mdx). Clearing it with `never` works on
-any worker.
-
-`raft prune --older-than DAYS` remains a manual, previewed cleanup that works
-with or without a retention policy.
-
-## Audit trail
-
-`raft policy` prints each change, for example
-`lab: required note fields none -> purpose,owner` or
-`lab: delete stopped boxes after never -> 48 hours`. The host records the last
-change of each policy in a `.changed` project key (UTC time, the SSH account and
-the controller's self-reported user and hostname) and writes a `raft` entry to
-the host journal. The worker adds a journal entry for every box retention
-deletes:
-
-```sh title="HOST: Review policy changes and retention deletions"
-sudo incus project get raft user.raft.require
-sudo incus project get raft user.raft.require.changed
-sudo incus project get raft user.raft.delete-stopped-after
-sudo incus project get raft user.raft.delete-stopped-after.changed
-sudo journalctl -t raft
-```
-
-## Limits
-
-Host policies are a guardrail for agents, not a security boundary:
-
-- Anyone with SSH and sudo on the host can change or remove a policy, or create
-  boxes with native `incus` commands that skip the note policy.
-- Retention trusts `user.raft.stopped-at`. The worker clears it when it sees a
-  box running, but a native `incus start` and stop between two worker runs (15
-  seconds apart) keeps the old stop time, so the box can be deleted on the next
-  run. Use `raft resume`, which clears the stop time.
-- Controllers older than the release that added note policies do not check
-  them. Upgrade every controller that uses a host before relying on one. The
-  host worker enforces retention whatever the controller version.
-- The controller identity in the `.changed` keys is reported by the controller
-  and is not verified. The SSH account comes from `sudo`.
-- Raft checks that required fields are present and nonempty, not that their text
-  is accurate.
+Disposable creation, prune and enabling retention require a compatible expiry worker. If you see `Host expiry worker differs from this CLI`, [redeploy the matching release](./upgrades.mdx); do not bypass the check. Clearing retention with `never` does not require that worker check.

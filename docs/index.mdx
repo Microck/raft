@@ -1,39 +1,25 @@
 ---
-title: Overview
-description: Create persistent Linux development boxes on Ubuntu hosts you control.
+title: Use Raft
+description: Run persistent Linux development boxes on Ubuntu hosts you control.
 ---
 
 # Raft
 
-Raft creates **persistent Linux boxes on your own Ubuntu hosts**. Run commands,
-Docker builds and development services; copy files; save snapshots; or open a
-private desktop. A box is an unprivileged Incus container that shares its host's
-kernel, not a virtual machine.
+Run commands, Docker builds and development services in Linux boxes on your own hosts. You can copy files, save snapshots, fork a prepared box, or open a private desktop.
 
-## Start here
+Your controller runs the CLI and connects over host SSH. Each box is an unprivileged Incus container sharing its host's kernel, not a VM. Use dedicated hosts and trusted workloads; Raft is a single-operator tool, not a multi-tenant service.
 
-1. [Check requirements](./requirements.mdx): a Linux controller and a dedicated Ubuntu host.
-2. [Set up a host](./operations.mdx): install the CLI and run guided onboarding.
-3. [Create your first box](./first-box.mdx): run a command, stop it and resume it.
+## Create a box
 
-Already have a configured host? Run these commands on your **controller**
-(the machine where you installed `raft`). Replace `lab` with your location:
+1. [Check your machines](./requirements.mdx).
+2. [Install Raft and set up a host](./operations.mdx).
+3. [Run your first command](./first-box.mdx).
 
-```sh
-box=$(raft new --location lab --ttl 600 --persistent)
-raft exec "$box" -- node --version
-raft ssh "$box"
-```
+## Work in a box
 
-Exit the guest shell, then run `raft stop "$box"` on the controller. Files remain;
-processes stop. Host retention policies can later delete stopped boxes.
+- [Set up a project](./guides/project-setup.mdx) and [copy or sync files](./guides/files.mdx).
+- [Run Docker](./guides/docker.mdx), [detach a job](./guides/background-jobs.mdx), or [open a desktop or private service](./guides/desktop-services.mdx).
+- [Run a disposable CI job](./guides/ci-jobs.mdx) or [save and copy disk state](./guides/snapshots-forks.mdx).
+- [Find another task](./guides/index.mdx), [look up a command](./reference/cli.md), or [fix a failed operation](./guides/troubleshooting.mdx).
 
-## Find a task
-
-- [Work with a project](./guides/project-setup.mdx) or [copy files](./guides/files.mdx).
-- [Run Docker](./guides/docker.mdx), [background jobs](./guides/background-jobs.mdx), or [open a desktop](./guides/desktop-services.mdx).
-- [Browse all guides](./guides/index.mdx), [look up a command](./reference/cli.md), or [troubleshoot](./guides/troubleshooting.mdx).
-
-Raft is an independent open-source alternative to Boat, not affiliated with it.
-[Compare the trade-offs](./boat-capabilities.md). Setup examples target published
-[0.7.0](./releases/0.7.0.md).
+Raft is independent of Boat. See the [comparison](./boat-capabilities.md), [test evidence](./verification.mdx) and [release notes](./releases/index.mdx) for limits and supported behavior.

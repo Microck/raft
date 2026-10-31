@@ -1,76 +1,32 @@
 ---
-title: Lifetime and persistent services
-description: Inspect deadlines, manage disposable and persistent boxes, and restart applications after resume.
+title: Keep a service across resumes
+description: Manage a box's deadline and start an application again after stop and resume.
 ---
 
-# Lifetime and persistent services
+# Keep a service across resumes
 
-A box's lifetime controls when the host stops or deletes it. Activity, an open
-terminal, and detached jobs do not extend that deadline automatically.
+You can save a service configuration on disk so it starts a fresh process after resume. You cannot preserve running process memory. Use a persistent box you own; stopping a disposable box deletes it and its snapshots.
 
-## Choose a lifetime and retention policy
+## Manage the deadline
 
-```sh title="CONTROLLER: Create a persistent box"
-box=$(raft new --location lab --ttl 3600 --persistent)
-```
+TTL is 60 to 2,592,000 seconds. For ordinary creation and resume, it starts after launch completes, using the host clock. The creation default is 600 seconds unless your controller changes it. There is no expiry-off option; activity and detached jobs do not renew it.
 
-TTL is in seconds: 60 to 2,592,000 (30 days), with a creation default of 600.
-The host sets the deadline after launch completes, using its own clock.
-Raft has no option to disable automatic expiry.
-
-| Operation | Persistent box (default) | Disposable box |
-| --- | --- | --- |
-| `stop` or TTL expiry | Stops processes; keeps disk and snapshots | Deletes the box and snapshots |
-| `resume --ttl SECONDS` | Starts the saved box with a new deadline | Only possible while the box still exists |
-| `destroy` | Deletes the box and snapshots | Deletes the box and snapshots |
-
-Use `raft new --disposable` for temporary work, or
-`raft config set disposable true` to make it the default on this controller;
-`raft new --persistent` then keeps one box. A fork is persistent unless
-`--disposable` is explicitly supplied; recovered boxes are persistent.
-Back up work before stopping a disposable box.
-
-Persistent stopped boxes still occupy storage. Raft does not cap how many boxes
-a host keeps. `raft prune --older-than 7` previews old stopped boxes;
-`--yes` applies deletion. To delete them automatically, set a host retention
-policy: with `raft policy lab --delete-stopped-after 48`, the host deletes any
-box left stopped for 48 hours, and `raft list` shows each one's `deleteAt`.
-Resuming a box resets its clock. See
-[Defaults and host policies](./config-policy.mdx#delete-boxes-left-stopped).
-
-## Read and reset the deadline
-
-Select a running handle from `raft list`. These examples use controller `jq`:
-
-```sh title="CONTROLLER: Inspect and extend a running box"
-raft list
-box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual handle
-raft info "$box" | jq '{status, expires: .config["user.raft.expires"]}'
+```sh
+raft list --location lab
 raft extend "$box" --ttl 7200
-raft info "$box" | jq '{status, expires: .config["user.raft.expires"]}'
 ```
 
-`user.raft.expires` is a Unix timestamp encoded as a string, not a remaining
-duration. `raft list` exposes it as `stopAt`; it may be empty on stopped boxes.
-`extend` sets `now + TTL`, rather than adding time to the old deadline.
-It requires a running box. Start a stopped box with `raft resume "$box" --ttl 7200`.
+Set `$box` to your running handle before extending it. `list` exposes the Unix deadline as string `stopAt`, or `""` when absent. `extend` resets it to host time plus TTL; it does not add to the previous deadline. For a stopped box, use `raft resume "$box" --ttl 7200` instead.
 
-The host timer checks every 15 seconds. Graceful shutdown, a host outage, or a
-long transaction holding the lifecycle lock can delay expiry. `raft gc --location lab`
-runs an immediate deadline check. A deadline is not a guarantee that a job will
-finish before shutdown; extend before starting work that needs more time.
+The host checks every 15 seconds. Outages, graceful shutdown and long operations such as backups can delay enforcement. `raft gc --location lab` checks immediately and may stop or delete other expired boxes on that host too.
 
-## Restart a service after resume
+Persistent boxes retain disk on stop or expiry, but host retention can later delete them. Check `raft config --location lab` and each stopped box's `deleteAt`. Use [backup](./backup-recovery.mdx) before that deadline. Forks default to persistent; recovered boxes are persistent. Controller defaults can change ordinary creation behavior.
 
-One-off detached commands do not survive a stop. To start an application again
-after resume or fork, save a systemd unit on disk and enable it. This starts a new
-process; it does not recover process memory or an interrupted request.
+## Enable a service
 
-The following example serves `/workspace` as the guest `developer` user. Use a
-persistent running box and ensure files the application needs are readable by
-that user. For an actual application, replace `ExecStart` and the working directory.
+This example serves `/workspace` as the image's `developer` user. Use a running persistent box and ensure that user's files are readable. Replace `ExecStart` and the working directory for your application:
 
-```sh title="CONTROLLER: Install and enable an example service"
+```sh
 raft exec "$box" -- bash -lc 'cat > /etc/systemd/system/workspace-web.service <<"UNIT"
 [Unit]
 Description=Workspace HTTP example
@@ -89,27 +45,18 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now workspace-web.service'
 raft exec "$box" -- systemctl status workspace-web.service --no-pager
-raft exec "$box" -- journalctl -u workspace-web.service -n 30 --no-pager
 ```
 
-Open `raft forward "$box" --remote 8080 --local 8080` and visit
-`http://127.0.0.1:8080`. The tunnel runs in the foreground; close it with `Ctrl+C`.
+Open `raft forward "$box" --remote 8080 --local 8080`, then visit `http://127.0.0.1:8080`. Ctrl+C closes the tunnel, not the service.
 
-```sh title="CONTROLLER: Check service startup after resume"
+Stopping ends current requests and every guest process. When an interruption is acceptable:
+
+```sh
 raft stop "$box"
 raft resume "$box" --ttl 3600
 raft exec "$box" -- systemctl is-active workspace-web.service
 ```
 
-Reopen the tunnel after resume. A fork or snapshot template copies the enabled
-unit too, so its new box starts its own service. Application secrets on disk are
-also copied; see [Project setup and templates](./project-setup.mdx).
+Wait for guest startup if the check runs too early, then reopen the tunnel. If the service fails, inspect `raft exec "$box" -- journalctl -u workspace-web -n 30 --no-pager`.
 
-To disable the example, run:
-
-```sh
-raft exec "$box" -- systemctl disable --now workspace-web.service
-```
-
-See [Background jobs](./background-jobs.mdx) for one-off tasks and
-[Desktop and private services](./desktop-services.mdx) for tunnel behavior.
+A fork or snapshot copy inherits the enabled service and any secrets on disk, so it starts its own process. Disable the example with `raft exec "$box" -- systemctl disable --now workspace-web.service`. See [background jobs](./background-jobs.mdx) for one-off commands and [host policies](./config-policy.mdx) for retention and previewed cleanup.

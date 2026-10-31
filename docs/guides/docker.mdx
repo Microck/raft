@@ -1,92 +1,42 @@
 ---
-title: Docker in workspaces
-description: Run Docker daemons and build container images inside unprivileged Raft workspaces.
+title: Run Docker builds
+description: Use Docker inside a box and keep its disk use under control.
 ---
 
-# Docker in workspaces
+# Run Docker builds
 
-Raft development images include Docker daemon and CLI tooling running directly in the unprivileged container without mounting the host Docker socket.
+You can build and run containers inside a running Raft box. Set `$box` to your task's handle from `raft list`. The development image includes its own Docker daemon; it does not mount the host Docker socket.
 
-## Target workspace handle
+Boxes share the host kernel, with no host kernel-module or KVM access. Stopping or expiring the box ends its nested containers too.
 
-Commands in this guide target a running workspace. Select one from `raft list` (see [First working box](../first-box.mdx)):
+## Check daemon readiness
 
-```sh title="CONTROLLER: Select running workspace"
-raft list
-box="lab:rf-a1b2c3d4e5f60718"  # Replace with your actual workspace handle
-```
-
-## Verifying Docker status
-
-Verify that the guest Docker daemon is initialized and responsive:
-
-```sh title="CONTROLLER: Check Docker version and daemon status"
-raft exec "$box" -- docker version
+```sh
 raft exec "$box" -- docker info
+raft exec "$box" -- docker run --rm alpine:3.22 uname -a
 ```
 
-<Callout type="info" title="Daemon readiness verification">
-`docker version` and `docker info` query guest `dockerd`. Running `docker --version` checks only the client binary without testing daemon health.
-</Callout>
+`docker --version` checks only the client. If `docker info` fails during startup, wait for the daemon before starting a build. For persistent failures, inspect `raft exec "$box" -- journalctl -u docker -n 50 --no-pager`.
 
-## Running containers
+## Build your project image
 
-Run containers inside your workspace:
+Copy a project containing a Dockerfile into `/workspace/my-project` using the [file guide](./files.mdx), then build it:
 
-```sh title="CONTROLLER: Run an Alpine container"
-raft exec "$box" -- docker run --rm alpine uname -a
+```sh
+raft exec "$box" -- docker build -t project-app /workspace/my-project
+raft exec "$box" -- docker run --rm project-app
 ```
 
-Start background services inside the workspace:
+For a published service, use [private forwarding](./desktop-services.mdx). Binding a service inside a nested container alone does not open a public host port.
 
-```sh title="CONTROLLER: Start a background Redis container"
-raft exec "$box" -- docker run -d --name cache -p 6379:6379 redis:alpine
-raft exec "$box" -- docker ps
+## Limit Docker disk growth
+
+Docker images, layers and volumes use the box's filesystem. Shared-pool boxes can fill storage for every box on that pool. On a host with [own disks enabled](../reference/capacity.mdx#own-box-disks), create a build box with a fixed disk:
+
+```sh
+box=$(raft new --location lab --ttl 3600 --disk 40GiB --persistent --purpose "Docker builds" --owner "Local operator" --next "Remove unused build data")
 ```
 
-## Building container images
+An own disk returns "No space left on device" at its cap, including Docker writes. Inspect `raft usage "$box"` and `raft exec "$box" -- docker system df` before removing data.
 
-Build container images within the workspace:
-
-```sh title="CONTROLLER: Create Dockerfile and build image"
-raft exec "$box" -- bash -lc '
-mkdir -p /workspace/app
-cat << "EOF" > /workspace/app/Dockerfile
-FROM alpine:latest
-RUN echo "hello from workspace container" > /message.txt
-CMD ["cat", "/message.txt"]
-EOF
-cd /workspace/app
-docker build -t my-app .
-docker run --rm my-app
-'
-```
-
-## Managing disk space
-
-Nested container layers and volumes live in the box's filesystem. By default that is the shared 60 GiB `raft-data` Btrfs pool, where one box's Docker data can fill the pool for every box.
-
-On hosts with own box disks enabled, give Docker-heavy boxes their own disk. Docker data stays inside it, and builds fail with "No space left on device" at the cap instead of filling the host:
-
-```sh title="CONTROLLER: Create a box with its own 40 GiB disk"
-box=$(raft new --disk 40GiB --ttl 3600 --purpose "Docker image builds")
-```
-
-See [Own box disks](../reference/capacity.mdx#own-box-disks).
-
-Prune dangling images without deleting active container data:
-
-```sh title="CONTROLLER: Prune dangling images"
-raft exec "$box" -- docker image prune -f
-```
-
-<Callout type="warn" title="Data loss risk with system prune">
-Running `docker system prune -af --volumes` removes all stopped containers and unused volumes inside the workspace. Run full pruning only when you intend to discard local container state and caches.
-</Callout>
-
-## Isolation and runtime limits
-
-- **Daemon confinement**: The Docker daemon runs as a guest systemd unit using `/var/run/docker.sock`. The host Docker daemon is never mounted.
-- **Kernel sharing**: Workspaces share the host Linux kernel without host kernel module or KVM access.
-- **Syscall interception**: Incus sets `security.nesting=true`, `security.syscalls.intercept.mknod=true`, and `security.syscalls.intercept.setxattr=true` to manage image layers safely in unprivileged user namespaces.
-- **Shutdown behavior**: Stopping a workspace with `raft stop` stops guest processes and nested containers.
+`docker image prune -f` deletes dangling images. Do not run broader pruning unless you intend to lose stopped containers, unused volumes and caches. To move a persistent box onto a larger disk, [snapshot and copy it](./snapshots-forks.mdx#start-from-a-snapshot).

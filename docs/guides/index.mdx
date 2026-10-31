@@ -1,31 +1,29 @@
 ---
-title: Task guides
-description: Pick a workflow after setting up your first Raft host.
+title: Find a task
+description: Choose what to do after setting up your first host.
 ---
 
-# Task guides
+# Find a task
 
-Start with [your first box](../first-box.mdx) if you have not run a command yet.
-Commands run on the controller unless a block is labeled **HOST**.
+[Create your first box](../first-box.mdx) before using these guides. Run examples on your controller unless a block says HOST. Guides that use `$box` expect a handle belonging to your task, not someone else's box.
 
 ## Develop
 
-- [Project setup and templates](./project-setup.mdx): upload a project and reuse dependencies.
-- [Docker](./docker.mdx): build images and manage guest disk use.
-- [File transfer](./files.mdx): copy individual files or directory trees.
-- [Desktop and private services](./desktop-services.mdx): open a browser, desktop or local tunnel.
+- [Set up a project](./project-setup.mdx) and [copy or sync files](./files.mdx).
+- [Run Docker](./docker.mdx).
+- [Open a desktop or private service](./desktop-services.mdx).
 
 ## Automate
 
-- [Background jobs](./background-jobs.mdx): detach, inspect logs and cancel.
-- [Lifetime and persistent services](./long-running-services.mdx): set deadlines and restart services after resume.
-- [Scripting and CI](./scripting-ci.mdx): parse output and handle failures.
-- [Disposable CI jobs](./ci-jobs.mdx): run and clean up one temporary build.
+- [Run a background job](./background-jobs.mdx).
+- [Keep a service available across resumes](./long-running-services.mdx).
+- [Script the CLI](./scripting-ci.mdx).
+- [Run a disposable CI job](./ci-jobs.mdx).
 
-## Operate
+## Preserve and manage your work
 
-- [Snapshots and forks](./snapshots-forks.mdx): save disk state or make a same-host copy.
-- [Backup and recovery](./backup-recovery.mdx): move a whole box to a compatible host.
-- [Defaults and policies](./config-policy.mdx): set creation defaults and retention rules.
-- [Upgrades](./upgrades.mdx): update the CLI, host worker and image separately.
-- [Troubleshooting](./troubleshooting.mdx): start from a symptom.
+- [Save or copy disk state](./snapshots-forks.mdx).
+- [Back up or move a box](./backup-recovery.mdx).
+- [Set defaults and host policies](./config-policy.mdx).
+- [Upgrade Raft or change an image](./upgrades.mdx).
+- [Fix a failed operation](./troubleshooting.mdx).
