@@ -1,0 +1,58 @@
+{
+  "name": "@microck/sandbox-sdk-raft",
+  "version": "0.1.0",
+  "description": "Raft provider for Sandbox SDK: run @opencoredev/sandbox-sdk sandboxes on your own Raft hosts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Microck/raft.git",
+    "directory": "sandbox-sdk"
+  },
+  "homepage": "https://github.com/Microck/raft/tree/main/sandbox-sdk",
+  "bugs": {
+    "url": "https://github.com/Microck/raft/issues"
+  },
+  "keywords": [
+    "raft",
+    "sandbox",
+    "sandbox-sdk",
+    "incus",
+    "self-hosted"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "oxlint",
+    "test:live": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@opencoredev/sandbox-sdk": "^1.0.3"
+  },
+  "devDependencies": {
+    "@opencoredev/sandbox-sdk": "^1.0.3",
+    "@types/node": "^22.0.0",
+    "oxlint": "^1.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
