@@ -300,6 +300,19 @@ def disk_checks(location):
         assert disk_size(box)[0] == total, disk_size(box)
         # Removing the container frees the space; restart Docker in case it lost state.
         removed = live.raft("exec", box, "--", "docker", "rm", "-f", "raft-fill", check=False)
+        if removed.returncode:
+            # A full disk can stop dockerd before dd, leaving no daemon to remove the
+            # container, and dockerd cannot restart on a full disk. Delete the fill file
+            # from the container's writable layer to free the space instead.
+            live.raft(
+                "exec",
+                box,
+                "--",
+                "sh",
+                "-c",
+                "rm -f /var/lib/docker/overlay2/*/diff/fill",
+                check=False,
+            )
         restarted = live.raft("exec", box, "--", "systemctl", "restart", "docker", check=False)
         if restarted.returncode:
             print(
