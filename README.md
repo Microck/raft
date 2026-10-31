@@ -4,6 +4,10 @@
 
 # Raft
 
+<a href="https://github.com/Microck/raft/releases"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/github/release/Microck/raft.svg?variant=secondary&amp;size=xs&amp;logo=false&amp;mode=dark"><img src="https://shieldcn.dev/github/release/Microck/raft.svg?variant=secondary&amp;size=xs&amp;logo=false&amp;mode=light" alt="release"></picture></a>
+<a href="https://github.com/Microck/raft/actions/workflows/check.yml"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/github/ci/Microck/raft.svg?workflow=check.yml&amp;branch=main&amp;variant=secondary&amp;size=xs&amp;logo=false&amp;mode=dark"><img src="https://shieldcn.dev/github/ci/Microck/raft.svg?workflow=check.yml&amp;branch=main&amp;variant=secondary&amp;size=xs&amp;logo=false&amp;mode=light" alt="ci status"></picture></a>
+<a href="LICENSE"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/github/license/Microck/raft.svg?variant=secondary&amp;size=xs&amp;logo=false&amp;mode=dark"><img src="https://shieldcn.dev/github/license/Microck/raft.svg?variant=secondary&amp;size=xs&amp;logo=false&amp;mode=light" alt="license"></picture></a>
+
 Run persistent Linux boxes on Ubuntu hosts you control. You can run commands and Docker builds, copy files, save snapshots, and open a private desktop. Boxes are unprivileged Incus containers sharing the host kernel, not VMs.
 
 Raft is an independent, self-hosted alternative to [Boat](https://boat.dev), with no affiliation.
