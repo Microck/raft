@@ -144,6 +144,8 @@ Execute a command inside a workspace.
 - `--detach`: Run in background as a guest systemd unit. Returns a job ID immediately.
 - `<command ...>`: Command and arguments passed to `execve`. For shell features (pipes, redirects, variables), wrap with `bash -lc '...'`.
 
+Without `--detach`, the command reads the caller's stdin, so `printf data | raft exec BOX -- cat` delivers `data`, and it exits with the command's status.
+
 Example:
 ```sh
 job=$(raft exec "$box" --detach -- make test)
@@ -269,7 +271,7 @@ Open a private SSH tunnel between a guest port and controller loopback (`127.0.0
 - `--remote REMOTE`: Port number inside the workspace (bound to `0.0.0.0` or container IP).
 - `--local LOCAL`: Port number on controller loopback (`127.0.0.1`).
 
-Runs in foreground; press `Ctrl+C` to close.
+Runs in foreground; press `Ctrl+C` to close. On a box created moments ago, it waits up to 30 seconds for the box's IPv4 address. `desktop` does the same.
 
 ### `desktop`
 

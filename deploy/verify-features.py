@@ -775,6 +775,22 @@ with tempfile.TemporaryFile() as output:
     print(f"{location}: open stdin ignored and lifecycle lock released", flush=True)
 
 
+def verify_exec_stdin(create):
+    """Piped stdin reaches the guest command intact; the box lookup must not drain it."""
+    handle = create("--purpose", "Exec stdin check")
+    payload = os.urandom(300_000)
+    response = subprocess.run(
+        [*live.CLI, "exec", handle, "--", "sha256sum"],
+        input=payload,
+        capture_output=True,
+        env=live.CONTROLLER_ENV,
+    )
+    assert response.returncode == 0, response.stderr.decode()
+    expected = subprocess.run(["sha256sum"], input=payload, capture_output=True).stdout
+    assert response.stdout == expected, (response.stdout, expected)
+    print("exec forwarded piped stdin byte for byte", flush=True)
+
+
 def verify_note_policy(location, create, listed_note, fixtures):
     """Require note fields on the host, prove every note path honors it, then clear it."""
     source = create("--memory", "1GiB", "--purpose", "Policy fork source")
@@ -1039,6 +1055,7 @@ def verify(location, isolated_worker=False):
     try:
         verify_readiness(location, expect_stale=isolated_worker)
         verify_transaction_stdin(location)
+        verify_exec_stdin(create)
         # A location note goes to stderr; stdout stays the bare handle for scripts.
         # A private HOME copy carries the note, leaving the operator config untouched;
         # OpenSSH reads keys and aliases from the passwd home, not HOME.

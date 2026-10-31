@@ -28,7 +28,7 @@ import raft_run
 import raft_jobs
 import raft_output
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 # Controller defaults for new live apart from the location inventory, so location
@@ -398,7 +398,11 @@ def receive(command, destination, *, stdin=None):
         return subprocess.CompletedProcess(command, returncode, None, errors.read())
 
 
-def remote(location, argv, *, capture=True, stdin=None, stdout=None, tty=False, locked=False):
+# stdin defaults to /dev/null: an inherited stdin lets the first SSH lookup drain input
+# piped to `raft exec`. Only calls that run the user's command pass stdin=None (inherit).
+def remote(
+    location, argv, *, capture=True, stdin=subprocess.DEVNULL, stdout=None, tty=False, locked=False
+):
     command = ["sudo", "-n"]
     if locked:
         command += ["flock", "/run/lock/raft-incus.lock"]
@@ -1296,8 +1300,10 @@ def new(args, *, run_id=None, on_allocate=None):
     return f"{args.location}:{name}"
 
 
-def execute(location, name, command, *, capture=False, cwd="/workspace"):
-    return remote(location, ["exec", name, "--cwd", cwd, "--", *command], capture=capture)
+def execute(location, name, command, *, capture=False, cwd="/workspace", stdin=subprocess.DEVNULL):
+    return remote(
+        location, ["exec", name, "--cwd", cwd, "--", *command], capture=capture, stdin=stdin
+    )
 
 
 def transfer_tree(args, location, name):
@@ -1457,16 +1463,23 @@ def recover(args):
         )
 
 
-def address(location, name):
-    # Use the managed NIC, never Docker bridges or volatile process counters.
-    response = execute(location, name, ["ip", "-json", "addr", "show", "dev", "eth0"], capture=True)
-    if response.returncode:
-        raise RuntimeError(response.stderr.decode().strip())
-    interface = json.loads(response.stdout)[0]
-    for candidate in interface["addr_info"]:
-        if candidate["family"] == "inet" and candidate["scope"] == "global":
-            return candidate["local"]
-    raise ValueError("Running box has no eth0 IPv4 address yet")
+def address(location, name, wait=30):
+    # Use the managed NIC, never Docker bridges or volatile process counters. A box just
+    # created may still be waiting for its DHCP lease, so poll up to `wait` seconds.
+    deadline = time.monotonic() + wait
+    while True:
+        response = execute(
+            location, name, ["ip", "-json", "addr", "show", "dev", "eth0"], capture=True
+        )
+        if response.returncode:
+            raise RuntimeError(response.stderr.decode().strip())
+        interface = json.loads(response.stdout)[0]
+        for candidate in interface["addr_info"]:
+            if candidate["family"] == "inet" and candidate["scope"] == "global":
+                return candidate["local"]
+        if time.monotonic() >= deadline:
+            raise ValueError(f"Running box has no eth0 IPv4 address after {wait} s")
+        time.sleep(0.5)
 
 
 def forward(location, name, port, local_port):
@@ -2395,6 +2408,7 @@ def dispatch(args):
             location,
             ["exec", name, "--cwd", "/workspace", "--", "/bin/bash", "-l"],
             capture=False,
+            stdin=None,
             tty=True,
         ).returncode
     elif args.action == "exec":
@@ -2415,7 +2429,7 @@ def dispatch(args):
                 ).strip()
             )
         else:
-            return execute(location, name, payload).returncode
+            return execute(location, name, payload, stdin=None).returncode
     elif args.action == "sync":
         return sync_source(args, location, name)
     elif args.action in ["upload", "download"]:
