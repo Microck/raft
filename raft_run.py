@@ -260,7 +260,8 @@ def run(args, api):
                     name,
                 )
             started = True
-            result = api.execute(location, name, command, cwd=cwd)
+            # stdin=None: the payload, unlike Raft's own lookups, inherits the caller's stdin.
+            result = api.execute(location, name, command, cwd=cwd, stdin=None)
             status = result.returncode if result.returncode >= 0 else 128 - result.returncode
         except Stopped as error:
             status = error.status
