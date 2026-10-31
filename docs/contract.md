@@ -134,8 +134,7 @@ No host filesystem path is exposed: rsync runs through Incus inside the guest.
 
 ## Disposable foreground CI
 
-This section specifies the unreleased 0.7.0 development implementation, not
-published 0.6.0. See [release status](./releases/index.mdx).
+This section specifies the disposable CI behavior introduced in 0.7.0.
 
 `run` creates a uniquely marked disposable box and establishes its fixed host
 expiry before startup. It streams one foreground command without retrying it,

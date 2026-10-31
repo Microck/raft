@@ -58,7 +58,7 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Usage | ✅ | ✅ | Cgroup memory, CPU counters, and shared-pool or own-disk space. No billing meter |
 | Root terminal | ✅ | ✅ | PTY over host SSH and native Incus exec. No directly exposed guest SSH endpoint |
 | Synchronous exec | ✅ | ✅ | Literal argv and preserved exit code. Shell syntax requires an explicit shell |
-| Disposable foreground CI | ✅ | Preview | Unreleased 0.7.0: `run` orchestrates one fresh box, Git-aware upload, output collection and cleanup. Fixed timeout, no lease renewal/keep mode; host sudo SSH rather than scoped API keys. [CI guide](./guides/ci-jobs.mdx) |
+| Disposable foreground CI | ✅ | ✅ | `run` orchestrates one fresh box, Git-aware upload, output collection and cleanup. Fixed timeout, no lease renewal/keep mode; host sudo SSH rather than scoped API keys. [CI guide](./guides/ci-jobs.mdx) |
 | Detached exec | ✅ | ✅ | Guest systemd unit, status, logs, cancellation. No process checkpoint or restart after stop |
 | File transfer | ✅ | ✅ | Binary file upload/download. Recursive tree transfer for running boxes; no directory merges |
 | Named snapshots | ✅ | ✅ | Create/list/restore with stopped source, checked inside the lifecycle lock. No running snapshot consistency guarantee |
@@ -84,19 +84,19 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Automatic deletion/retention | ✅ | ✅ | Disposable delete-on-stop/expiry; opt-in stopped-box retention cleanup with preview |
 | Dashboard | ✅ | ❌ | Missing. CLI and private desktop cover current workflow |
 | SDK/API keys | ✅ | ❌ | Host SSH authentication. No remote Raft service API |
-| CLI-wide JSON mode | ✅ | Preview | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides command-specific JSON/JSONL for locations, list, info, usage, capacity, config and prune, and unreleased global JSONL events for reports, streams, errors and exit codes |
+| CLI-wide JSON mode | ✅ | ✅ | Boat supports JSON/JSONL for most commands; argument errors may use stderr. Raft provides command-specific JSON/JSONL for locations, list, info, usage, capacity, config and prune, and global JSONL events for reports, streams, errors and exit codes |
 | Snapshot file browsing/download | ✅ | ❌ | Full native archives only; no Raft snapshot tree or selected-file interface |
 | CLI self-update | ✅ | ✅ | `raft self-update` upgrades npm global installs through the registry and uv tools from a release wheel checked against `SHA256SUMS`. A daily stderr notice reports new releases. Boat also updates itself after commands; Raft never installs without the command and never changes hosts |
-| Dynamic shell completions | ✅ | Preview | Unreleased Bash, Zsh and Fish scripts query the installed parser for commands, options and fixed choices |
+| Dynamic shell completions | ✅ | ✅ | Bash, Zsh and Fish scripts query the installed parser for commands, options and fixed choices |
 | Managed agents | ✅ | ❌ | Not implemented. No prompt/events/steer/interrupt/conversation API |
 | Automatic incremental snapshots | ✅ | ❌ | Boat documents saves every minute and on stop. Raft retains the container disk and creates named snapshots only on request; no scheduled off-host snapshot service |
 | Share saved templates across accounts | ✅ | ❌ | Boat provides revocable deployment codes and credential cleanup. Raft copies complete filesystems on the same host or imports trusted whole archives; no sharing identity or sanitization service |
 | Versioned environments and upgrades | ✅ | ❌ | Boat versions repositories, setup and secrets, with explicit upgrades. Raft has image pins, controller defaults and filesystem templates, not an environment registry |
 | AI credential profiles and proxy | ✅ | ❌ | No provider credential manager, sandbox access switch, usage accounting or AI request proxy |
 | OpenTelemetry export | ✅ | ❌ | No built-in OTLP metrics or lifecycle-event export |
-| Command history while stopped | ✅ | Preview | Unreleased retained detached-job results survive stop and deletion for seven days, with a 1 MiB log cap. No general process history or samples |
+| Command history while stopped | ✅ | ✅ | Retained detached-job results survive stop and deletion for seven days, with a 1 MiB log cap. No general process history or samples |
 | Process inspection command | ✅ | ❌ | Raft can execute guest tools such as ps, but has no first-class process/history API or stopped-box process samples |
-| Merge source into existing directories | ✅ | Preview | Boat push replaces matching files in an existing destination. Unreleased `sync` replaces matching files with Git filtering and checksum-based incremental transfer; it preserves guest-only files. Recursive upload still requires a new destination |
+| Merge source into existing directories | ✅ | ✅ | Boat push replaces matching files in an existing destination. `sync` replaces matching files with Git filtering and checksum-based incremental transfer; it preserves guest-only files. Recursive upload still requires a new destination |
 | Human-readable names and current/self aliases | ✅ | ❌ | Raft uses exact location-qualified handles and ownership notes; no rename or implicit current-box selection |
 | macOS and Windows controllers | ✅ | ❌ | Raft's controller requires Linux; native ARM64/AMD64 guest support is a separate capability |
 | Unresponsive-machine recovery | ✅ | ❌ | Boat recover power-cycles an unresponsive VM. Raft recover imports an archive and is not the equivalent operation |
@@ -107,7 +107,7 @@ Rechecked on 2026-10-29 against Boat's [CLI reference](https://docs.boat.dev/cli
 
 Some Boat overview/API text still describes creator-private resources; the dedicated organization guide and current CLI document shared sandboxes. This matrix follows those specific workflow descriptions. Boat's browser-only view restricts display and input, not access by other code inside its sandbox. These are documented capabilities, not independently tested security guarantees.
 
-Raft's latest published release was verified as [0.6.0](https://github.com/Microck/raft/releases/tag/v0.6.0) on 2026-10-29. `run` and the new help/read-performance changes remain development-branch features until released.
+Raft's latest published release was verified as [0.7.0](https://github.com/Microck/raft/releases/tag/v0.7.0) on 2026-10-31.
 
 The new workspace-control suite passed on ARM64 and AMD64 at runtime commit `a7fef1f5` in [run 37603576786](https://github.com/Microck/raft/actions/runs/37603576786). The baseline native architecture and disposable AMD64 host tests passed in [run 37496577945](https://github.com/Microck/raft/actions/runs/37496577945). This audit compares documented features, not a live differential test against Boat. Managed agent workflows remain out of scope.
 

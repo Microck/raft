@@ -44,8 +44,7 @@ Workspaces are referenced by location-qualified handles formatted as `<location>
 
 ### `run`
 
-**Unreleased 0.7.0 feature.** Not present in published 0.6.0. See the
-[development requirements](../guides/ci-jobs.mdx) before using these commands.
+Available since 0.7.0. See the [CI guide](../guides/ci-jobs.mdx) for requirements.
 
 `raft run [--location LOCATION | --from LOCATION:BOX/SNAPSHOT] [--cpu N] [--memory SIZE] [--disk SIZE] [--timeout SECONDS] [--push DIRECTORY | --push-all DIRECTORY] [--cwd GUEST_PATH] [--pull GUEST_DIRECTORY NEW_LOCAL_DIRECTORY]... [--purpose TEXT [--owner TEXT] [--next TEXT]] -- COMMAND [ARG ...]`
 
@@ -416,8 +415,7 @@ retention), `deleteStoppedAfterSince` (when retention was set, Unix seconds) and
 the last change records `requireChanged` and `deleteStoppedAfterChanged`. It
 contacts every configured host to read policies unless `--location LOCATION`
 selects one. This filter affects the policy report, not controller defaults,
-and is rejected with `set` or `unset`. Location-scoped config and doctor are
-development-branch additions, not available in published 0.6.0.
+and is rejected with `set` or `unset`. Location-scoped config and doctor are available since 0.7.0.
 See [Defaults and host policies](../guides/config-policy.mdx).
 
 ### `policy`
