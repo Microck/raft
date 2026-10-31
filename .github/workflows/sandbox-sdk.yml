@@ -1,0 +1,43 @@
+name: sandbox-sdk adapter
+# Checks the @microck/sandbox-sdk-raft package. A sandbox-sdk-vX.Y.Z tag publishes it with npm
+# provenance. The live conformance suite needs a Raft host, so it runs on an operator machine
+# (npm run test:live), not here.
+on:
+  pull_request:
+    paths: ['sandbox-sdk/**', '.github/workflows/sandbox-sdk.yml']
+  push:
+    branches: [main]
+    paths: ['sandbox-sdk/**', '.github/workflows/sandbox-sdk.yml']
+    tags: ['sandbox-sdk-v*']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: sandbox-sdk
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/sandbox-sdk-v')
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          test "${TAG#sandbox-sdk-v}" = "$(node -p 'require("./package.json").version')"
+          npm publish --access public --provenance

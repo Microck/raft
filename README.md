@@ -22,7 +22,7 @@ https://github.com/user-attachments/assets/ad6b0e67-1e33-4e36-a51b-401f29901eae
 
 
 
-[setup](docs/operations.mdx) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.mdx) | [agent skill](skills/raft-cli/SKILL.md) | [docs site](https://raft.micr.dev/)
+[setup](docs/operations.mdx) | [feature parity](docs/boat-capabilities.md) | [verification](docs/verification.mdx) | [agent skill](skills/raft-cli/SKILL.md) | [sandbox sdk provider](sandbox-sdk/README.md) | [docs site](https://raft.micr.dev/)
 
 ## quickstart
 

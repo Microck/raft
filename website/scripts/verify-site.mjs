@@ -69,6 +69,7 @@ try {
     '/docs/releases/0.5.0',
     '/docs/releases/0.6.0',
     '/docs/releases/0.7.0',
+    '/docs/releases/0.7.1',
   ];
   const targets = new Set();
   const fragments = new Map();
