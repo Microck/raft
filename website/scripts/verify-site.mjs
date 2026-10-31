@@ -82,8 +82,8 @@ try {
       assert.ok(html.includes('href="https://github.com/Microck/raft/blob/main/.github/workflows/images.yml"'), 'Workflow source link must point to GitHub');
     }
     if (path === '/docs/operations') {
-      assert.ok(html.includes('@microck/raft@0.6.0'), 'Setup must pin the published stable package');
-      assert.ok(!html.includes('/releases/download/v0.7.0/'), 'Setup must not link unpublished image assets');
+      assert.ok(html.includes('@microck/raft@0.7.0'), 'Setup must pin the published stable package');
+      assert.ok(html.includes('/releases/download/v0.7.0/'), 'Setup must link the matching published image assets');
       assert.ok(html.includes('<details>'), 'Advanced manual setup must be progressively disclosed');
       assert.ok(html.includes('role="tab"'), `${path}: must contain role="tab"`);
       assert.ok(html.includes('class="fd-steps"'), `${path}: must contain class="fd-steps"`);
