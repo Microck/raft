@@ -30,10 +30,12 @@ awk -v archive="$node_archive" '$2 == archive {print $1 "  raft-node.tar.xz"}' r
 tar -xJf /tmp/raft-node.tar.xz -C /usr/local --strip-components=1
 PIPX_HOME=/opt/raft/pipx PIPX_BIN_DIR=/usr/local/bin pipx install uv==0.12.23
 npm install -g pnpm@12.9.1 bun@1.4.2 deno@2.9.6
+bash /root/raft-install-voxl.sh
 curl -fsSL -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' https://dot.net/v1/dotnet-install.sh -o /tmp/raft-dotnet-install.sh
 bash /tmp/raft-dotnet-install.sh --version 10.0.401 --install-dir /usr/local/share/dotnet
 ln -s /usr/local/share/dotnet/dotnet /usr/local/bin/dotnet
 useradd -m -s /bin/bash developer
+install -d -o developer -g developer /workspace/Downloads
 printf 'developer ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/raft-developer
 chmod 440 /etc/sudoers.d/raft-developer
 mkdir -p /etc/ssh/sshd_config.d /etc/systemd/system/ssh.service.d
@@ -46,6 +48,7 @@ ExecStartPre=
 ExecStartPre=/bin/sh -ec 'test -f /etc/ssh/ssh_host_ed25519_key || ssh-keygen -q -t ed25519 -N "" -f /etc/ssh/ssh_host_ed25519_key'
 ExecStartPre=/usr/sbin/sshd -t
 UNIT
+systemctl daemon-reload
 systemctl enable docker ssh
 systemctl start docker
 docker info --format '{{.ServerVersion}}'

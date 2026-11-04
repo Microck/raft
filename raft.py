@@ -2108,7 +2108,7 @@ def parser():
         "restore": "Replace disk contents from a named snapshot of a stopped box. Keep current instance configuration, resource limits and MAC address. Requires an explicitly requested rollback.",
         "fork": "Copy a stopped box on the same host, including files, secrets and note. Defaults to persistent. CPU and memory retain source limits unless overridden. Update the copy note for its new task.",
         "forward": "Open a foreground SSH tunnel bound to controller 127.0.0.1. Guest service must listen on its managed NIC or 0.0.0.0. Ctrl+C closes the tunnel.",
-        "desktop": "Start the full guest desktop and open its private foreground tunnel. Closing the tunnel leaves the desktop service running until explicitly stopped or the box stops.",
+        "desktop": "Start the full guest desktop with Voxl (default) or noVNC and open its private foreground tunnel. Closing the tunnel leaves the desktop service running until explicitly stopped or the box stops.",
         "logs": "Print retained detached-job output, including after workspace stop or deletion. First 1 MiB retained for seven days.",
         "status": "Print retained job state, exit code, timestamps and dropped bytes as JSON, even after workspace deletion.",
         "cancel": "Stop the guest job control group. Host-retained output remains available for seven days.",
@@ -2158,6 +2158,12 @@ def parser():
             command.add_argument("--local", type=int, required=True)
         if action == "desktop":
             command.add_argument("--local", type=int, default=6080)
+            command.add_argument(
+                "--backend",
+                choices=["voxl", "novnc"],
+                default="voxl",
+                help="Desktop streamer (default: voxl); novnc uses /vnc.html",
+            )
     return cli
 
 
@@ -2507,13 +2513,22 @@ def dispatch(args):
         )
         print(location + ":" + child)
     elif args.action in ["forward", "desktop"]:
-        port = args.remote if args.action == "forward" else 6080
+        port = (
+            args.remote if args.action == "forward" else (6080 if args.backend == "voxl" else 6081)
+        )
         if not 1 <= port <= 65535 or not 1 <= args.local <= 65535:
             raise ValueError("Ports must be between 1 and 65535")
         if args.action == "desktop":
-            response = execute(location, name, ["systemctl", "start", "raft-desktop"], capture=True)
+            service = f"raft-desktop-{args.backend}"
+            response = execute(location, name, ["systemctl", "start", service], capture=True)
             if response.returncode:
-                raise RuntimeError(response.stderr.decode().strip())
+                raise RuntimeError(
+                    response.stderr.decode().strip()
+                    + f"\nInspect journalctl -u raft-desktop -u {service} in the box. "
+                    "Desktop backends require an updated Raft image; create a fresh box from it."
+                )
+            path = "/" if args.backend == "voxl" else "/vnc.html"
+            print(f"{args.backend} viewer: http://127.0.0.1:{args.local}{path}", flush=True)
         return forward(location, name, port, args.local)
     return 0
 

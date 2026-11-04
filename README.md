@@ -96,7 +96,7 @@ see [defaults and host policies](docs/guides/config-policy.mdx).
 ## image and workspace control
 
 the image builder starts with Debian 13 and installs language runtimes,
-build tools, Docker, Chromium, FFmpeg and a noVNC desktop. build your own image
+build tools, Docker, Chromium, FFmpeg and a Voxl desktop with optional noVNC. build your own image
 or download an image for your host architecture from
 [versioned releases](https://github.com/Microck/raft/releases). pin its fingerprint
 in your configuration. see
@@ -168,7 +168,7 @@ records differences, sources and test coverage.
 | Portable backup/recovery | ❓ | ✅ | Raft native archives; Boat whole-instance archive import is not established |
 | Docker and development tools | ✅ | ✅ | Native ARM64 and AMD64 images. See [image tests](docs/boot-performance.mdx) |
 | Private port forwarding | ✅ | ✅ | Local SSH tunnel |
-| Desktop access | ✅ | ✅ | noVNC; see verification limits |
+| Desktop access | ✅ | ✅ | Voxl by default; optional noVNC; see verification limits |
 | Reverse forwarding | ✅ | ❌ | Not implemented |
 | Public workspace hosting and browser-only streaming | ✅ | ❌ | Not implemented |
 | Resize on resume/fork | ✅ | ✅ | Optional CPU/RAM overrides; disks keep their size |

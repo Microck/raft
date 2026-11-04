@@ -42,7 +42,7 @@ A configured `defaults.disk` can cause creation failures even without `--disk`; 
 
 ## Diagnose an unavailable service
 
-For forwarding, bind the guest service to `0.0.0.0` or its managed address, not guest loopback. Check its logs and choose a different local port if occupied. For the desktop, include `/vnc.html` and retry the browser request if noVNC is still starting. See [private services](./desktop-services.mdx).
+For forwarding, bind the guest service to `0.0.0.0` or its managed address, not guest loopback. Check its logs and choose a different local port if occupied. For Voxl, use the printed localhost URL and a browser with H.264 WebCodecs support. Select `--backend novnc` explicitly if needed, then include `/vnc.html` in the viewer URL. Missing backend services require a fresh box from an updated image, not a CLI-only update. See [private services](./desktop-services.mdx).
 
 Boxes cannot contact peers on the same bridge by design. An open tunnel, SSH session or detached job does not extend TTL. For a stopped box use `resume`, not `extend`.
 

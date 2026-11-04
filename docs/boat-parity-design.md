@@ -11,7 +11,7 @@ Raft is an independent open-source alternative to [boat.dev](https://boat.dev). 
 
 [Incus](https://github.com/lxc/incus) manages unprivileged system containers, images, snapshots, clones, and file transfers on native ARM64 and AMD64 Ubuntu hosts with Debian 13 guest images. Containers share the host kernel. KVM is not required, and VM deployment is not implemented.
 
-Host SSH authenticates the operator. Incus listens strictly on its local Unix socket without a public management API. Guest systemd manages detached jobs and the on-demand Xvfb, Openbox, and noVNC desktop. A host timer enforces running TTL.
+Host SSH authenticates the operator. Incus listens strictly on its local Unix socket without a public management API. Guest systemd manages detached jobs and the on-demand Xvfb/Openbox desktop with Voxl by default and optional noVNC. A host timer enforces running TTL.
 
 ## Image distribution
 

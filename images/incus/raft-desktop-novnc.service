@@ -1,0 +1,14 @@
+[Unit]
+Description=Private Raft desktop streaming with noVNC
+BindsTo=raft-desktop.service
+PartOf=raft-desktop.service
+After=raft-desktop.service
+
+[Service]
+User=developer
+WorkingDirectory=/workspace
+Environment=DISPLAY=:99
+ExecStart=/usr/local/bin/raft-desktop-novnc
+Restart=on-failure
+RestartSec=1
+KillMode=control-group

@@ -44,14 +44,26 @@ def build(host, alias):
     # Stage outside /tmp: its boot-time tmpfs mount can hide an early file push.
     for source, guest, mode in [
         ("images/incus/build.sh", "/root/raft-build.sh", "755"),
+        ("images/incus/install-voxl.sh", "/root/raft-install-voxl.sh", "755"),
         ("images/incus/desktop.sh", "/usr/local/bin/raft-desktop", "755"),
+        ("images/incus/desktop-novnc.sh", "/usr/local/bin/raft-desktop-novnc", "755"),
         ("images/incus/raft-desktop.service", "/etc/systemd/system/raft-desktop.service", "644"),
+        (
+            "images/incus/raft-desktop-voxl.service",
+            "/etc/systemd/system/raft-desktop-voxl.service",
+            "644",
+        ),
+        (
+            "images/incus/raft-desktop-novnc.service",
+            "/etc/systemd/system/raft-desktop-novnc.service",
+            "644",
+        ),
     ]:
         staged = "/tmp/" + Path(guest).name
         copy(host, ROOT / source, staged)
         remote(host, prefix + f" file push {staged} raft-builder{guest} --mode {mode}")
     remote(host, prefix + " exec raft-builder -- bash /root/raft-build.sh")
-    remote(host, prefix + " exec raft-builder -- rm /root/raft-build.sh")
+    remote(host, prefix + " exec raft-builder -- rm /root/raft-build.sh /root/raft-install-voxl.sh")
     remote(host, prefix + " stop raft-builder --timeout 30")
     print(
         remote(

@@ -70,7 +70,7 @@ Tests verify Raft behavior, not hosted Boat infrastructure. See [verification](.
 | Development tools | ✅ | ✅ | 31 real developer-user checks. Debian/Chromium, not identical Ubuntu/Chrome versions; VS Code, Ghostty and GitHub CLI are not bundled; version-manager coverage differs |
 | Private forward | ✅ | ✅ | Foreground authenticated SSH tunnel to controller loopback. Guest service must listen on its managed NIC; no reverse forwarding |
 | Public workspace hosting | ✅ | ❌ | Missing. Deferred; requires a defined ingress and access policy |
-| Desktop | ✅ | ✅ | On-demand noVNC, framebuffer, pointer and browser transport checks. See verification for desktop interaction coverage |
+| Desktop | ✅ | ✅ | On-demand Voxl (default) or noVNC; see verification for desktop interaction coverage |
 | Browser-only streaming | ✅ | ❌ | Missing. Full desktop only; browser confinement deferred |
 | Network separation | ❓ | ✅ | Raft tests host/private/metadata and IPv4/IPv6 peer restrictions with startup-gated filtering. Boat's equivalent filtering policy is not established; its VM boundary is listed separately |
 | Bounded host storage pools | ❓ | ✅ | Raft configures a shared 60 GiB Btrfs pool and, when enabled, a fully allocated LVM thin pool for own box disks that it never overcommits, and rejects size drift. Boat does not document an operator-managed host storage pool |
@@ -111,7 +111,7 @@ Raft's latest published release was verified as [0.7.0](https://github.com/Micro
 
 The new workspace-control suite passed on ARM64 and AMD64 at runtime commit `a7fef1f5` in [run 37603576786](https://github.com/Microck/raft/actions/runs/37603576786). The baseline native architecture and disposable AMD64 host tests passed in [run 37496577945](https://github.com/Microck/raft/actions/runs/37496577945). This audit compares documented features, not a live differential test against Boat. Managed agent workflows remain out of scope.
 
-Recursive transfers, resume/fork sizing, snapshot templates/deletion and disposable lifecycle are implemented. Directory transfers require a running box; templates stay on the source host. Public hosting, VM isolation, organization sharing, and remote APIs require additional infrastructure. noVNC tests do not establish parity for Boat frame rate, browser confinement or application set.
+Recursive transfers, resume/fork sizing, snapshot templates/deletion and disposable lifecycle are implemented. Directory transfers require a running box; templates stay on the source host. Public hosting, VM isolation, organization sharing, and remote APIs require additional infrastructure. Desktop tests do not establish parity for Boat frame rate, browser confinement or application set.
 
 CI comparison sources (reviewed 2026-10-22): [Boat CI](https://docs.boat.dev/ci), [CLI run](https://docs.boat.dev/cli-reference#boat-run-command), [scoped API keys](https://docs.boat.dev/api-keys/scopes), and [snapshot contents](https://docs.boat.dev/snapshots/whats-saved). Matching workflows do not imply matching security boundaries or costs.
 
