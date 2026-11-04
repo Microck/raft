@@ -204,9 +204,9 @@ Open a foreground SSH tunnel bound to controller `127.0.0.1`. The guest service 
 
 ### `desktop`
 
-`raft desktop [-h] [--local LOCAL] box`
+`raft desktop [-h] [--backend {voxl,novnc}] [--local LOCAL] box`
 
-Start `raft-desktop.service`, then open a foreground private tunnel. `--local` defaults to 6080; open `http://127.0.0.1:6080/vnc.html`. Does not poll HTTP readiness. Closing the tunnel leaves the desktop running. See [desktop access](../guides/desktop-services.mdx).
+Start the selected streaming service and its shared desktop, then open a foreground private tunnel. Voxl is the default; `--backend novnc` selects noVNC. `--local` defaults to 6080 for either backend. Open the printed viewer URL: `/` for Voxl, `/vnc.html` for noVNC. Guest ports are 6080 and 6081 respectively. Closing the tunnel leaves the desktop and selected backend running. No automatic fallback occurs. See [desktop access](../guides/desktop-services.mdx).
 
 ### `logs`
 

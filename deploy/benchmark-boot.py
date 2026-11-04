@@ -27,16 +27,15 @@ while time.monotonic()<end:
  time.sleep(0.1)
 else: raise SystemExit('Docker did not become ready within 60 seconds')
 """
-DESKTOP_READY = """import socket,time,urllib.request
+DESKTOP_READY = """import time,urllib.request
 end=time.monotonic()+30
 while time.monotonic()<end:
  try:
-  request=urllib.request.Request('http://127.0.0.1:6080/vnc.html',headers={'User-Agent':'OpenAI File Downloader, XaiImageApiFetch/1.0'})
-  with urllib.request.urlopen(request,timeout=1) as page: assert page.status==200
-  with socket.create_connection(('127.0.0.1',5900),1) as vnc: assert vnc.recv(12).startswith(b'RFB ')
+  request=urllib.request.Request('http://127.0.0.1:6080/screenshot',headers={'User-Agent':'OpenAI File Downloader, XaiImageApiFetch/1.0'})
+  with urllib.request.urlopen(request,timeout=1) as page: assert page.read(8)==b'\\x89PNG\\r\\n\\x1a\\n'
   print('desktop-ready');break
  except (OSError,AssertionError): time.sleep(0.1)
-else: raise SystemExit('Desktop HTTP and VNC did not become ready within 30 seconds')
+else: raise SystemExit('Desktop screenshot did not become ready within 30 seconds')
 """
 
 
@@ -57,7 +56,7 @@ def readiness(box, started, returned, desktop):
     measured["dockerReadySeconds"] = time.monotonic() - started
     if desktop:
         desktop_started = time.monotonic()
-        live.execute(box, "systemctl", "start", "raft-desktop")
+        live.execute(box, "systemctl", "start", "raft-desktop-voxl")
         live.execute(box, "python3", "-c", DESKTOP_READY)
         measured["desktopStartSeconds"] = time.monotonic() - desktop_started
     return {name: round(value, 3) for name, value in measured.items()}

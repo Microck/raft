@@ -127,7 +127,7 @@ def verify_peers(box, child):
 def desktop_session(box):
     # Check the browser transport too, before using a complete raw VNC viewer.
     websocket_proof = """const assert = require('node:assert/strict');
-const socket = new WebSocket('ws://127.0.0.1:6080/websockify', {headers: {'User-Agent': process.argv[1]}});
+const socket = new WebSocket('ws://127.0.0.1:6081/websockify', {headers: {'User-Agent': process.argv[1]}});
 socket.binaryType = 'arraybuffer';
 let incoming = Buffer.alloc(0), wake;
 const timeout = setTimeout(() => { console.error('WebSocket timeout'); process.exit(1); }, 10000);
@@ -311,7 +311,7 @@ print("desktop-frame-and-input-ok")
     assert execute(box, "python3", "-c", proof) == "desktop-frame-and-input-ok"
 
 
-def browser_session(box):
+def browser_session(box, backend="novnc"):
     # Chromium's DOM/window protocol reports modern captions more reliably than XFetchName.
     execute(
         box,
@@ -341,6 +341,11 @@ def browser_session(box):
         "--user-agent=" + USER_AGENT,
         "file:///tmp/raft-gui-proof.html",
     ).stdout.strip()
+    viewer_url = (
+        "http://127.0.0.1:6080/"
+        if backend == "voxl"
+        else "http://127.0.0.1:6081/vnc.html?autoconnect=true&resize=scale"
+    )
     proof = """const assert = require('node:assert/strict');
 (async () => {
     let page;
@@ -348,7 +353,8 @@ def browser_session(box):
     while (Date.now() < deadline) {
         try {
             const response = await fetch('http://127.0.0.1:9222/json/list', {headers: {'User-Agent': process.argv[1]}});
-            page = (await response.json()).find(target => target.type === 'page' && target.url === 'file:///tmp/raft-gui-proof.html');
+            page = (await response.json()).find(target => target.type === 'page' &&
+                target.url === 'file:///tmp/raft-gui-proof.html' && target.title === 'raft-gui-proof');
             if (page) break;
         } catch {}
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -357,7 +363,9 @@ def browser_session(box):
     const socket = new WebSocket(page.webSocketDebuggerUrl, {headers: {'User-Agent': process.argv[1]}});
     const viewerProof = {id: 4, method: 'Runtime.evaluate', params: {expression:
         `JSON.stringify({connected: document.documentElement.classList.contains('noVNC_connected'),
-          canvases: Array.from(document.querySelectorAll('canvas')).map(c => ({width: c.width, height: c.height}))})`}};
+          canvases: Array.from(document.querySelectorAll('canvas')).map(c => ({width: c.width, height: c.height})),
+          decoded: Array.from(document.querySelectorAll('video')).some(v =>
+            v.videoWidth === 1280 && v.videoHeight === 720 && v.getVideoPlaybackQuality().totalVideoFrames > 0)})`}};
     const timeout = setTimeout(() => process.exit(1), 15000);
     socket.addEventListener('error', () => process.exit(1));
     socket.addEventListener('open', () => socket.send(JSON.stringify({id: 1, method: 'Runtime.evaluate', params: {expression: 'document.title'}})));
@@ -371,7 +379,7 @@ def browser_session(box):
             } else if (response.id === 2) {
                 assert.ok(response.result.bounds.width > 0 && response.result.bounds.height > 0);
                 socket.send(JSON.stringify({id: 3, method: 'Page.navigate', params:
-                    {url: 'http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale'}}));
+                    {url: process.argv[2]}}));
             } else if (response.id === 3) {
                 assert.equal(response.result.errorText, undefined);
                 socket.send(JSON.stringify(viewerProof));
@@ -379,18 +387,22 @@ def browser_session(box):
                 // While noVNC is still loading, the evaluation can return no value.
                 const value = response.result.result.value;
                 const viewer = typeof value === 'string' ? JSON.parse(value) : {connected: false};
-                if (!viewer.connected) {
+                if (!(process.argv[3] === 'voxl' ? viewer.decoded : viewer.connected)) {
                     setTimeout(() => socket.send(JSON.stringify(viewerProof)), 200); return;
                 }
-                assert.ok(viewer.canvases.some(c => c.width === 1280 && c.height === 720));
-                clearTimeout(timeout); socket.close(); console.log('developer-gui-and-novnc-ok');
+                if (process.argv[3] !== 'voxl')
+                    assert.ok(viewer.canvases.some(c => c.width === 1280 && c.height === 720));
+                clearTimeout(timeout); socket.close(); console.log('developer-gui-and-viewer-ok');
             }
         } catch (error) { console.error(error); process.exit(1); }
     });
 })().catch(error => { console.error(error); process.exit(1); });
 """
     try:
-        assert execute(box, "node", "-e", proof, USER_AGENT) == "developer-gui-and-novnc-ok"
+        assert (
+            execute(box, "node", "-e", proof, USER_AGENT, viewer_url, backend)
+            == "developer-gui-and-viewer-ok"
+        )
     except (RuntimeError, AssertionError):
         print(raft("logs", box, job, check=False).stdout, file=sys.stderr, flush=True)
         raise
@@ -834,9 +846,20 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
             == b"saved"
         )
         assert json.loads(raft("status", box, server).stdout)["state"] == "running"
-        assert b"noVNC" in fetch_through_tunnel(["desktop", box], "/vnc.html", timeout=20)
+        assert b"Voxl" in fetch_through_tunnel(["desktop", box], "/", timeout=20)
+        browser_session(box, "voxl")
+        assert execute(box, "systemctl", "is-active", "raft-desktop-voxl") == "active"
+        assert (
+            raft(
+                "exec", box, "--", "systemctl", "is-active", "raft-desktop-novnc", check=False
+            ).stdout.strip()
+            == "inactive"
+        )
         assert b"noVNC" in fetch_through_tunnel(
-            ["desktop", box], "/vnc.html", timeout=20, default_port=6080
+            ["desktop", box, "--backend", "novnc"], "/vnc.html", timeout=20
+        )
+        assert b"noVNC" in fetch_through_tunnel(
+            ["desktop", box, "--backend", "novnc"], "/vnc.html", timeout=20, default_port=6080
         )
         assert execute(box, "systemctl", "is-active", "raft-desktop") == "active"
         assert "noVNC" in execute(
@@ -850,7 +873,7 @@ def verify(location, extended=False, restart_incus=False, reboot_host=False):
             "--retry-delay",
             "1",
             "-fsS",
-            "http://127.0.0.1:6080/vnc.html",
+            "http://127.0.0.1:6081/vnc.html",
         )
         assert "raft-browser-ok" in execute(
             box,

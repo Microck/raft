@@ -1,0 +1,15 @@
+[Unit]
+Description=Private Raft desktop streaming with Voxl
+BindsTo=raft-desktop.service
+PartOf=raft-desktop.service
+After=raft-desktop.service
+
+[Service]
+User=developer
+WorkingDirectory=/workspace
+Environment=DISPLAY=:99
+# Raft authenticates the private SSH tunnel. Keep Voxl's default host/origin checks.
+ExecStart=/usr/local/bin/voxl --addr=0.0.0.0 --port=6080 --enable-basic-auth=false --audio-enabled=false --microphone-enabled=false --files-root=/workspace
+Restart=always
+RestartSec=1
+KillMode=control-group

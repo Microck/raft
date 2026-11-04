@@ -30,8 +30,22 @@ If forwarding fails, check the guest listener and `raft logs "$box" "$job"`. If 
 raft desktop "$box" --local 6080
 ```
 
-Open `http://127.0.0.1:6080/vnc.html` in your controller's browser. Include `/vnc.html`; `/` displays a directory index. The desktop runs as `developer` at 1280×720 on display `:99`. Use the noVNC sidebar for text clipboard exchange.
+Open `http://127.0.0.1:6080/` in your controller's browser. Voxl is the default viewer and streams H.264 using WebCodecs. Use a browser with H.264 WebCodecs decoding support, and keep the URL on `localhost` or `127.0.0.1` so it is a secure context. Plain HTTP on a remote IP does not work with WebCodecs.
 
-The command starts `raft-desktop.service` if needed, then opens a foreground tunnel. It does not wait for noVNC HTTP readiness; retry the browser request if startup is still in progress. Press Ctrl+C to close only the tunnel. Reconnect with the same command without closing guest windows.
+The desktop runs as `developer` at 1280×720 on display `:99`. The command starts the selected streaming service and the shared desktop, then opens a foreground tunnel. Press Ctrl+C to close only the tunnel. Reconnect with the same command without closing guest windows.
 
-To stop the desktop itself, run `raft exec "$box" -- systemctl stop raft-desktop`. Stopping or expiring the box also ends the session. If startup fails, inspect `raft exec "$box" -- journalctl -u raft-desktop -n 50 --no-pager`.
+### Use noVNC instead
+
+If your browser cannot decode Voxl's stream, select noVNC explicitly:
+
+```sh
+raft desktop "$box" --backend novnc --local 6080
+```
+
+Open `http://127.0.0.1:6080/vnc.html`. Use the noVNC sidebar for text clipboard exchange. Raft does not switch backends automatically.
+
+Both backends show the same desktop. Selecting another backend leaves existing guest windows and streaming services running. To keep both tunnels open, give the second one a different `--local` port. Voxl listens on guest port 6080; noVNC listens on guest port 6081. Neither requires a viewer password: host SSH authenticates access through the private tunnel. Do not expose either guest port publicly. Voxl keeps its host and origin checks enabled, runs as `developer`, and roots its file browser at `/workspace`; desktop audio and microphone are disabled.
+
+To stop one backend, run `raft exec "$box" -- systemctl stop raft-desktop-voxl` or `raft exec "$box" -- systemctl stop raft-desktop-novnc`. To stop the desktop and both backends, run `raft exec "$box" -- systemctl stop raft-desktop`. Stopping or expiring the box also ends the session.
+
+These commands require an image built with both backend services. Updating the CLI does not modify existing images or boxes. Build and pin the updated image, then create a fresh box; a missing backend service fails instead of falling back. If startup fails, inspect `raft exec "$box" -- journalctl -u raft-desktop -u raft-desktop-voxl -u raft-desktop-novnc -n 50 --no-pager`.

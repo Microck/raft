@@ -20,6 +20,7 @@ gh workflow run images.yml --ref main -f release_tag=v0.7.0
 - **Validation gating**: Publication requires native lifecycle and full-image recovery jobs alongside fresh AMD64 KVM provisioning and reboot verification.
 - **Asset immutability**: The workflow refuses existing tags and never overwrites release assets.
 - **Provenance records**: Release assets include `SHA256SUMS`, architecture manifests, package inventories, and boot reports. Manifests identify the source commit, CI run, and Incus image fingerprint.
+- **Voxl source and licensing**: Voxl's source is MIT licensed, but its x264-linked executable is distributed under GPL-2.0. Each image includes `/opt/raft/voxl-GPL-2`, `voxl-LICENSE`, `voxl-NOTICE`, and `voxl-source.tar.gz`. The source archive contains the pinned Voxl source, locked vendored Rust dependencies, exact Debian sources and patches for its native libraries, build instructions, architecture, and installed package versions. The image inspector requires non-empty notices and checks the source bundle's build inputs, locked dependency manifests, and Debian source archive members before emitting a release manifest. Releases publish `voxl-source-ARCH.tar.gz`, license/notice files, and the Voxl version inventory beside each native image, covered by `SHA256SUMS`. Source ships with the binary rather than through a written offer.
 
 ## Repository history hygiene
 

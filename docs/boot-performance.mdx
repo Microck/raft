@@ -25,6 +25,8 @@ Five samples per architecture from [native CI on 2026-10-06](https://github.com/
 
 Read the [ARM64 samples](./benchmarks/arm64-native-ci.json) and [AMD64 samples](./benchmarks/amd64-native-ci.json) for distributions. Hardware and SSH latency differ between runners, so these numbers do not establish an architecture advantage or compare Raft with Boat.
 
+These samples used the noVNC desktop before Voxl was added. Their desktop timings and image sizes do not measure the Voxl image.
+
 ## Measure your own host
 
 Use a dedicated test location with a pinned image and a matching source checkout. The benchmark creates, stops, resumes and destroys its own boxes. It also starts the desktop when requested; do not target a shared or daily-use test channel.
@@ -33,7 +35,7 @@ Use a dedicated test location with a pinned image and a matching source checkout
 python3 deploy/benchmark-boot.py --location lab --samples 5 --desktop > boot.json
 ```
 
-You can request 1 to 20 samples. Each sample measures request-to-return, command readiness and Docker API readiness, then repeats after stop/resume. Desktop timing starts at its separate startup request and waits for HTTP 200 and an RFB greeting. It does not measure remote browser rendering.
+You can request 1 to 20 samples. Each sample measures request-to-return, command readiness and Docker API readiness, then repeats after stop/resume. Desktop timing starts at its separate startup request and waits for a Voxl PNG screenshot. It does not measure remote browser rendering.
 
 Reports include median, minimum, maximum, nearest-rank p95, SSH round trip, image size and guest boot information. With three or five samples, p95 is effectively the maximum, not a stable production percentile.
 
