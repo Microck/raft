@@ -139,7 +139,7 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" image-artifacts
           python3 deploy/verify-image.py "image-artifacts/raft-dev-${{ matrix.architecture }}.tar.gz" --architecture '${{ matrix.architecture }}' --fingerprint "$fingerprint"
           cd image-artifacts
-          sha256sum raft-dev-* > SHA256SUMS-${{ matrix.architecture }}
+          sha256sum raft-dev-* voxl-* > SHA256SUMS-${{ matrix.architecture }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: raft-dev-${{ matrix.architecture }}
@@ -216,7 +216,7 @@ jobs:
           cd release-assets
           sha256sum -c SHA256SUMS-arm64
           sha256sum -c SHA256SUMS-amd64
-          sha256sum raft-*.whl raft-*.tar.gz microck-raft-*.tgz manifest-*.json packages-*.tsv npm-packages-*.json boot-*.json > SHA256SUMS
+          sha256sum raft-*.whl raft-*.tar.gz microck-raft-*.tgz manifest-*.json packages-*.tsv npm-packages-*.json boot-*.json voxl-* > SHA256SUMS
           cd ..
           python3 - <<'PY'
           import os
@@ -239,4 +239,4 @@ jobs:
           git config user.email "$(git show -s --format=%ae "$GITHUB_SHA")"
           git tag -a "$RELEASE_TAG" "$GITHUB_SHA" -F release-notes.md
           git push origin "refs/tags/$RELEASE_TAG"
-          gh release create "$RELEASE_TAG" release-assets/raft-*.whl release-assets/raft-*.tar.gz release-assets/microck-raft-*.tgz release-assets/SHA256SUMS release-assets/manifest-*.json release-assets/packages-*.tsv release-assets/npm-packages-*.json release-assets/boot-*.json --verify-tag --title "Raft $RELEASE_TAG" --notes-file release-notes.md --latest
+          gh release create "$RELEASE_TAG" release-assets/raft-*.whl release-assets/raft-*.tar.gz release-assets/microck-raft-*.tgz release-assets/SHA256SUMS release-assets/manifest-*.json release-assets/packages-*.tsv release-assets/npm-packages-*.json release-assets/boot-*.json release-assets/voxl-* --verify-tag --title "Raft $RELEASE_TAG" --notes-file release-notes.md --latest
