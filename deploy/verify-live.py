@@ -353,7 +353,8 @@ def browser_session(box, backend="novnc"):
     while (Date.now() < deadline) {
         try {
             const response = await fetch('http://127.0.0.1:9222/json/list', {headers: {'User-Agent': process.argv[1]}});
-            page = (await response.json()).find(target => target.type === 'page' && target.url === 'file:///tmp/raft-gui-proof.html');
+            page = (await response.json()).find(target => target.type === 'page' &&
+                target.url === 'file:///tmp/raft-gui-proof.html' && target.title === 'raft-gui-proof');
             if (page) break;
         } catch {}
         await new Promise(resolve => setTimeout(resolve, 200));

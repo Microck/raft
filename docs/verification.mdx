@@ -40,6 +40,8 @@ The suites check file rollback, copied network identity, retained output, binary
 
 Desktop checks open Voxl through the default tunnel and require decoded 1280×720 video frames in the guest's packaged Chromium. They also select noVNC explicitly and exercise its framebuffer, keyboard, clipboard and reconnect behavior. The linked native runs above predate Voxl and do not establish Voxl frame rate or latency. A controller browser without H.264 WebCodecs support needs the explicit noVNC backend.
 
+Desktop browser checks wait for the application page to load before checking window bounds and opening the viewer. An advertised debugging target alone does not establish page readiness.
+
 These results do not certify arbitrary long-running workloads, host loss, multi-tenant security, cross-architecture recovery, ARM64 host reboot or physical storage capacity. VM tests with sparse virtual disks do not prove real free-disk capacity. Boxes share the host kernel, and Raft has not had a security audit.
 
 For release gates and implementation details, see [publishing](./publishing.md) and the [runtime contract](./contract.md).
