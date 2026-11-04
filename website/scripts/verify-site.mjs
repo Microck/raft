@@ -109,6 +109,17 @@ try {
   assert.equal(headings.length, 1, 'Entry page must have one main heading');
   assert.match(headings[0][1], />Raft</, 'Entry page must display the Raft overview heading');
 
+  for (const [path, html] of [['/', home], ['/docs/requirements', await (await get('/docs/requirements')).text()]]) {
+    const imageUrl = html.match(/<meta property="og:image" content="([^"]+)"/)?.[1];
+    assert.ok(imageUrl, `${path}: missing Open Graph image`);
+    assert.match(html, /<meta property="og:image:alt" content="[^"]+"/, `${path}: missing image description`);
+    const { pathname, search } = new URL(imageUrl);
+    const image = await get(`${pathname}${search}`, 'image/png');
+    assert.equal(image.status, 200, `${path}: Open Graph image must be served`);
+    assert.match(image.headers.get('content-type') ?? '', /image\/png/);
+    assert.deepEqual(Buffer.from(await image.arrayBuffer()), await readFile(new URL('../app/opengraph-image.png', import.meta.url)));
+  }
+
   assert.match(home, /<img\b[^>]*src="\/raft-logo\.png"/, 'Navigation must display the Raft logo');
   assert.match(home, /<link\b[^>]*rel="icon"[^>]*href="\/raft-logo\.png"/, 'Browser must receive the Raft favicon');
   const logo = await get('/raft-logo.png', 'image/png');

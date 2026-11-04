@@ -36,6 +36,9 @@ pnpm start
 
 The build copies benchmark reports and example configuration from `docs/` into the static export. Generated assets and Next.js output stay outside version control. The site is a separate package from the Python CLI.
 
+The default social preview uses `website/app/opengraph-image.png` and its
+`opengraph-image.alt.txt` description.
+
 ### Site tests
 
 `pnpm test` checks the exported pages, links, search, Markdown downloads, and 404s over controller loopback. It does not contact workspace hosts.
