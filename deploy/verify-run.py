@@ -34,6 +34,9 @@ class Transport:
         self.fault, self.status = fault, status
         self.events = []
 
+    def creation_location(self, args):
+        return "lab", {"ssh": "fixture"}
+
     def new(self, args, *, run_id, on_allocate):
         self.events.append("allocate")
         assert args.disposable is True and args.ttl == args.timeout + 120

@@ -47,6 +47,7 @@ try {
     '/docs/guides/scripting-ci',
     '/docs/guides/ci-jobs',
     '/docs/guides/config-policy',
+    '/docs/guides/plugins',
     '/docs/guides/desktop-services',
     '/docs/guides/snapshots-forks',
     '/docs/guides/backup-recovery',

@@ -1,0 +1,154 @@
+---
+title: User plugins
+description: Register your own sandbox backend without changing Raft or its dependencies.
+---
+
+# User plugins
+
+A plugin is a trusted executable on the controller. Register one as a location,
+then use Raft's existing commands with its location-qualified handles. Plugins
+can use any language and install their own dependencies. Raft itself still needs
+only Python. Incus locations keep their existing behavior.
+
+## Register a plugin
+
+Install the plugin and its dependencies yourself, then register its command:
+
+```sh
+raft plugin add cloud -- node /absolute/path/to/plugin.mjs
+raft plugin info cloud
+raft new --location cloud --disposable
+raft list --location cloud
+raft exec cloud:PROVIDER_ID -- uname -a
+raft destroy cloud:PROVIDER_ID
+```
+
+`add` checks the protocol before saving the location. It refuses an existing
+name. Use absolute paths for script arguments; Raft resolves the executable from
+PATH at registration but does not resolve its arguments. Commands run in the
+caller's working directory, without a shell. `info` prints the current handshake.
+`raft plugin remove cloud` removes only the registration, never remote boxes.
+Destroy boxes before removing a location if you still need Raft to reach them.
+
+Registration uses the same private, atomic controller configuration as Incus:
+
+```json
+{
+  "lab": {"ssh": "ubuntu@host", "image": "FULL_IMAGE_FINGERPRINT"},
+  "cloud": {
+    "plugin": ["/usr/bin/node", "/absolute/path/to/plugin.mjs"],
+    "options": {},
+    "note": "Provider charges apply"
+  }
+}
+```
+
+`ssh` and `plugin` are mutually exclusive. `options` is an optional JSON object
+passed only to that plugin. Credentials should come from the plugin's own secret
+store or inherited environment, not command arguments or checked-in config.
+Controller defaults select the location for `new`; without an override, the first
+configured location is the default.
+
+## Trust and provider guarantees
+
+Plugins have the controller user's filesystem, environment, network and terminal
+access. Registration runs their code. Inspect and trust a plugin before adding
+it. Raft does not download code, scan PATH for plugins, or install dependencies.
+Do not let untrusted projects write the controller configuration or plugin files.
+
+Incus host locks, the TTL worker, persistent stop, network filtering,
+private tunnels and image rules apply only to Incus locations. A plugin owns its
+provider's limits, expiry, persistence, isolation, credentials and cleanup. It must
+reject unsupported commands and options rather than silently weaken them. In
+particular, do not map persistent `stop` to deletion or return a public preview
+URL for `forward`, which promises a private loopback tunnel.
+
+Commands across all locations can partially complete before a later location
+fails. Use `--location` on `list`, `capacity`, `doctor`, `gc` and `prune` to select
+one location. Raft never retries an uncertain plugin action. `config` reports
+`null` for plugin host policies; controller defaults still apply to `new`.
+
+## Executable protocol, version 1
+
+Raft appends one action argument to the registered command. Before an action it
+invokes `describe` with closed stdin and a ten-second deadline. This handshake
+must be side-effect-free and print exactly one JSON object on stdout:
+
+```json
+{"protocol": 1, "commands": ["new", "list", "info", "exec", "destroy"]}
+```
+
+Only declared commands run. Supported command names are `new`, `run`, `recover`,
+`list`, `capacity`, `doctor`, `gc`, `prune`, `policy`, `note`, `info`, `stop`,
+`resume`, `extend`, `destroy`, `ssh`, `exec`, `sync`, `upload`, `download`,
+`snapshot`, `snapshots`, `snapshot-delete`, `restore`, `fork`, `forward`,
+`desktop`, `logs`, `status`, `cancel`, `backup` and `usage`. Registration,
+controller configuration and completion remain Raft commands.
+
+Each invocation receives `RAFT_PLUGIN_REQUEST` in its environment:
+
+```json
+{
+  "protocol": 1,
+  "location": "cloud",
+  "options": {},
+  "args": {
+    "action": "exec",
+    "location": "cloud",
+    "box": "cloud:PROVIDER_ID",
+    "detach": false,
+    "command": ["printf", "%s", "literal argument"]
+  }
+}
+```
+
+For `describe`, `args` is `{}`. Other actions receive the parsed command arguments,
+including defaults, plus the resolved `location`. For `new`, explicit flags beat
+controller defaults. Without configured sizing defaults, omitted `--cpu`,
+`--memory` and `--disk` are `null`, so fixed-template providers can use their
+defaults. Incus image creation still defaults to one CPU, 2 GiB and shared disk.
+TTL defaults to 600 seconds. Plugin implementations must define whether and how
+their provider enforces that TTL.
+Box IDs are opaque nonempty strings after the first colon. Encode IDs if needed
+to keep handles on one line. `--from` must stay within its source location.
+
+Normal actions inherit stdin, stdout and stderr. Preserve literal `exec` arguments
+and return the guest exit code. Use stdout for the command result and stderr for
+diagnostics. A signal exit becomes `128 + signal`; interruption returns 130.
+There is no action deadline imposed by Raft, so plugins must bound their own
+network operations and handle cancellation.
+
+Output follows the existing command contract: `new`, `fork` and `recover` print
+one qualified handle; `list` prints JSONL with `box`, `state`, `stopAt`,
+`deleteAt`, `disk` and `note`; `info` prints provider metadata as JSON; `exec`
+streams guest output. Deadline fields may be empty when unavailable, and `disk`
+may be `null` when the provider cannot report its storage. `note` uses Raft's purpose,
+owner and next template. File paths and recursive-transfer safeguards follow the
+[CLI reference](../reference/cli.md). A plugin can support fewer commands, but
+must not advertise semantics it cannot implement.
+
+Global `raft --json` captures plugin stdout and stderr as base64 byte-stream
+events, then emits the plugin exit status. Plugins must write normal output,
+not nested Raft event envelopes. Interactive SSH, forwarding and desktop reject
+global JSON mode before any plugin runs.
+
+## sandbox-sdk adapter
+
+The repository's `examples/sandbox-sdk/` adapter uses
+[`@opencoredev/sandbox-sdk`](https://github.com/opencoredev/sandbox-sdk). It keeps
+Node.js and provider SDK dependencies outside the Raft installation. Its README
+covers provider setup, supported commands and the isolated smoke check.
+
+## Why an executable protocol
+
+Python entry points would tie plugins to Raft's Python environment. Embedding
+sandbox-sdk would require Node.js for every installation and couple Raft releases
+to provider dependencies. Executables keep dependency ownership with the plugin
+and preserve interactive stdio without a background RPC service.
+
+The [Docker plugin API](https://docs.docker.com/engine/extend/plugin_api/) provides
+a precedent for out-of-process plugins with a capability handshake. Raft uses
+short-lived executables instead of Docker's daemon and HTTP protocol. SDK
+[provider capabilities](https://github.com/opencoredev/sandbox-sdk/blob/main/packages/sdk/src/provider.ts)
+are optional, and its [lifecycle API](https://github.com/opencoredev/sandbox-sdk/blob/main/packages/sdk/src/types.ts)
+does not promise Incus stop and expiry semantics across every provider.

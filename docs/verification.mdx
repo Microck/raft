@@ -32,6 +32,13 @@ Do not use `--restart-incus` unless daemon interruption is approved on a disposa
 
 For host-independent checks, omit `--location` from `verify-features.py`, `verify-limits.py` and `verify-run.py`. `python3 deploy/verify-image-tests.py` checks archive safety; `python3 deploy/verify-self-update.py` tests temporary npm/uv installations. Local worker and orchestration fixtures do not establish native-host behavior.
 
+`python3 deploy/verify-plugins.py` exercises executable plugin registration,
+capability failures, opaque handles, commands, files and removal through real CLI
+processes with a temporary HOME and provider state. It contacts no hosts. The
+optional `examples/sandbox-sdk/` smoke exercises the published SDK and a disposable
+filesystem provider, not cloud accounts. These checks do not certify a third-party
+provider's isolation, billing or expiry guarantees.
+
 ## Read the evidence and its limits
 
 [Native ARM64 and AMD64 validation](https://github.com/Microck/raft/actions/runs/37603576786) exercises lifecycle, workspace controls, tool checks, backup/recovery and startup measurements. [Fresh-host validation](https://github.com/Microck/raft/actions/runs/37469540182) covers deployment and reboot on a disposable AMD64 Ubuntu 24 KVM host. See [measured startup results](./boot-performance.mdx) for samples and methodology.

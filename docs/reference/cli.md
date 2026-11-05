@@ -9,6 +9,11 @@ Use `raft [--json] COMMAND ...`. `raft --help`, command `--help` and `raft --ver
 
 Global `--json` must precede the command. It emits JSONL data, byte-stream, error and exit events, but rejects interactive `ssh`, `forward` and `desktop`. Without it, output is command-specific. See [scripting and exit codes](../guides/scripting-ci.mdx).
 
+Registered [executable plugins](../guides/plugins.mdx) can provide other sandbox
+backends. Commands route by location and must appear in the plugin's capability
+handshake. The Incus-specific behavior below applies to SSH locations; a plugin
+must document its own guarantees and reject options it cannot honor.
+
 ## Check shared arguments
 
 - `box` is the exact location-qualified handle returned by creation, not a native Incus name. Inspect `raft list` and its ownership note first.
@@ -32,6 +37,17 @@ Create and start a box; stdout is its exact `LOCATION:rf-` handle with 16 lowerc
 
 Create a disposable box, wait for command readiness, optionally upload, execute, collect directories and clean up. `--timeout` is 1 to 2,591,880 seconds, default 600, for all setup/upload/execution. Collection and cleanup each get 30 seconds. `--push` selects Git-tracked/unignored files without `.git` and rejects submodules; `--push-all` copies the full inspected tree. `--cwd` defaults to `/workspace/project` with upload or `/workspace` without it. Upload destinations must be new with an existing parent. Repeat `--pull` to collect directories into absent local destinations with existing parents, even after payload failure. See [CI limits and exit codes](../guides/ci-jobs.mdx).
 
+### `plugin`
+
+`raft plugin add LOCATION -- COMMAND [ARG ...]`
+`raft plugin info LOCATION`
+`raft plugin remove LOCATION`
+
+Register a trusted local executable after checking protocol 1, inspect its
+capabilities, or remove its registration without touching remote resources.
+Existing location names cannot be overwritten. Dependencies are installed by the
+user, not Raft. See [registration and trust](../guides/plugins.mdx).
+
 ### `locations`
 
 `raft locations [-h]`
@@ -44,7 +60,11 @@ Print JSONL `location`, `default` and `note` from controller inventory without c
 `raft config set [-h] {location,ttl,cpu,memory,disk,disposable} value`
 `raft config unset [-h] {location,ttl,cpu,memory,disk,disposable}`
 
-Print effective controller defaults with each value's source and host policies. `--location` filters only the policy report; it is rejected with `set` or `unset`. Keys are `location`, `ttl`, `cpu`, `memory`, `disk`, `disposable`; use `true` or `false` for the last. `unset` restores the built-in default. See [configuration](./configuration.mdx).
+Print effective controller defaults with each value's source and host policies.
+Plugin policies are `null`. `--location` filters only the policy report; it is
+rejected with `set` or `unset`. Keys are `location`, `ttl`, `cpu`, `memory`, `disk`,
+`disposable`; use `true` or `false` for the last. `unset` restores the built-in
+default. See [configuration](./configuration.mdx).
 
 ### `policy`
 

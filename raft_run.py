@@ -245,6 +245,10 @@ def run(args, api):
             signal.signal(number, stop)
         signal.setitimer(signal.ITIMER_REAL, args.timeout)
         try:
+            # A plugin owns its run lifecycle; never send it through Incus creation/cleanup.
+            location, entry = api.creation_location(args)
+            if "plugin" in entry:
+                return api.raft_plugins.run(location, entry, args)
             include = git_files(source) if args.push else None
             api.new(args, run_id=token, on_allocate=record)
             creation_acknowledged = True

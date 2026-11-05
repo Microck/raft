@@ -59,7 +59,7 @@ expected="$1"
 
 def hosts():
     # Read at call time: onboarding imports this module before its location exists.
-    return {name: entry["ssh"] for name, entry in configuration().items()}
+    return {name: entry["ssh"] for name, entry in configuration().items() if "ssh" in entry}
 
 
 def remote(host, command):

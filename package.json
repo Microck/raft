@@ -22,6 +22,7 @@
     "raft_files.py",
     "raft_run.py",
     "raft_jobs.py", "raft_output.py",
+    "raft_plugins.py",
     "deploy/*.py",
     "deploy/*.sh",
     "deploy/*.conf",

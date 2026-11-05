@@ -1,0 +1,9 @@
+{
+  "name": "raft-sandbox-sdk-example",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "packageManager": "pnpm@11.25.0",
+  "scripts": { "smoke": "node smoke.mjs" },
+  "dependencies": { "@opencoredev/sandbox-sdk": "1.0.3" }
+}
