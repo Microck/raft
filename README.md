@@ -39,13 +39,6 @@ npm install -g @microck/raft
 raft --version
 ```
 
-`raft self-update` upgrades the CLI later. Raft prints a one-line stderr notice
-when a new release exists; set `RAFT_NO_UPDATE_CHECK=1` to turn it off.
-
-Python wheels and source archives are also available in
-[releases](https://github.com/Microck/raft/releases). npm installation does not set
-up hosts or download workspace images.
-
 | requirement | minimum |
 | --- | --- |
 | host | dedicated ARM64 or AMD64 Ubuntu host, 2 CPUs, 8 GiB RAM, 80 GiB free disk, plus the pool size if you enable own box disks |
@@ -69,30 +62,6 @@ raft exec "$box" -- node --version
 raft ssh "$box"
 raft stop "$box"
 ```
-
-`raft stop` and expiration keep persistent boxes on disk. `new --disposable`
-deletes a temporary box when it stops or expires. `raft resume` starts
-the box with a new lifetime. `raft destroy` deletes the box and its snapshots.
-`raft policy lab --delete-stopped-after 48` makes the host delete boxes left
-stopped for 48 hours, and logs each deletion in its journal. disposable
-creation, prune and retention require the current host worker; redeploy from
-the current checkout before using them.
-
-size boxes for the job: `--cpu` takes a positive whole CPU count and
-`--memory` takes whole GiB, each up to the host total. `--disk` takes whole
-GiB bounded by the own-disk pool reservation, or `shared`. on hosts deployed with `--disk-pool SIZE`, `--disk 20GiB` gives a
-box its own disk that it, and Docker inside it, cannot grow past; forks and
-templates of it are copy-on-write. raft does not cap how many boxes you keep.
-`raft capacity` prints an advisory estimate of what fits; it never blocks a box.
-see [box sizing and capacity](docs/reference/capacity.mdx).
-
-`raft config set` stores your defaults for `new`, such as location, TTL, size
-and `disposable true`; `new --persistent` keeps one box anyway. size defaults
-apply only to boxes from the image: `new --from` and `fork` keep the source's
-size. `raft policy lab --require purpose,owner` makes the host reject boxes whose
-note lacks those fields, with an error that names the missing flags. policies
-are guardrails for agents: anyone with sudo on the host can change them.
-see [defaults and host policies](docs/guides/config-policy.mdx).
 
 ## image and workspace control
 
