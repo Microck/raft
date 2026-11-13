@@ -403,14 +403,14 @@ def verify_rejections(directory):
     print("rejections: invalid protocol/JSON/capabilities and malformed or mixed location config")
 
 
-def verify_repeated_cancellation(directory):
+def verify_repeated_cancellation(directory, action="run", first_signal=signal.SIGINT):
     """Only this disposable plugin group receives lifecycle signals."""
     marker = directory / "termination-ready"
     script = directory / "stubborn-plugin.py"
     script.write_text(
         "import json,sys,signal,time,pathlib\n"
         "if sys.argv[-1]=='describe':\n"
-        " print(json.dumps({'protocol':1,'commands':['run']}));sys.exit()\n"
+        " print(json.dumps({'protocol':1,'commands':['run','exec']}));sys.exit()\n"
         "def terminate(*_): pathlib.Path(sys.argv[1]).write_text('ready')\n"
         "signal.signal(signal.SIGTERM,terminate)\n"
         "pathlib.Path(sys.argv[1]+'.started').write_text('started')\n"
@@ -427,13 +427,17 @@ def verify_repeated_cancellation(directory):
         "import os,signal,sys,runpy\n"
         "def trace(frame,event,arg):\n"
         " if event=='line' and frame.f_code.co_filename.endswith('raft_plugins.py') "
-        "and frame.f_code.co_name=='run' and 'signals' in frame.f_locals "
-        "and 'previous' not in frame.f_locals:\n"
+        "and frame.f_code.co_name=='run' and 'error' in frame.f_locals:\n"
         "  sys.settrace(None);os.kill(os.getpid(),signal.SIGINT)\n"
         " return trace\n"
         "sys.settrace(trace);sys.argv=sys.argv[1:];"
         "sys.path.insert(0,os.path.dirname(sys.argv[0]));"
         "runpy.run_path(sys.argv[0],run_name='__main__')\n"
+    )
+    arguments = (
+        ["run", "--location", "cancel", "--timeout", "1", "--", "true"]
+        if action == "run"
+        else ["exec", "cancel:opaque", "--", "true"]
     )
     with subprocess.Popen(
         [
@@ -441,13 +445,7 @@ def verify_repeated_cancellation(directory):
             "-c",
             launcher,
             str(ROOT / "raft.py"),
-            "run",
-            "--location",
-            "cancel",
-            "--timeout",
-            "1",
-            "--",
-            "true",
+            *arguments,
         ],
         env={"HOME": str(home), "RAFT_NO_UPDATE_CHECK": "1"},
         stdout=subprocess.PIPE,
@@ -458,7 +456,7 @@ def verify_repeated_cancellation(directory):
         while not started.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
         assert started.exists(), "plugin did not start"
-        process.send_signal(signal.SIGINT)
+        process.send_signal(first_signal)
         deadline = time.monotonic() + 5
         while not marker.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -466,7 +464,7 @@ def verify_repeated_cancellation(directory):
         process.send_signal(signal.SIGINT)
         process.send_signal(signal.SIGTERM)
         stdout, stderr = process.communicate(timeout=10)
-        assert process.returncode == 130, (process.returncode, stdout, stderr)
+        assert process.returncode == 128 + first_signal, (process.returncode, stdout, stderr)
     print("cancellation: repeated interrupts preserve bounded plugin escalation")
 
 
@@ -478,6 +476,10 @@ def main():
         verify_lifecycle(controller)
         verify_rejections(directory)
         verify_repeated_cancellation(directory)
+        for number in (signal.SIGINT, signal.SIGTERM):
+            direct = directory / ("direct-" + str(number))
+            direct.mkdir()
+            verify_repeated_cancellation(direct, "exec", number)
     print("Executable plugin verification passed; no live hosts or operator state used")
 
 

@@ -94,32 +94,54 @@ def run(location, entry, args):
     manifest = describe(location, entry)
     if args.action not in manifest["commands"]:
         raise ValueError(f"Plugin {location} does not support {args.action}")
-    with subprocess.Popen(
-        [*entry["plugin"], args.action],
-        env=environment(location, entry, {**vars(args), "location": location}),
-        start_new_session=True,
-    ) as process:
-        try:
-            returncode = process.wait()
-        except BaseException:
-            # Repeated cancellation must not interrupt the bounded cleanup window.
-            signals = (signal.SIGINT, signal.SIGTERM, signal.SIGALRM)
-            previous = {number: signal.signal(number, signal.SIG_IGN) for number in signals}
+
+    class Cancelled(BaseException):
+        def __init__(self, number):
+            self.number = number
+
+    signals = (signal.SIGINT, signal.SIGTERM, signal.SIGALRM)
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, signals)
+    handlers = {number: signal.getsignal(number) for number in signals}
+
+    def cancel(number, _frame):
+        signal.pthread_sigmask(signal.SIG_BLOCK, signals)
+        raise Cancelled(number)
+
+    try:
+        # Install before unmasking, so direct CLI actions cannot die without cleanup.
+        for number in (signal.SIGINT, signal.SIGTERM):
+            if handlers[number] in (signal.SIG_DFL, signal.default_int_handler):
+                signal.signal(number, cancel)
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+        with subprocess.Popen(
+            [*entry["plugin"], args.action],
+            env=environment(location, entry, {**vars(args), "location": location}),
+            start_new_session=True,
+            restore_signals=True,
+        ) as process:
             try:
+                returncode = process.wait()
+            except BaseException as error:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
                 try:
                     process.wait(timeout=6)
+                except subprocess.TimeoutExpired:
+                    pass
                 finally:
                     if process.poll() is None:
                         os.killpg(process.pid, signal.SIGKILL)
                         process.wait()
-            except subprocess.TimeoutExpired:
-                pass
-            finally:
-                for number, handler in previous.items():
-                    signal.signal(number, handler)
-            raise
-    return returncode if returncode >= 0 else 128 - returncode
+                if isinstance(error, Cancelled):
+                    return 128 + error.number
+                raise
+        return returncode if returncode >= 0 else 128 - returncode
+    finally:
+        # Discard queued cancellation before restoring the caller's signal state.
+        for number in signals:
+            signal.signal(number, signal.SIG_IGN)
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+        for number, handler in handlers.items():
+            signal.signal(number, handler)
