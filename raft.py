@@ -29,7 +29,7 @@ import raft_jobs
 import raft_output
 import raft_plugins
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 # Controller defaults for new live apart from the location inventory, so location
