@@ -403,6 +403,51 @@ def verify_rejections(directory):
     print("rejections: invalid protocol/JSON/capabilities and malformed or mixed location config")
 
 
+def verify_repeated_cancellation(directory):
+    """Only this disposable plugin group receives lifecycle signals."""
+    marker = directory / "termination-ready"
+    script = directory / "stubborn-plugin.py"
+    script.write_text(
+        "import json,sys,signal,time,pathlib\n"
+        "if sys.argv[-1]=='describe':\n"
+        " print(json.dumps({'protocol':1,'commands':['run']}));sys.exit()\n"
+        "def terminate(*_): pathlib.Path(sys.argv[1]).write_text('ready')\n"
+        "signal.signal(signal.SIGTERM,terminate)\n"
+        "while True: time.sleep(1)\n"
+    )
+    home = directory / "cancel-home"
+    config = home / ".config/raft"
+    config.mkdir(parents=True)
+    (config / "incus.json").write_text(
+        json.dumps({"cancel": {"plugin": [sys.executable, str(script), str(marker)]}})
+    )
+    with subprocess.Popen(
+        [
+            sys.executable,
+            str(ROOT / "raft.py"),
+            "run",
+            "--location",
+            "cancel",
+            "--timeout",
+            "1",
+            "--",
+            "true",
+        ],
+        env={"HOME": str(home), "RAFT_NO_UPDATE_CHECK": "1"},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ) as process:
+        deadline = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert marker.exists(), "plugin did not receive cancellation"
+        process.send_signal(signal.SIGINT)
+        process.send_signal(signal.SIGTERM)
+        stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode == 124, (process.returncode, stdout, stderr)
+    print("cancellation: repeated interrupts preserve bounded plugin escalation")
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="raft-plugin-verification-") as temporary:
         directory = Path(temporary)
@@ -410,6 +455,7 @@ def main():
         verify_registration(controller)
         verify_lifecycle(controller)
         verify_rejections(directory)
+        verify_repeated_cancellation(directory)
     print("Executable plugin verification passed; no live hosts or operator state used")
 
 

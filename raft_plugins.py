@@ -102,15 +102,24 @@ def run(location, entry, args):
         try:
             returncode = process.wait()
         except BaseException:
-            # Give the isolated plugin group time to cancel remote work before escalation.
+            # Repeated cancellation must not interrupt the bounded cleanup window.
+            signals = (signal.SIGINT, signal.SIGTERM, signal.SIGALRM)
+            previous = {number: signal.signal(number, signal.SIG_IGN) for number in signals}
             try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=6)
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=6)
+                finally:
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+                pass
+            finally:
+                for number, handler in previous.items():
+                    signal.signal(number, handler)
             raise
     return returncode if returncode >= 0 else 128 - returncode
