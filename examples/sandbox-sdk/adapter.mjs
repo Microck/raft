@@ -202,6 +202,7 @@ async function main() {
     process.stderr.write(`${message}; remote outcome may be uncertain. Inspect before retrying.\n`);
     controller.abort(new Error(message));
     forced = setTimeout(() => process.exit(code), 5000);
+    forced.unref();
   };
   const interrupt = () => cancel(130, 'Interrupted');
   const terminate = () => cancel(143, 'Terminated');
@@ -212,7 +213,7 @@ async function main() {
     return await dispatch({ action, request, signal: controller.signal, timeoutMs });
   } finally {
     clearTimeout(deadline);
-    clearTimeout(forced);
+    if (cancelledCode === undefined) clearTimeout(forced);
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', terminate);
     if (cancelledCode !== undefined) process.exitCode = cancelledCode;

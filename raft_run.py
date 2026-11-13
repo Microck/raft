@@ -248,6 +248,7 @@ def run(args, api):
             # A plugin owns its run lifecycle; never send it through Incus creation/cleanup.
             location, entry = api.creation_location(args)
             if "plugin" in entry:
+                api.plugin_defaults(args)
                 return api.raft_plugins.run(location, entry, args)
             include = git_files(source) if args.push else None
             api.new(args, run_id=token, on_allocate=record)

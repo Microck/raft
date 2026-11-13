@@ -94,9 +94,23 @@ def run(location, entry, args):
     manifest = describe(location, entry)
     if args.action not in manifest["commands"]:
         raise ValueError(f"Plugin {location} does not support {args.action}")
-    result = subprocess.run(
+    with subprocess.Popen(
         [*entry["plugin"], args.action],
         env=environment(location, entry, {**vars(args), "location": location}),
-        check=False,
-    )
-    return result.returncode if result.returncode >= 0 else 128 - result.returncode
+        start_new_session=True,
+    ) as process:
+        try:
+            returncode = process.wait()
+        except BaseException:
+            # Give the isolated plugin group time to cancel remote work before escalation.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=6)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            raise
+    return returncode if returncode >= 0 else 128 - returncode

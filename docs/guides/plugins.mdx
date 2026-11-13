@@ -115,8 +115,11 @@ to keep handles on one line. `--from` must stay within its source location.
 Normal actions inherit stdin, stdout and stderr. Preserve literal `exec` arguments
 and return the guest exit code. Use stdout for the command result and stderr for
 diagnostics. A signal exit becomes `128 + signal`; interruption returns 130.
-There is no action deadline imposed by Raft, so plugins must bound their own
-network operations and handle cancellation.
+Plugins must bound their own network operations. `run` retains its controller
+deadline. On controller cancellation, Raft sends SIGTERM to the plugin's isolated
+process group and allows six seconds for remote cleanup before SIGKILL. Other
+actions have no controller deadline. Configured sizing defaults apply to `run`
+as well as `new`; snapshot sources retain their sizing unless explicitly overridden.
 
 Output follows the existing command contract: `new`, `fork` and `recover` print
 one qualified handle; `list` prints JSONL with `box`, `state`, `stopAt`,
