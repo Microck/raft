@@ -220,11 +220,14 @@ def run(args, api):
     began = time.monotonic()
     signals = (signal.SIGINT, signal.SIGTERM, signal.SIGALRM)
     previous = {number: signal.getsignal(number) for number in signals}
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     old_timer = signal.getitimer(signal.ITIMER_REAL)
     if old_timer[0]:
         raise RuntimeError("run cannot replace an existing process alarm")
 
     def stop(number, _frame):
+        # Block atomically before raising: cleanup has not installed its handlers yet.
+        signal.pthread_sigmask(signal.SIG_BLOCK, signals)
         if number == signal.SIGALRM:
             raise Stopped(124, f"{phase} deadline exceeded")
         raise Stopped(128 + number, f"interrupted by signal {number}")
@@ -278,9 +281,10 @@ def run(args, api):
             issue(error)
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
-            # A repeated cancellation cannot interrupt the bounded cleanup grace.
+            # Discard repeated interrupts before restoring delivery for cleanup deadlines.
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
             if allocated is not None:
                 location, name = allocated
                 try:
@@ -330,6 +334,7 @@ def run(args, api):
         for number, handler in previous.items():
             signal.signal(number, handler)
         signal.setitimer(signal.ITIMER_REAL, *old_timer)
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
     print(
         f"raft run: finished in {time.monotonic() - began:.1f}s (status {status})", file=sys.stderr
     )

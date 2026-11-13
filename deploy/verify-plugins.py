@@ -421,9 +421,24 @@ def verify_repeated_cancellation(directory):
     (config / "incus.json").write_text(
         json.dumps({"cancel": {"plugin": [sys.executable, str(script), str(marker)]}})
     )
+    # Trace schedules a real signal at the transition without replacing handlers.
+    launcher = (
+        "import os,signal,sys,runpy\n"
+        "def trace(frame,event,arg):\n"
+        " if event=='line' and frame.f_code.co_filename.endswith('raft_plugins.py') "
+        "and frame.f_code.co_name=='run' and 'signals' in frame.f_locals "
+        "and 'previous' not in frame.f_locals:\n"
+        "  sys.settrace(None);os.kill(os.getpid(),signal.SIGINT)\n"
+        " return trace\n"
+        "sys.settrace(trace);sys.argv=sys.argv[1:];"
+        "sys.path.insert(0,os.path.dirname(sys.argv[0]));"
+        "runpy.run_path(sys.argv[0],run_name='__main__')\n"
+    )
     with subprocess.Popen(
         [
             sys.executable,
+            "-c",
+            launcher,
             str(ROOT / "raft.py"),
             "run",
             "--location",
