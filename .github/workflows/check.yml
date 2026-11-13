@@ -36,9 +36,10 @@ jobs:
       - run: uv run python deploy/verify-plugins.py
       - name: Exercise optional sandbox-sdk plugin
         if: matrix.python == '3.14'
+        working-directory: examples/sandbox-sdk
         run: |
           corepack enable
-          pnpm --dir examples/sandbox-sdk install --frozen-lockfile
-          pnpm --dir examples/sandbox-sdk smoke
+          pnpm install --frozen-lockfile
+          pnpm smoke
       - run: uv build
       - run: uv run python deploy/verify-release.py
