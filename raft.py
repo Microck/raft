@@ -1600,6 +1600,19 @@ def configured_defaults(unchecked=None):
     }
 
 
+def default_location(configured):
+    """Resolve the configured default with the same recovery advice for every backend."""
+    if "location" not in configured:
+        return next(iter(configuration()))
+    if configured["location"] in configuration():
+        return configured["location"]
+    raise ValueError(
+        f"{DEFAULTS_CONFIG}: defaults.location names unknown location "
+        f"{configured['location']}; run raft config set location NAME or "
+        "raft config unset location"
+    )
+
+
 def apply_new_defaults(args):
     """Fill omitted new options: explicit flag, then config.json, then the built-in default.
 
@@ -1627,17 +1640,9 @@ def apply_new_defaults(args):
         args.disk = None
     # A --from template fixes the location, so only plain creation takes a default.
     if args.location is None and not args.template:
-        if "location" not in configured:
-            args.location = next(iter(configuration()))
-        elif configured["location"] in configuration():
-            args.location = configured["location"]
+        args.location = default_location(configured)
+        if "location" in configured:
             used.add("location")
-        else:
-            raise ValueError(
-                f"{DEFAULTS_CONFIG}: defaults.location names unknown location "
-                f"{configured['location']}; run raft config set location NAME or "
-                "raft config unset location"
-            )
     return used
 
 
@@ -2242,9 +2247,7 @@ def creation_location(args):
             raise ValueError("Snapshot templates must stay on their source location")
         location = source
     if location is None:
-        location = configured_defaults().get("location")
-        if location is None:
-            location = next(iter(configuration()))
+        location = default_location(configured_defaults())
     return location, settings(location)
 
 
