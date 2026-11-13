@@ -413,6 +413,7 @@ def verify_repeated_cancellation(directory):
         " print(json.dumps({'protocol':1,'commands':['run']}));sys.exit()\n"
         "def terminate(*_): pathlib.Path(sys.argv[1]).write_text('ready')\n"
         "signal.signal(signal.SIGTERM,terminate)\n"
+        "pathlib.Path(sys.argv[1]+'.started').write_text('started')\n"
         "while True: time.sleep(1)\n"
     )
     home = directory / "cancel-home"
@@ -452,6 +453,12 @@ def verify_repeated_cancellation(directory):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     ) as process:
+        started = Path(str(marker) + ".started")
+        deadline = time.monotonic() + 5
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert started.exists(), "plugin did not start"
+        process.send_signal(signal.SIGINT)
         deadline = time.monotonic() + 5
         while not marker.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -459,7 +466,7 @@ def verify_repeated_cancellation(directory):
         process.send_signal(signal.SIGINT)
         process.send_signal(signal.SIGTERM)
         stdout, stderr = process.communicate(timeout=10)
-        assert process.returncode == 124, (process.returncode, stdout, stderr)
+        assert process.returncode == 130, (process.returncode, stdout, stderr)
     print("cancellation: repeated interrupts preserve bounded plugin escalation")
 
 

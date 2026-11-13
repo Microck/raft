@@ -218,6 +218,7 @@ def run(args, api):
     status = 1
     phase = "job"
     began = time.monotonic()
+    plugin_active = False
     signals = (signal.SIGINT, signal.SIGTERM, signal.SIGALRM)
     previous = {number: signal.getsignal(number) for number in signals}
     previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
@@ -226,8 +227,9 @@ def run(args, api):
         raise RuntimeError("run cannot replace an existing process alarm")
 
     def stop(number, _frame):
-        # Block atomically before raising: cleanup has not installed its handlers yet.
-        signal.pthread_sigmask(signal.SIG_BLOCK, signals)
+        # Plugin cancellation unwinds before its cleanup handlers are installed.
+        if plugin_active:
+            signal.pthread_sigmask(signal.SIG_BLOCK, signals)
         if number == signal.SIGALRM:
             raise Stopped(124, f"{phase} deadline exceeded")
         raise Stopped(128 + number, f"interrupted by signal {number}")
@@ -252,6 +254,7 @@ def run(args, api):
             location, entry = api.creation_location(args)
             if "plugin" in entry:
                 api.plugin_defaults(args)
+                plugin_active = True
                 return api.raft_plugins.run(location, entry, args)
             include = git_files(source) if args.push else None
             api.new(args, run_id=token, on_allocate=record)
@@ -284,7 +287,10 @@ def run(args, api):
             # Discard repeated interrupts before restoring delivery for cleanup deadlines.
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            # A run alarm that expired during plugin grace must not escape this handler.
+            signal.signal(signal.SIGALRM, signal.SIG_IGN)
             signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            signal.signal(signal.SIGALRM, stop)
             if allocated is not None:
                 location, name = allocated
                 try:

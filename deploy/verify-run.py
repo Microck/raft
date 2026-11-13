@@ -169,6 +169,19 @@ class RunTests(unittest.TestCase):
                     if failure == "first-pull":
                         self.assertIn("download:/second", api.events)
 
+    def test_collection_timeout_then_cleanup_timeout(self):
+        class StalledCollectionAndCleanup(Transport):
+            def wait(self, phase):
+                if phase in {"download", "cleanup"}:
+                    time.sleep(2)
+
+        with tempfile.TemporaryDirectory() as directory:
+            transport = StalledCollectionAndCleanup()
+            began = time.monotonic()
+            self.assertEqual(self.invoke(transport, "--pull", "/first", directory + "/one"), 1)
+            self.assertEqual(transport.events[-1], "cleanup")
+            self.assertLess(time.monotonic() - began, 1)
+
     def test_invalid_paths_and_command_do_not_allocate(self):
         with tempfile.TemporaryDirectory() as directory:
             for extra in [
