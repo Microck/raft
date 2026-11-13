@@ -102,42 +102,53 @@ def run(location, entry, args):
     signals = (signal.SIGINT, signal.SIGTERM, signal.SIGALRM)
     mask = signal.pthread_sigmask(signal.SIG_BLOCK, signals)
     handlers = {number: signal.getsignal(number) for number in signals}
+    process = None
+    pending = None
 
     def cancel(number, _frame):
+        nonlocal pending
         signal.pthread_sigmask(signal.SIG_BLOCK, signals)
-        raise Cancelled(number)
+        pending = number
+        # Popen must finish publishing the child handle before cancellation unwinds.
+        if process is not None:
+            raise Cancelled(number)
 
     try:
-        # Install before unmasking, so direct CLI actions cannot die without cleanup.
-        for number in (signal.SIGINT, signal.SIGTERM):
-            if handlers[number] in (signal.SIG_DFL, signal.default_int_handler):
+        for number in signals:
+            if handlers[number] != signal.SIG_IGN and (
+                number != signal.SIGALRM or callable(handlers[number])
+            ):
                 signal.signal(number, cancel)
         signal.pthread_sigmask(signal.SIG_SETMASK, mask)
-        with subprocess.Popen(
+        process = subprocess.Popen(
             [*entry["plugin"], args.action],
             env=environment(location, entry, {**vars(args), "location": location}),
             start_new_session=True,
-            restore_signals=True,
-        ) as process:
-            try:
-                returncode = process.wait()
-            except BaseException as error:
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-                try:
-                    process.wait(timeout=6)
-                except subprocess.TimeoutExpired:
-                    pass
-                finally:
-                    if process.poll() is None:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait()
-                if isinstance(error, Cancelled):
-                    return 128 + error.number
-                raise
+        )
+        if pending is not None:
+            raise Cancelled(pending)
+        returncode = process.wait()
         return returncode if returncode >= 0 else 128 - returncode
+    except BaseException as error:
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=6)
+            except subprocess.TimeoutExpired:
+                pass
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+        if isinstance(error, Cancelled):
+            handler = handlers[error.number]
+            if callable(handler) and handler != signal.default_int_handler:
+                handler(error.number, None)
+            return 128 + error.number
+        raise
     finally:
         # Discard queued cancellation before restoring the caller's signal state.
         for number in signals:

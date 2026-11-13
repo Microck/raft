@@ -403,7 +403,7 @@ def verify_rejections(directory):
     print("rejections: invalid protocol/JSON/capabilities and malformed or mixed location config")
 
 
-def verify_repeated_cancellation(directory, action="run", first_signal=signal.SIGINT):
+def verify_repeated_cancellation(directory, action="run", first_signal=signal.SIGINT, launch=False):
     """Only this disposable plugin group receives lifecycle signals."""
     marker = directory / "termination-ready"
     script = directory / "stubborn-plugin.py"
@@ -423,11 +423,16 @@ def verify_repeated_cancellation(directory, action="run", first_signal=signal.SI
         json.dumps({"cancel": {"plugin": [sys.executable, str(script), str(marker)]}})
     )
     # Trace schedules a real signal at the transition without replacing handlers.
+    transition = (
+        "frame.f_locals.get('process') is not None and 'pending' in frame.f_locals"
+        if launch
+        else "'error' in frame.f_locals"
+    )
     launcher = (
         "import os,signal,sys,runpy\n"
         "def trace(frame,event,arg):\n"
         " if event=='line' and frame.f_code.co_filename.endswith('raft_plugins.py') "
-        "and frame.f_code.co_name=='run' and 'error' in frame.f_locals:\n"
+        f"and frame.f_code.co_name=='run' and ({transition}):\n"
         "  sys.settrace(None);os.kill(os.getpid(),signal.SIGINT)\n"
         " return trace\n"
         "sys.settrace(trace);sys.argv=sys.argv[1:];"
@@ -451,6 +456,11 @@ def verify_repeated_cancellation(directory, action="run", first_signal=signal.SI
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     ) as process:
+        if launch:
+            stdout, stderr = process.communicate(timeout=10)
+            assert process.returncode == 130, (process.returncode, stdout, stderr)
+            print("cancellation: first signal immediately after launch remains bounded")
+            return
         started = Path(str(marker) + ".started")
         deadline = time.monotonic() + 5
         while not started.exists() and time.monotonic() < deadline:
@@ -480,6 +490,9 @@ def main():
             direct = directory / ("direct-" + str(number))
             direct.mkdir()
             verify_repeated_cancellation(direct, "exec", number)
+        launch = directory / "launch-transition"
+        launch.mkdir()
+        verify_repeated_cancellation(launch, "exec", launch=True)
     print("Executable plugin verification passed; no live hosts or operator state used")
 
 
