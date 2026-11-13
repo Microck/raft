@@ -107,10 +107,10 @@ def run(location, entry, args):
 
     def cancel(number, _frame):
         nonlocal pending
-        signal.pthread_sigmask(signal.SIG_BLOCK, signals)
         pending = number
         # Popen must finish publishing the child handle before cancellation unwinds.
         if process is not None:
+            signal.pthread_sigmask(signal.SIG_BLOCK, signals)
             raise Cancelled(number)
 
     try:
@@ -126,6 +126,7 @@ def run(location, entry, args):
             start_new_session=True,
         )
         if pending is not None:
+            signal.pthread_sigmask(signal.SIG_BLOCK, signals)
             raise Cancelled(pending)
         returncode = process.wait()
         return returncode if returncode >= 0 else 128 - returncode

@@ -428,6 +428,12 @@ def verify_repeated_cancellation(directory, action="run", first_signal=signal.SI
         if launch
         else "'error' in frame.f_locals"
     )
+    if launch == "before":
+        transition = (
+            "'pending' in frame.f_locals and frame.f_locals.get('process') is None "
+            "and 'cancel' in frame.f_locals "
+            "and signal.getsignal(signal.SIGTERM) is frame.f_locals['cancel']"
+        )
     launcher = (
         "import os,signal,sys,runpy\n"
         "def trace(frame,event,arg):\n"
@@ -444,6 +450,7 @@ def verify_repeated_cancellation(directory, action="run", first_signal=signal.SI
         if action == "run"
         else ["exec", "cancel:opaque", "--", "true"]
     )
+    began = time.monotonic()
     with subprocess.Popen(
         [
             sys.executable,
@@ -459,6 +466,8 @@ def verify_repeated_cancellation(directory, action="run", first_signal=signal.SI
         if launch:
             stdout, stderr = process.communicate(timeout=10)
             assert process.returncode == 130, (process.returncode, stdout, stderr)
+            if launch == "before":
+                assert time.monotonic() - began < 3, "child inherited blocked SIGTERM"
             print("cancellation: first signal immediately after launch remains bounded")
             return
         started = Path(str(marker) + ".started")
@@ -493,6 +502,9 @@ def main():
         launch = directory / "launch-transition"
         launch.mkdir()
         verify_repeated_cancellation(launch, "exec", launch=True)
+        before = directory / "before-launch"
+        before.mkdir()
+        verify_repeated_cancellation(before, "exec", launch="before")
     print("Executable plugin verification passed; no live hosts or operator state used")
 
 
