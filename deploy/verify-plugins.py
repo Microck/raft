@@ -417,7 +417,8 @@ def verify_repeated_cancellation(
         + (
             "if os.fork()==0:\n"
             " signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
-            " pathlib.Path(sys.argv[1]+'.helper').write_text(str(os.getpid()))\n"
+            " temporary=pathlib.Path(sys.argv[1]+'.helper.tmp');temporary.write_text(str(os.getpid()))\n"
+            " os.replace(temporary,sys.argv[1]+'.helper')\n"
             " while True: time.sleep(1)\n"
             if helper
             else ""
@@ -426,7 +427,8 @@ def verify_repeated_cancellation(
         " pathlib.Path(sys.argv[1]).write_text('ready')\n"
         + (" sys.exit(0)\n" if helper else "")
         + "signal.signal(signal.SIGTERM,terminate)\n"
-        "pathlib.Path(sys.argv[1]+'.started').write_text(str(os.getpid()))\n"
+        "temporary=pathlib.Path(sys.argv[1]+'.started.tmp');temporary.write_text(str(os.getpid()))\n"
+        "os.replace(temporary,sys.argv[1]+'.started')\n"
         "while True: time.sleep(1)\n"
     )
     home = directory / "cancel-home"
@@ -507,8 +509,11 @@ def verify_repeated_cancellation(
         assert process.returncode == 128 + first_signal, (process.returncode, stdout, stderr)
         if helper:
             deadline = time.monotonic() + 1
-            while helper_status.exists():
-                if helper_status.read_text().split(") ", 1)[1].startswith("Z "):
+            while True:
+                try:
+                    if helper_status.read_text().split(") ", 1)[1].startswith("Z "):
+                        break
+                except (FileNotFoundError, ProcessLookupError):
                     break
                 assert time.monotonic() < deadline, "plugin helper survived cancellation"
                 time.sleep(0.01)
