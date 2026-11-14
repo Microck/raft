@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import subprocess
+import time
 
 PROTOCOL = 1
 COMMANDS = frozenset(
@@ -128,6 +129,8 @@ def run(location, entry, args):
         if pending is not None:
             signal.pthread_sigmask(signal.SIG_BLOCK, signals)
             raise Cancelled(pending)
+        os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT)
+        signal.pthread_sigmask(signal.SIG_BLOCK, signals)
         returncode = process.wait()
         return returncode if returncode >= 0 else 128 - returncode
     except BaseException as error:
@@ -136,14 +139,19 @@ def run(location, entry, args):
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            # Keep the leader unreaped so its PID cannot be reused as another
+            # process group's ID before the final group signal. Leader exit
+            # means plugin cleanup is done; remaining helpers must not escape.
+            deadline = time.monotonic() + 6
+            while time.monotonic() < deadline:
+                if os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT):
+                    break
+                time.sleep(0.01)
             try:
-                process.wait(timeout=6)
-            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
                 pass
-            finally:
-                if process.poll() is None:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait()
+            process.wait()
         if isinstance(error, Cancelled):
             handler = handlers[error.number]
             if callable(handler) and handler != signal.default_int_handler:

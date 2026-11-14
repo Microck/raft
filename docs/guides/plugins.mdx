@@ -117,7 +117,8 @@ and return the guest exit code. Use stdout for the command result and stderr for
 diagnostics. A signal exit becomes `128 + signal`; interruption returns 130.
 Plugins must bound their own network operations. `run` retains its controller
 deadline. On controller cancellation, Raft sends SIGTERM to the plugin's isolated
-process group and allows six seconds for remote cleanup before SIGKILL. Other
+process group and allows six seconds for remote cleanup before SIGKILL. Once the
+plugin leader exits, remaining helpers are killed immediately. Other
 actions have no controller deadline. Configured sizing defaults apply to `run`
 as well as `new`; snapshot sources retain their sizing unless explicitly overridden.
 

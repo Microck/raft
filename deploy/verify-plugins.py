@@ -6,6 +6,7 @@ under a temporary directory; PATH deliberately contains no SSH or Incus client.
 
 import json
 import base64
+import os
 from pathlib import Path
 import re
 import signal
@@ -403,17 +404,29 @@ def verify_rejections(directory):
     print("rejections: invalid protocol/JSON/capabilities and malformed or mixed location config")
 
 
-def verify_repeated_cancellation(directory, action="run", first_signal=signal.SIGINT, launch=False):
+def verify_repeated_cancellation(
+    directory, action="run", first_signal=signal.SIGINT, launch=False, helper=False
+):
     """Only this disposable plugin group receives lifecycle signals."""
     marker = directory / "termination-ready"
     script = directory / "stubborn-plugin.py"
     script.write_text(
-        "import json,sys,signal,time,pathlib\n"
+        "import json,sys,signal,time,pathlib,os,subprocess\n"
         "if sys.argv[-1]=='describe':\n"
         " print(json.dumps({'protocol':1,'commands':['run','exec']}));sys.exit()\n"
-        "def terminate(*_): pathlib.Path(sys.argv[1]).write_text('ready')\n"
-        "signal.signal(signal.SIGTERM,terminate)\n"
-        "pathlib.Path(sys.argv[1]+'.started').write_text('started')\n"
+        + (
+            "if os.fork()==0:\n"
+            " signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+            " pathlib.Path(sys.argv[1]+'.helper').write_text(str(os.getpid()))\n"
+            " while True: time.sleep(1)\n"
+            if helper
+            else ""
+        )
+        + "def terminate(*_):\n"
+        " pathlib.Path(sys.argv[1]).write_text('ready')\n"
+        + (" sys.exit(0)\n" if helper else "")
+        + "signal.signal(signal.SIGTERM,terminate)\n"
+        "pathlib.Path(sys.argv[1]+'.started').write_text(str(os.getpid()))\n"
         "while True: time.sleep(1)\n"
     )
     home = directory / "cancel-home"
@@ -451,7 +464,7 @@ def verify_repeated_cancellation(directory, action="run", first_signal=signal.SI
         else ["exec", "cancel:opaque", "--", "true"]
     )
     began = time.monotonic()
-    with subprocess.Popen(
+    process = subprocess.Popen(
         [
             sys.executable,
             "-c",
@@ -462,7 +475,8 @@ def verify_repeated_cancellation(directory, action="run", first_signal=signal.SI
         env={"HOME": str(home), "RAFT_NO_UPDATE_CHECK": "1"},
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    ) as process:
+    )
+    try:
         if launch:
             stdout, stderr = process.communicate(timeout=10)
             assert process.returncode == 130, (process.returncode, stdout, stderr)
@@ -475,15 +489,41 @@ def verify_repeated_cancellation(directory, action="run", first_signal=signal.SI
         while not started.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
         assert started.exists(), "plugin did not start"
+        helper_marker = Path(str(marker) + ".helper")
+        if helper:
+            while not helper_marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert helper_marker.exists(), "plugin helper did not start"
+            helper_status = Path(f"/proc/{int(helper_marker.read_text())}/stat")
         process.send_signal(first_signal)
         deadline = time.monotonic() + 5
         while not marker.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
         assert marker.exists(), "plugin did not receive cancellation"
-        process.send_signal(signal.SIGINT)
-        process.send_signal(signal.SIGTERM)
+        if not helper:
+            process.send_signal(signal.SIGINT)
+            process.send_signal(signal.SIGTERM)
         stdout, stderr = process.communicate(timeout=10)
         assert process.returncode == 128 + first_signal, (process.returncode, stdout, stderr)
+        if helper:
+            deadline = time.monotonic() + 1
+            while helper_status.exists():
+                if helper_status.read_text().split(") ", 1)[1].startswith("Z "):
+                    break
+                assert time.monotonic() < deadline, "plugin helper survived cancellation"
+                time.sleep(0.01)
+    finally:
+        # Only fixture-owned PIDs, never operator sessions or configured hosts.
+        for suffix in (".started", ".helper"):
+            pidfile = Path(str(marker) + suffix)
+            if pidfile.exists():
+                try:
+                    os.kill(int(pidfile.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        if process.poll() is None:
+            process.kill()
+        process.communicate(timeout=3)
     print("cancellation: repeated interrupts preserve bounded plugin escalation")
 
 
@@ -505,6 +545,9 @@ def main():
         before = directory / "before-launch"
         before.mkdir()
         verify_repeated_cancellation(before, "exec", launch="before")
+        helpers = directory / "surviving-helper"
+        helpers.mkdir()
+        verify_repeated_cancellation(helpers, "exec", helper=True)
     print("Executable plugin verification passed; no live hosts or operator state used")
 
 
