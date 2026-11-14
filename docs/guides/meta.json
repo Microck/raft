@@ -18,6 +18,7 @@
     "snapshots-forks",
     "backup-recovery",
     "config-policy",
+    "plugins",
     "upgrades",
     "troubleshooting"
   ]

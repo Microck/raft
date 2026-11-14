@@ -65,9 +65,8 @@ supply the changing feature set, sizes, limits and software inventory.
 
 ## Preserve the boundaries
 
-Raft workspaces are native-architecture containers sharing the host kernel.
-Do not promise VM isolation or cross-architecture execution. Inspect the actual
-runtime before claiming any isolation or resource limit.
+Incus boxes share the host kernel. For plugin locations, read `raft plugin info`
+and that plugin's guarantees; Incus lifecycle and isolation rules do not apply.
 
 Host onboarding, deployment, upgrades and global cleanup affect more than a
 single workspace. Perform them only within explicit authorization; inspect a

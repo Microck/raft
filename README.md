@@ -63,6 +63,20 @@ raft ssh "$box"
 raft stop "$box"
 ```
 
+## use your own sandbox backend
+
+register a trusted executable plugin as a location, then use the same commands:
+
+```sh
+raft plugin add cloud -- node /absolute/path/to/plugin.mjs
+raft plugin info cloud
+raft new --location cloud --disposable
+```
+
+plugins own their dependencies and provider guarantees. the core CLI still needs
+only Python. see [user plugins](docs/guides/plugins.mdx) and the runnable
+[sandbox-sdk adapter](examples/sandbox-sdk/README.md).
+
 ## image and workspace control
 
 the image builder starts with Debian 13 and installs language runtimes,

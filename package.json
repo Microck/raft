@@ -1,6 +1,6 @@
 {
   "name": "@microck/raft",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Self-hosted Linux workspaces powered by Incus, an open-source alternative to boat.dev",
   "license": "MIT",
   "repository": {
@@ -22,6 +22,7 @@
     "raft_files.py",
     "raft_run.py",
     "raft_jobs.py", "raft_output.py",
+    "raft_plugins.py",
     "deploy/*.py",
     "deploy/*.sh",
     "deploy/*.conf",

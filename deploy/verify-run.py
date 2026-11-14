@@ -34,6 +34,9 @@ class Transport:
         self.fault, self.status = fault, status
         self.events = []
 
+    def creation_location(self, args):
+        return "lab", {"ssh": "fixture"}
+
     def new(self, args, *, run_id, on_allocate):
         self.events.append("allocate")
         assert args.disposable is True and args.ttl == args.timeout + 120
@@ -165,6 +168,19 @@ class RunTests(unittest.TestCase):
                     self.assertEqual(api.events[-1], "cleanup")
                     if failure == "first-pull":
                         self.assertIn("download:/second", api.events)
+
+    def test_collection_timeout_then_cleanup_timeout(self):
+        class StalledCollectionAndCleanup(Transport):
+            def wait(self, phase):
+                if phase in {"download", "cleanup"}:
+                    time.sleep(2)
+
+        with tempfile.TemporaryDirectory() as directory:
+            transport = StalledCollectionAndCleanup()
+            began = time.monotonic()
+            self.assertEqual(self.invoke(transport, "--pull", "/first", directory + "/one"), 1)
+            self.assertEqual(transport.events[-1], "cleanup")
+            self.assertLess(time.monotonic() - began, 1)
 
     def test_invalid_paths_and_command_do_not_allocate(self):
         with tempfile.TemporaryDirectory() as directory:

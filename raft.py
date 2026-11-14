@@ -27,8 +27,9 @@ import raft_files
 import raft_run
 import raft_jobs
 import raft_output
+import raft_plugins
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 CONFIG = Path.home() / ".config/raft/incus.json"
 # Controller defaults for new live apart from the location inventory, so location
@@ -69,12 +70,18 @@ print(json.dumps({
 def configuration():
     inventory = json.loads(CONFIG.read_text())
     if not isinstance(inventory, dict) or not inventory:
-        raise ValueError("Configure at least one host in ~/.config/raft/incus.json")
+        raise ValueError("Configure at least one location in ~/.config/raft/incus.json")
     for location, entry in inventory.items():
         if not re.fullmatch(LOCATION_NAME, location):
             raise ValueError("Location names must use letters, digits, underscores or hyphens")
-        if not isinstance(entry, dict) or not isinstance(entry.get("ssh"), str) or not entry["ssh"]:
-            raise ValueError("Each configured location needs a nonempty ssh target")
+        if not isinstance(entry, dict):
+            raise ValueError("Each configured location must be a JSON object")
+        if "plugin" in entry:
+            raft_plugins.validate(entry)
+        elif not isinstance(entry.get("ssh"), str) or not entry["ssh"]:
+            raise ValueError(
+                "Each configured location needs a nonempty ssh target or plugin command"
+            )
         if not isinstance(entry.get("note", ""), str):
             raise ValueError("Location notes must be strings")
     return inventory
@@ -403,6 +410,9 @@ def receive(command, destination, *, stdin=None):
 def remote(
     location, argv, *, capture=True, stdin=subprocess.DEVNULL, stdout=None, tty=False, locked=False
 ):
+    entry = settings(location)
+    if "plugin" in entry:
+        raise ValueError(f"{location} is a plugin location; this operation requires Incus")
     command = ["sudo", "-n"]
     if locked:
         command += ["flock", "/run/lock/raft-incus.lock"]
@@ -414,7 +424,7 @@ def remote(
         "BatchMode=yes",
         "-o",
         "ConnectTimeout=10",
-        settings(location)["ssh"],
+        entry["ssh"],
         shlex.join(command),
     ]
     if stdout is not None:
@@ -644,9 +654,11 @@ def host_add(args):
 
 def parse_handle(value):
     location, separator, name = value.partition(":")
-    if not separator or not re.fullmatch(r"rf-[a-f0-9]{16}", name):
+    if not separator or not name or any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise ValueError("Use the location-qualified handle returned by new")
-    settings(location)
+    entry = settings(location)
+    if "plugin" not in entry and not re.fullmatch(r"rf-[a-f0-9]{16}", name):
+        raise ValueError("Use the location-qualified handle returned by new")
     return location, name
 
 
@@ -1588,6 +1600,19 @@ def configured_defaults(unchecked=None):
     }
 
 
+def default_location(configured):
+    """Resolve the configured default with the same recovery advice for every backend."""
+    if "location" not in configured:
+        return next(iter(configuration()))
+    if configured["location"] in configuration():
+        return configured["location"]
+    raise ValueError(
+        f"{DEFAULTS_CONFIG}: defaults.location names unknown location "
+        f"{configured['location']}; run raft config set location NAME or "
+        "raft config unset location"
+    )
+
+
 def apply_new_defaults(args):
     """Fill omitted new options: explicit flag, then config.json, then the built-in default.
 
@@ -1615,17 +1640,9 @@ def apply_new_defaults(args):
         args.disk = None
     # A --from template fixes the location, so only plain creation takes a default.
     if args.location is None and not args.template:
-        if "location" not in configured:
-            args.location = next(iter(configuration()))
-        elif configured["location"] in configuration():
-            args.location = configured["location"]
+        args.location = default_location(configured)
+        if "location" in configured:
             used.add("location")
-        else:
-            raise ValueError(
-                f"{DEFAULTS_CONFIG}: defaults.location names unknown location "
-                f"{configured['location']}; run raft config set location NAME or "
-                "raft config unset location"
-            )
     return used
 
 
@@ -2024,6 +2041,17 @@ def parser():
     note.add_argument("text", nargs="?", help="Location guidance, e.g. 'Preferred for builds'")
     note.add_argument("--clear", action="store_true", help="Remove the note")
     note_options(note)
+    plugin = commands.add_parser("plugin", help="Register trusted executable location plugins")
+    plugin_commands = plugin.add_subparsers(dest="plugin_action", required=True)
+    add_plugin = plugin_commands.add_parser("add", help="Check and register a plugin command")
+    add_plugin.add_argument("location")
+    add_plugin.add_argument("command", nargs=argparse.REMAINDER, help="-- COMMAND [ARG ...]")
+    for action in ["info", "remove"]:
+        management = plugin_commands.add_parser(
+            action,
+            help="Inspect the plugin protocol" if action == "info" else "Remove registration only",
+        )
+        management.add_argument("location")
     host = commands.add_parser("host", help="Onboard workspace hosts")
     host_commands = host.add_subparsers(dest="host_action", required=True)
     onboard = host_commands.add_parser(
@@ -2167,16 +2195,94 @@ def parser():
     return cli
 
 
+def plugin_management(args):
+    """Registration never installs dependencies or removes provider resources."""
+    location_name(args.location)
+    if args.plugin_action == "add":
+        command = args.command[1:] if args.command[:1] == ["--"] else args.command
+        entry = {"plugin": command}
+        raft_plugins.validate(entry)
+        executable = shutil.which(command[0])
+        if executable is None:
+            raise ValueError(f"Plugin executable not found: {command[0]}")
+        # Preserve virtualenv interpreter symlinks; resolving them drops their dependencies.
+        entry["plugin"] = [str(Path(executable).absolute()), *command[1:]]
+
+        def register(inventory):
+            if args.location in inventory:
+                raise ValueError(f"Location {args.location} is already configured")
+            raft_plugins.describe(args.location, entry)
+            inventory[args.location] = entry
+
+        edit_configuration(register)
+        print(f"Registered plugin location {args.location}")
+        return 0
+    entry = settings(args.location)
+    if "plugin" not in entry:
+        raise ValueError(f"{args.location} is not a plugin location")
+    if args.plugin_action == "info":
+        raft_output.data(raft_plugins.describe(args.location, entry), indent=2)
+    else:
+
+        def unregister(inventory):
+            if "plugin" not in inventory.get(args.location, {}):
+                raise ValueError(f"{args.location} is no longer a plugin location")
+            del inventory[args.location]
+
+        edit_configuration(unregister)
+        print(f"Removed plugin registration {args.location}; provider resources were not changed")
+    return 0
+
+
+def creation_location(args):
+    """Choose the backend before any Incus-specific creation or CI work."""
+    location = args.location
+    template = getattr(args, "template", None)
+    if template:
+        handle, separator, snapshot = template.partition("/")
+        if not separator or not snapshot:
+            raise ValueError("Use --from LOCATION:BOX/SNAPSHOT")
+        source, _ = parse_handle(handle)
+        if location is not None and location != source:
+            raise ValueError("Snapshot templates must stay on their source location")
+        location = source
+    if location is None:
+        location = default_location(configured_defaults())
+    return location, settings(location)
+
+
+def plugin_defaults(args):
+    """Honor explicit and configured defaults without imposing Incus image sizing."""
+    configured = configured_defaults()
+    for key, (builtin, _) in NEW_DEFAULTS.items():
+        if key == "location" or getattr(args, key, None) is not None:
+            continue
+        if args.template and key in SIZE_DEFAULTS:
+            continue
+        setattr(args, key, configured.get(key, None if key in SIZE_DEFAULTS else builtin))
+
+
 def dispatch(args):
     if getattr(args, "json_output", False) and args.action in {"ssh", "forward", "desktop"}:
         raise ValueError("JSON mode does not support interactive shells or foreground tunnels")
     if args.action == "completions":
         print(raft_output.completions(args.shell), end="")
         return 0
-    if args.action == "run":
-        return raft_run.run(args, sys.modules[__name__])
+    if args.action == "plugin":
+        return plugin_management(args)
     if args.action == "self-update":
         return self_update(args)
+    if args.action in ["new", "recover"]:
+        location, entry = creation_location(args)
+        if "plugin" in entry:
+            box_note(args)
+            if args.action == "new":
+                plugin_defaults(args)
+                if entry.get("note"):
+                    print(f"{location} note: {entry['note']}", file=sys.stderr)
+            return raft_plugins.run(location, entry, args)
+    if args.action == "run":
+        return raft_run.run(args, sys.modules[__name__])
     if args.action == "recover":
         recover(args)
         return 0
@@ -2191,6 +2297,9 @@ def dispatch(args):
             report = {"file": str(DEFAULTS_CONFIG), "defaults": effective_defaults(), "policy": {}}
             locations = [args.location] if args.location else configuration()
             for location in locations:
+                if "plugin" in settings(location):
+                    report["policy"][location] = None
+                    continue
                 try:
                     report["policy"][location] = host_policy(location)
                 except RuntimeError as error:
@@ -2204,6 +2313,9 @@ def dispatch(args):
             set_default(args.key, args.value if args.config_action == "set" else None)
         return 0
     if args.action == "policy":
+        entry = settings(args.location)
+        if "plugin" in entry:
+            return raft_plugins.run(args.location, entry, args)
         change_policy(args)
         return 0
     if args.action == "note":
@@ -2221,6 +2333,9 @@ def dispatch(args):
         if args.clear == (fields is not None):
             raise ValueError("Give --purpose (with optional --owner and --next) or --clear")
         location, name = parse_handle(args.target)
+        entry = settings(location)
+        if "plugin" in entry:
+            return raft_plugins.run(location, entry, args)
         instance(location, name)
         require_note(
             location,
@@ -2251,6 +2366,12 @@ def dispatch(args):
         if getattr(args, "location", None):
             locations = [args.location]
         for location in locations:
+            entry = settings(location)
+            if "plugin" in entry:
+                result = raft_plugins.run(location, entry, args)
+                if result:
+                    return result
+                continue
             if args.action == "capacity":
                 report = host_capacity(location)
                 if args.json or args.json_output:
@@ -2311,6 +2432,9 @@ def dispatch(args):
         return 0
     if args.action in {"logs", "status", "cancel"}:
         location, name = parse_handle(args.box)
+        entry = settings(location)
+        if "plugin" in entry:
+            return raft_plugins.run(location, entry, args)
         if not re.fullmatch(r"rfcmd-[a-f0-9]{32}", args.job):
             raise ValueError("Use the job ID returned by exec --detach")
         command = shlex.join(
@@ -2350,6 +2474,9 @@ def dispatch(args):
     # Only fork accepts note flags here; check them before contacting the host.
     fields = box_note(args)
     location, name = parse_handle(args.box)
+    entry = settings(location)
+    if "plugin" in entry:
+        return raft_plugins.run(location, entry, args)
     box = instance(location, name)
     if args.action == "info":
         raft_output.data(box, indent=2)

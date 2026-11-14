@@ -47,6 +47,7 @@ try {
     '/docs/guides/scripting-ci',
     '/docs/guides/ci-jobs',
     '/docs/guides/config-policy',
+    '/docs/guides/plugins',
     '/docs/guides/desktop-services',
     '/docs/guides/snapshots-forks',
     '/docs/guides/backup-recovery',
@@ -71,6 +72,7 @@ try {
     '/docs/releases/0.7.0',
     '/docs/releases/0.7.1',
     '/docs/releases/0.8.0',
+    '/docs/releases/0.9.0',
   ];
   const targets = new Set();
   const fragments = new Map();

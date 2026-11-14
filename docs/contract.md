@@ -10,6 +10,27 @@ For a first run, use [host setup](./operations.mdx) and [your first box](./first
 
 Raft manages persistent unprivileged native-architecture Incus system containers on configured ARM64 or AMD64 Linux hosts. Containers share the host kernel. Images must match host CPU architecture; foreign-architecture emulation and VM workflows are not implemented.
 
+## Executable location plugins
+
+Users can register trusted controller executables as locations with `raft plugin
+add LOCATION -- COMMAND ...`. `plugin info` inspects their versioned capability
+handshake; `plugin remove` unregisters them without changing provider resources.
+Plugins own their dependencies and provider guarantees. The dependency-free
+Python CLI keeps Incus as its built-in backend.
+
+Plugin entries use `plugin` argv and optional `options`, not `ssh`. Selected
+commands negotiate protocol 1 before invoking a declared action with inherited
+stdio and a JSON `RAFT_PLUGIN_REQUEST` environment value. Unsupported commands
+fail without invoking the action; uncertain actions are never retried. Plugin box
+IDs are opaque after the location separator. Explicit and configured `new`
+defaults apply; omitted built-in Incus sizing does not. `config` reports plugin
+host policies as `null`. Incus deployment tools select only SSH locations.
+
+Incus-specific guarantees in the sections below do not apply to plugins.
+Plugins run with the controller user's privileges and inherited credentials;
+they are not sandboxed. See [user plugins](./guides/plugins.mdx) for the complete
+protocol, output contract and a sandbox-sdk adapter.
+
 ## Image releases
 
 - Versioned releases provide clean ARM64 and AMD64 templates with SHA-256 checksums, package inventories, and build provenance.

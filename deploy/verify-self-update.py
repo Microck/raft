@@ -95,6 +95,7 @@ def next_release(work):
         "raft_run.py",
         "raft_jobs.py",
         "raft_output.py",
+        "raft_plugins.py",
         "pyproject.toml",
         "README.md",
         "LICENSE",
